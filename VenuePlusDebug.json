@@ -1,0 +1,13 @@
+{
+  "Author": "Sphene",
+  "Name": "Venue Plus Debug",
+  "Punchline": "Manage your venue (Debug build).",
+  "Description": "Venue Plus (Debug): VIP and staff management for development and testing.",
+  "InternalName": "venueplus-debug",
+  "ApplicableVersion": "any",
+  "Tags": [
+    "utility"
+  ],
+  "IconUrl": "https://raw.githubusercontent.com/SpheneDev/VIPList/logo.png",
+  "RepoUrl": "https://example.com/"
+}

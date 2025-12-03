@@ -1,0 +1,298 @@
+using System;
+using System.Globalization;
+using System.Linq;
+using Dalamud.Bindings.ImGui;
+using Dalamud.Interface;
+using VenuePlus.Helpers;
+using VenuePlus.Plugin;
+using VenuePlus.State;
+
+namespace VenuePlus.UI.Components;
+
+public sealed class VipTableComponent
+{
+    private int _sortCol;
+    private bool _sortAsc = true;
+    private bool _openAddForm;
+    private string _pendingName = string.Empty;
+    private string _pendingWorld = string.Empty;
+    private VenuePlus.State.VipDuration _pendingDuration = VenuePlus.State.VipDuration.FourWeeks;
+    private string _addStatus = string.Empty;
+
+    public void OpenAddForm()
+    {
+        _pendingName = string.Empty;
+        _pendingWorld = string.Empty;
+        _pendingDuration = VenuePlus.State.VipDuration.FourWeeks;
+        _addStatus = string.Empty;
+        _openAddForm = true;
+    }
+
+    public void CloseAddForm()
+    {
+        _openAddForm = false;
+        _pendingName = string.Empty;
+        _pendingWorld = string.Empty;
+        _addStatus = string.Empty;
+    }
+    public void Draw(VenuePlusApp app, string filter)
+    {
+        var canAddVipGlobal = app.IsOwnerCurrentClub || (app.HasStaffSession && app.StaffCanAddVip);
+        if (_openAddForm && canAddVipGlobal)
+        {
+            ImGui.Separator();
+            ImGui.TextUnformatted("Add VIP");
+            ImGui.PushItemWidth(280f);
+            ImGui.InputText("Character Name", ref _pendingName, 128);
+            ImGui.SameLine(); IconDraw.IconText(Dalamud.Interface.FontAwesomeIcon.QuestionCircle, "Enter the exact in-game character name for the VIP");
+            ImGui.InputText("Homeworld", ref _pendingWorld, 64);
+            ImGui.SameLine(); IconDraw.IconText(Dalamud.Interface.FontAwesomeIcon.QuestionCircle, "Enter the VIP's homeworld (e.g., 'Omega')");
+            ImGui.PopItemWidth();
+            ImGui.Separator();
+            ImGui.TextUnformatted("VIP Duration:");
+            bool d4 = _pendingDuration == VenuePlus.State.VipDuration.FourWeeks;
+            bool d12 = _pendingDuration == VenuePlus.State.VipDuration.TwelveWeeks;
+            bool dLife = _pendingDuration == VenuePlus.State.VipDuration.Lifetime;
+            if (ImGui.RadioButton("1 Month", d4)) _pendingDuration = VenuePlus.State.VipDuration.FourWeeks;
+            ImGui.SameLine();
+            if (ImGui.RadioButton("3 Months", d12)) _pendingDuration = VenuePlus.State.VipDuration.TwelveWeeks;
+            ImGui.SameLine();
+            if (ImGui.RadioButton("Unlimited", dLife)) _pendingDuration = VenuePlus.State.VipDuration.Lifetime;
+            ImGui.SameLine(); IconDraw.IconText(Dalamud.Interface.FontAwesomeIcon.Infinity);
+            ImGui.Separator();
+            ImGui.BeginDisabled(!canAddVipGlobal || string.IsNullOrWhiteSpace(_pendingName) || string.IsNullOrWhiteSpace(_pendingWorld));
+            if (ImGui.Button("Add"))
+            {
+                app.AddVip(_pendingName.Trim(), _pendingWorld.Trim(), _pendingDuration);
+                _openAddForm = false;
+                _addStatus = string.Empty;
+            }
+            ImGui.EndDisabled();
+            ImGui.SameLine();
+            if (ImGui.Button("Close")) { _openAddForm = false; _addStatus = string.Empty; }
+            if (!string.IsNullOrEmpty(_addStatus)) { ImGui.TextUnformatted(_addStatus); }
+            ImGui.Separator();
+        }
+        var items = app.GetActive().ToArray();
+        if (!string.IsNullOrWhiteSpace(filter))
+        {
+            var f = filter.Trim();
+            items = items.Where(e => e.CharacterName.Contains(f, StringComparison.OrdinalIgnoreCase)
+                                   || e.HomeWorld.Contains(f, StringComparison.OrdinalIgnoreCase)).ToArray();
+        }
+
+        var style = ImGui.GetStyle();
+        ImGui.PushFont(UiBuilder.IconFont);
+        ImGui.SetWindowFontScale(0.9f);
+        float actionsWidth = 0f;
+        int actionsCount = 0;
+        var canRemoveGlobal = app.IsOwnerCurrentClub || (app.HasStaffSession && app.StaffCanRemoveVip);
+        var canSetDurationGlobal = app.IsOwnerCurrentClub || (app.HasStaffSession && app.StaffCanEditVipDuration);
+        if (canRemoveGlobal)
+        {
+            actionsWidth += ImGui.CalcTextSize(FontAwesomeIcon.Trash.ToIconString()).X + style.FramePadding.X * 2f;
+            actionsCount++;
+        }
+        if (canSetDurationGlobal)
+        {
+            actionsWidth += ImGui.CalcTextSize(FontAwesomeIcon.Calendar.ToIconString()).X + style.FramePadding.X * 2f;
+            actionsWidth += ImGui.CalcTextSize(FontAwesomeIcon.CalendarAlt.ToIconString()).X + style.FramePadding.X * 2f;
+            actionsWidth += ImGui.CalcTextSize(FontAwesomeIcon.Infinity.ToIconString()).X + style.FramePadding.X * 2f;
+            actionsCount += 3;
+        }
+        ImGui.SetWindowFontScale(1f);
+        ImGui.PopFont();
+        if (actionsCount > 1) actionsWidth += style.ItemSpacing.X * (actionsCount - 1);
+        var showActions = canRemoveGlobal || canSetDurationGlobal;
+        if (showActions && actionsWidth <= 0f) actionsWidth = ImGui.GetFrameHeight() * 1.5f;
+
+        var sampleRem = "999d 23h";
+        float remainingWidth = ImGui.CalcTextSize(sampleRem).X + style.FramePadding.X * 2f;
+
+        var tableFlags = ImGuiTableFlags.RowBg | ImGuiTableFlags.Borders | ImGuiTableFlags.SizingStretchProp;
+        if (ImGui.BeginTable("vip_table", showActions ? 5 : 4, tableFlags))
+        {
+            ImGui.TableSetupColumn("Name");
+            ImGui.TableSetupColumn("Homeworld");
+            ImGui.TableSetupColumn("Remaining", ImGuiTableColumnFlags.WidthFixed, remainingWidth);
+            ImGui.TableSetupColumn("Duration");
+            if (showActions)
+            {
+                ImGui.TableSetupColumn("Actions", ImGuiTableColumnFlags.WidthFixed, actionsWidth);
+            }
+            ImGui.TableNextRow(ImGuiTableRowFlags.Headers);
+            ImGui.TableSetColumnIndex(0);
+            TableSortUi.DrawSortableHeader("Name", 0, ref _sortCol, ref _sortAsc);
+            ImGui.TableSetColumnIndex(1);
+            TableSortUi.DrawSortableHeader("Homeworld", 1, ref _sortCol, ref _sortAsc);
+            ImGui.TableSetColumnIndex(2);
+            TableSortUi.DrawSortableHeader("Remaining", 2, ref _sortCol, ref _sortAsc);
+            ImGui.TableSetColumnIndex(3);
+            TableSortUi.DrawSortableHeader("Duration", 3, ref _sortCol, ref _sortAsc);
+            if (showActions)
+            {
+                ImGui.TableSetColumnIndex(4);
+                ImGui.TextUnformatted("Actions");
+            }
+
+            System.Array.Sort(items, (a, b) =>
+            {
+                int r = 0;
+                switch (_sortCol)
+                {
+                    case 0:
+                        r = string.Compare(a.CharacterName, b.CharacterName, System.StringComparison.OrdinalIgnoreCase);
+                        break;
+                    case 1:
+                        r = string.Compare(a.HomeWorld, b.HomeWorld, System.StringComparison.OrdinalIgnoreCase);
+                        break;
+                    case 2:
+                        {
+                            double va = a.Duration == VipDuration.Lifetime ? double.MaxValue : (a.ExpiresAt.HasValue ? (a.ExpiresAt.Value.ToUniversalTime() - DateTimeOffset.UtcNow).TotalMinutes : 0.0);
+                            double vb = b.Duration == VipDuration.Lifetime ? double.MaxValue : (b.ExpiresAt.HasValue ? (b.ExpiresAt.Value.ToUniversalTime() - DateTimeOffset.UtcNow).TotalMinutes : 0.0);
+                            r = va.CompareTo(vb);
+                        }
+                        break;
+                    case 3:
+                        r = a.Duration.CompareTo(b.Duration);
+                        break;
+                }
+                return _sortAsc ? r : -r;
+            });
+
+            foreach (var e in items)
+            {
+                ImGui.TableNextRow();
+                var rowH = ImGui.GetFrameHeight();
+                var textH = ImGui.GetTextLineHeight();
+                var dy = (rowH - textH) / 2f;
+
+                ImGui.TableSetColumnIndex(0);
+                ImGui.SetCursorPosY(ImGui.GetCursorPosY() + dy);
+                ImGui.TextUnformatted(e.CharacterName);
+                if (ImGui.IsItemHovered())
+                {
+                    ImGui.BeginTooltip();
+                    var createdStr = e.CreatedAt.ToUniversalTime().ToString("yyyy-MM-dd HH:mm 'UTC'", CultureInfo.InvariantCulture);
+                    var expiresStr = e.Duration == VipDuration.Lifetime ? "--" : (e.ExpiresAt?.ToUniversalTime().ToString("yyyy-MM-dd HH:mm 'UTC'", CultureInfo.InvariantCulture) ?? "--");
+                    ImGui.TextUnformatted($"Created: {createdStr}");
+                    ImGui.TextUnformatted($"Expires: {expiresStr}");
+                    ImGui.EndTooltip();
+                }
+                ImGui.TableSetColumnIndex(1);
+                ImGui.SetCursorPosY(ImGui.GetCursorPosY() + dy);
+                ImGui.TextUnformatted(e.HomeWorld);
+                ImGui.TableSetColumnIndex(2);
+                ImGui.SetCursorPosY(ImGui.GetCursorPosY() + dy);
+                if (e.Duration == VipDuration.Lifetime)
+                {
+                    ImGui.TextUnformatted("Lifetime");
+                }
+                else if (e.ExpiresAt.HasValue)
+                {
+                    var rem = e.ExpiresAt.Value.ToUniversalTime() - DateTimeOffset.UtcNow;
+                    if (rem <= TimeSpan.Zero)
+                    {
+                        ImGui.TextUnformatted("Expired");
+                    }
+                    else
+                    {
+                        var days = (int)Math.Floor(rem.TotalDays);
+                        var hours = rem.Hours;
+                        var mins = rem.Minutes;
+                        var txt = days > 0 ? $"{days}d {hours}h" : $"{hours}h {mins}m";
+                        ImGui.TextUnformatted(txt);
+                    }
+                }
+                else
+                {
+                    ImGui.TextUnformatted("--");
+                }
+                ImGui.TableSetColumnIndex(3);
+                ImGui.SetCursorPosY(ImGui.GetCursorPosY() + dy);
+                if (e.Duration == VipDuration.Lifetime)
+                {
+                    IconDraw.IconText(FontAwesomeIcon.Infinity);
+                }
+                else
+                {
+                    var label = e.Duration == VipDuration.FourWeeks ? "1 month" : "3 months";
+                    ImGui.TextUnformatted(label);
+                }
+                if (showActions)
+                {
+                    ImGui.TableSetColumnIndex(4);
+                    var hasRemove = canRemoveGlobal;
+                    var hasAdd = canSetDurationGlobal;
+                    ImGui.BeginGroup();
+                    bool any = false;
+                    var yBase = ImGui.GetCursorPosY();
+                    float centerY;
+                    if (hasRemove)
+                    {
+                        ImGui.PushFont(UiBuilder.IconFont);
+                        ImGui.SetWindowFontScale(0.9f);
+                        centerY = yBase + (rowH - ImGui.GetFrameHeight()) / 2f;
+                        ImGui.SetCursorPosY(centerY);
+                        var ctrlDown = ImGui.GetIO().KeyCtrl;
+                        ImGui.BeginDisabled(!ctrlDown);
+                        if (ImGui.Button(FontAwesomeIcon.Trash.ToIconString() + $"##rm_{e.Key}"))
+                        {
+                            app.RemoveVip(e.CharacterName, e.HomeWorld);
+                        }
+                        ImGui.EndDisabled();
+                        ImGui.SetWindowFontScale(1f);
+                        ImGui.PopFont();
+                        if (ImGui.IsItemHovered(ImGuiHoveredFlags.AllowWhenDisabled)) { ImGui.BeginTooltip(); ImGui.TextUnformatted(ctrlDown ? "Remove this VIP from the list" : "Hold Ctrl to remove this VIP"); ImGui.EndTooltip(); }
+                        any = true;
+                    }
+                    if (hasAdd)
+                    {
+                        if (any) ImGui.SameLine();
+                        ImGui.PushFont(UiBuilder.IconFont);
+                        ImGui.SetWindowFontScale(0.9f);
+                        centerY = yBase + (rowH - ImGui.GetFrameHeight()) / 2f;
+                        ImGui.SetCursorPosY(centerY);
+                        if (ImGui.Button(FontAwesomeIcon.Calendar.ToIconString() + $"##4w_{e.Key}"))
+                        {
+                            app.AddVip(e.CharacterName, e.HomeWorld, VipDuration.FourWeeks);
+                        }
+                        ImGui.SetWindowFontScale(1f);
+                        ImGui.PopFont();
+                        if (ImGui.IsItemHovered()) { ImGui.BeginTooltip(); ImGui.TextUnformatted("Set VIP duration to 1 month"); ImGui.EndTooltip(); }
+                        any = true;
+
+                        if (any) ImGui.SameLine();
+                        ImGui.PushFont(UiBuilder.IconFont);
+                        ImGui.SetWindowFontScale(0.9f);
+                        centerY = yBase + (rowH - ImGui.GetFrameHeight()) / 2f;
+                        ImGui.SetCursorPosY(centerY);
+                        if (ImGui.Button(FontAwesomeIcon.CalendarAlt.ToIconString() + $"##12w_{e.Key}"))
+                        {
+                            app.AddVip(e.CharacterName, e.HomeWorld, VipDuration.TwelveWeeks);
+                        }
+                        ImGui.SetWindowFontScale(1f);
+                        ImGui.PopFont();
+                        if (ImGui.IsItemHovered()) { ImGui.BeginTooltip(); ImGui.TextUnformatted("Set VIP duration to 3 months"); ImGui.EndTooltip(); }
+                        any = true;
+
+                        if (any) ImGui.SameLine();
+                        ImGui.PushFont(UiBuilder.IconFont);
+                        ImGui.SetWindowFontScale(0.9f);
+                        centerY = yBase + (rowH - ImGui.GetFrameHeight()) / 2f;
+                        ImGui.SetCursorPosY(centerY);
+                        if (ImGui.Button(FontAwesomeIcon.Infinity.ToIconString() + $"##life_{e.Key}"))
+                        {
+                            app.AddVip(e.CharacterName, e.HomeWorld, VipDuration.Lifetime);
+                        }
+                        ImGui.SetWindowFontScale(1f);
+                        ImGui.PopFont();
+                        if (ImGui.IsItemHovered()) { ImGui.BeginTooltip(); ImGui.TextUnformatted("Set VIP duration to Unlimited"); ImGui.EndTooltip(); }
+                    }
+                    ImGui.EndGroup();
+                }
+            }
+            ImGui.EndTable();
+        }
+    }
+}
