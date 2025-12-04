@@ -1,4 +1,5 @@
 using System;
+using System.Reflection;
 using VenuePlus.Services;
 using System.Linq;
 using VenuePlus.State;
@@ -28,7 +29,7 @@ public sealed class VenuePlusApp : IDisposable
     private string _selfJob = string.Empty;
     private string? _selfUid;
     private bool _disposed;
-    private const string RemoteBaseUrlConst = "https://venueplus.sphene.online";
+    private static readonly string RemoteBaseUrlConst = GetRemoteBaseUrl();
     private string[]? _jobsCache;
     private System.Collections.Generic.Dictionary<string, JobRightsInfo>? _jobRightsCache;
     private string[]? _usersCache;
@@ -794,6 +795,24 @@ public sealed class VenuePlusApp : IDisposable
     public bool RemoteUseWebSocket => _pluginConfigService.Current.RemoteUseWebSocket;
 
     public string RemoteBaseUrl => RemoteBaseUrlConst;
+
+    private static string GetRemoteBaseUrl()
+    {
+        try
+        {
+            var asm = typeof(VenuePlusApp).Assembly;
+            foreach (var attr in asm.GetCustomAttributes<AssemblyMetadataAttribute>())
+            {
+                if (string.Equals(attr.Key, "RemoteBaseUrl", StringComparison.Ordinal))
+                {
+                    var v = attr.Value ?? string.Empty;
+                    if (!string.IsNullOrWhiteSpace(v)) return v;
+                }
+            }
+        }
+        catch { }
+        return "https://venueplus.sphene.online";
+    }
 
     
 
