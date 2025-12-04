@@ -315,6 +315,11 @@ public sealed class VenuePlusWindow : Window, IDisposable
                 }
                 ImGui.EndCombo();
             }
+            if (_app.HasStaffSession)
+            {
+                if (ImGui.Button("Venues List", new Vector2(-1f, 0))) { _app.OpenVenuesListWindow(); }
+                if (ImGui.IsItemHovered()) { ImGui.BeginTooltip(); ImGui.TextUnformatted("My Venues List"); ImGui.EndTooltip(); }
+            }
             ImGui.PopItemWidth();
         }
         ImGui.TextUnformatted("Server:");
@@ -362,7 +367,7 @@ public sealed class VenuePlusWindow : Window, IDisposable
         ImGui.SameLine();
         ImGui.PushFont(UiBuilder.IconFont);
         ImGui.SetWindowFontScale(0.9f);
-        if (ImGui.Button(FontAwesomeIcon.Cog.ToIconString() + "##open_settings_left", new Vector2(gearW, 0)))
+        if (ImGui.Button(FontAwesomeIcon.Cog.ToIconString() + "##open_settings_left", new Vector2(gearW, btnH)))
         {
             _app.OpenSettingsWindow();
         }
@@ -477,27 +482,40 @@ public sealed class VenuePlusWindow : Window, IDisposable
                 ImGui.PopItemWidth();
                 var canAddVipTab = _app.IsOwnerCurrentClub || (_app.HasStaffSession && _app.StaffCanAddVip);
                 var canRemoveVipTab = _app.IsOwnerCurrentClub || (_app.HasStaffSession && _app.StaffCanRemoveVip);
-                if (canAddVipTab || canRemoveVipTab)
+                var styleVip = ImGui.GetStyle();
+                float addW = canAddVipTab ? (ImGui.CalcTextSize("Add VIP").X + styleVip.FramePadding.X * 2f) : 0f;
+                float purgeW = canRemoveVipTab ? (ImGui.CalcTextSize("Purge Expired").X + styleVip.FramePadding.X * 2f) : 0f;
+                float btnHVip = ImGui.GetFrameHeight();
+                ImGui.PushFont(UiBuilder.IconFont);
+                ImGui.SetWindowFontScale(0.9f);
+                var _vipIconStr = IconDraw.ToIconStringFromKey("ArrowUpRightFromSquare");
+                float listW = ImGui.CalcTextSize(_vipIconStr).X + styleVip.FramePadding.X * 2f;
+                ImGui.SetWindowFontScale(1f);
+                ImGui.PopFont();
+                int count = (canAddVipTab ? 1 : 0) + (canRemoveVipTab ? 1 : 0) + 1;
+                float totalW = addW + purgeW + listW + ((count - 1) * styleVip.ItemSpacing.X);
+                var startXVip = ImGui.GetCursorPosX();
+                var rightXVip = startXVip + ImGui.GetContentRegionAvail().X - totalW;
+                ImGui.SameLine(rightXVip);
+                if (canAddVipTab)
                 {
-                    var styleVip = ImGui.GetStyle();
-                    float addW = canAddVipTab ? (ImGui.CalcTextSize("Add VIP").X + styleVip.FramePadding.X * 2f) : 0f;
-                    float purgeW = canRemoveVipTab ? (ImGui.CalcTextSize("Purge Expired").X + styleVip.FramePadding.X * 2f) : 0f;
-                    float totalW = addW + purgeW + ((canAddVipTab && canRemoveVipTab) ? styleVip.ItemSpacing.X : 0f);
-                    var startXVip = ImGui.GetCursorPosX();
-                    var rightXVip = startXVip + ImGui.GetContentRegionAvail().X - totalW;
-                    ImGui.SameLine(rightXVip);
-                    if (canAddVipTab)
-                    {
-                        if (ImGui.Button("Add VIP")) { _vipTable.OpenAddForm(); }
-                        if (ImGui.IsItemHovered()) { ImGui.BeginTooltip(); ImGui.TextUnformatted("Add a new VIP"); ImGui.EndTooltip(); }
-                    }
-                    if (canRemoveVipTab)
-                    {
-                        if (canAddVipTab) ImGui.SameLine();
-                        if (ImGui.Button("Purge Expired")) { _app.PurgeExpired(); }
-                        if (ImGui.IsItemHovered()) { ImGui.BeginTooltip(); ImGui.TextUnformatted("Remove expired VIPs"); ImGui.EndTooltip(); }
-                    }
+                    if (ImGui.Button("Add VIP")) { _vipTable.OpenAddForm(); }
+                    if (ImGui.IsItemHovered()) { ImGui.BeginTooltip(); ImGui.TextUnformatted("Add a new VIP"); ImGui.EndTooltip(); }
                 }
+                if (canRemoveVipTab)
+                {
+                    if (canAddVipTab) ImGui.SameLine();
+                    if (ImGui.Button("Purge Expired")) { _app.PurgeExpired(); }
+                    if (ImGui.IsItemHovered()) { ImGui.BeginTooltip(); ImGui.TextUnformatted("Remove expired VIPs"); ImGui.EndTooltip(); }
+                }
+                if (canAddVipTab || canRemoveVipTab) ImGui.SameLine();
+                ImGui.PushFont(UiBuilder.IconFont);
+                ImGui.SetWindowFontScale(0.9f);
+                var clickedVip = ImGui.Button(_vipIconStr + "##vip_list_btn", new Vector2(listW, btnHVip));
+                ImGui.SetWindowFontScale(1f);
+                ImGui.PopFont();
+                if (clickedVip) { _app.OpenVipListWindow(); }
+                if (ImGui.IsItemHovered()) { ImGui.BeginTooltip(); ImGui.TextUnformatted("Open VIP list window"); ImGui.EndTooltip(); }
                 ImGui.Separator();
                 _vipTable.Draw(_app, _filter);
                 ImGui.EndChild();
@@ -567,33 +585,6 @@ public sealed class VenuePlusWindow : Window, IDisposable
         }
         _staffLoginModal.Draw(_app);
         
-        if (_app.HasStaffSession)
-        {
-            ImGui.SetNextWindowSize(new Vector2(320, 220), ImGuiCond.FirstUseEver);
-            ImGui.Begin("My Venues", ImGuiWindowFlags.NoCollapse | ImGuiWindowFlags.AlwaysAutoResize);
-            var clubs2 = _app.GetMyClubs() ?? Array.Empty<string>();
-            var created2 = _app.GetMyCreatedClubs() ?? Array.Empty<string>();
-            var labelCur2 = string.IsNullOrWhiteSpace(_app.CurrentClubId) ? "--" : _app.CurrentClubId;
-            ImGui.TextUnformatted($"Current Venue: {labelCur2}");
-            ImGui.Separator();
-            foreach (var c in created2)
-            {
-                var label = string.Equals(c, _app.CurrentClubId, StringComparison.Ordinal) ? $"{c} (owned, active)" : $"{c} (owned)";
-                if (ImGui.Button(label)) { _app.SetClubId(c); _staffLastRefresh = System.DateTimeOffset.MinValue; }
-                if (ImGui.IsItemHovered()) { ImGui.BeginTooltip(); ImGui.TextUnformatted("Switch to this Venue  "); ImGui.EndTooltip(); }
-            }
-            if (created2.Length > 0 && clubs2.Length > 0) ImGui.Separator();
-            foreach (var c in clubs2)
-            {
-                var isOwned = Array.IndexOf(created2, c) >= 0;
-                if (isOwned) continue;
-                var label = string.Equals(c, _app.CurrentClubId, StringComparison.Ordinal) ? $"{c} (member, active)" : $"{c} (member)";
-                if (ImGui.Button(label)) { _app.SetClubId(c); _staffLastRefresh = System.DateTimeOffset.MinValue; }
-                if (ImGui.IsItemHovered()) { ImGui.BeginTooltip(); ImGui.TextUnformatted("Switch to this Venue"); ImGui.EndTooltip(); }
-            }
-            if (created2.Length == 0 && clubs2.Length == 0) ImGui.TextUnformatted("No Venues yet.");
-            ImGui.End();
-        }
         
         _registerModal.Draw(_app);
         _registerClubModal.Draw(_app);

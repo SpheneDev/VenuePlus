@@ -54,8 +54,10 @@ public sealed class VenuePlusApp : IDisposable
     public event Action<bool, bool>? AutoLoginResultEvt;
     public event Action? RememberStaffNeedsPasswordEvt;
     public event Action? OpenSettingsRequested;
+    public event Action? OpenVipListRequested;
     public event Action<string?>? ClubLogoChanged;
     public event Action<string>? Notification;
+    public event Action? OpenVenuesListRequested;
 
     public VenuePlusApp(string? vipDataPath = null, string? pluginConfigPath = null, IPluginLog? log = null, IClientState? clientState = null, IObjectTable? objectTable = null)
     {
@@ -257,6 +259,16 @@ public sealed class VenuePlusApp : IDisposable
     public void OpenSettingsWindow()
     {
         try { OpenSettingsRequested?.Invoke(); } catch { }
+    }
+
+    public void OpenVipListWindow()
+    {
+        try { OpenVipListRequested?.Invoke(); } catch { }
+    }
+
+    public void OpenVenuesListWindow()
+    {
+        try { OpenVenuesListRequested?.Invoke(); } catch { }
     }
 
     private string? _requestedSettingsTab;

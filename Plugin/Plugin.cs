@@ -23,7 +23,10 @@ public sealed class Plugin : IDalamudPlugin
     private readonly WindowSystem _windowSystem = new("VenuePlus");
     private readonly VenuePlusWindow _window;
     private readonly SettingsWindow _settingsWindow;
+    private readonly VipListWindow _vipListWindow;
+    private readonly VenuesListWindow _venuesListWindow;
     private readonly Action _openSettingsHandler;
+    private readonly Action _openVipListHandler;
     private readonly IContextMenu _contextMenu;
     private readonly ICommandManager _commandManager;
     private readonly IPluginLog _log;
@@ -53,11 +56,18 @@ public sealed class Plugin : IDalamudPlugin
         _vipTargetOverlay = new VenuePlus.UI.Components.VipTargetOverlay(_targetManager);
         _nameplateVipService = new NameplateVipService(namePlateGui, _app);
         _settingsWindow = new SettingsWindow(_app, _textureProvider);
+        _vipListWindow = new VipListWindow(_app);
+        _venuesListWindow = new VenuesListWindow(_app, _textureProvider);
         _windowSystem.AddWindow(_window);
         _windowSystem.AddWindow(_settingsWindow);
+        _windowSystem.AddWindow(_vipListWindow);
+        _windowSystem.AddWindow(_venuesListWindow);
 
         _openSettingsHandler = () => { _settingsWindow.IsOpen = true; };
+        _openVipListHandler = () => { _vipListWindow.IsOpen = true; };
         _app.OpenSettingsRequested += _openSettingsHandler;
+        _app.OpenVipListRequested += _openVipListHandler;
+        _app.OpenVenuesListRequested += () => { _venuesListWindow.IsOpen = true; };
 
         _pluginInterface.UiBuilder.Draw += UiBuilderOnDraw;
         _pluginInterface.UiBuilder.OpenConfigUi += UiBuilderOnOpenConfigUi;
@@ -90,9 +100,14 @@ public sealed class Plugin : IDalamudPlugin
         try { _pluginInterface.UiBuilder.OpenMainUi -= UiBuilderOnOpenMainUi; } catch { }
         try { _window.IsOpen = false; } catch { }
         try { _settingsWindow.IsOpen = false; } catch { }
+        try { _settingsWindow.IsOpen = false; } catch { }
+        try { _vipListWindow.IsOpen = false; } catch { }
+        try { _venuesListWindow.IsOpen = false; } catch { }
         try { _settingsWindow.Dispose(); } catch { }
+        try { _venuesListWindow.Dispose(); } catch { }
         try { _windowSystem.RemoveAllWindows(); } catch { }
         try { _app.OpenSettingsRequested -= _openSettingsHandler; } catch { }
+        try { _app.OpenVipListRequested -= _openVipListHandler; } catch { }
         try { _nameplateVipService.Dispose(); } catch { }
         try { _window.Dispose(); } catch { }
         try { _app.DisconnectRemoteAsync().GetAwaiter().GetResult(); } catch { }
