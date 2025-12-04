@@ -34,11 +34,13 @@ public sealed class DjListComponent
 
     public void Draw(VenuePlusApp app)
     {
-        var canManage = app.IsOwnerCurrentClub || (app.HasStaffSession && app.StaffCanManageUsers);
+        var canAddDjTop = app.IsOwnerCurrentClub || (app.HasStaffSession && app.StaffCanAddDj);
+        var canRemoveDj = app.IsOwnerCurrentClub || (app.HasStaffSession && app.StaffCanRemoveDj);
+        ImGui.Spacing();
         ImGui.PushItemWidth(260f);
         ImGui.InputTextWithHint("##dj_filter", "Search DJs by name or link", ref _filter, 256);
         ImGui.PopItemWidth();
-        if (canManage)
+        if (canAddDjTop)
         {
             var styleDj = ImGui.GetStyle();
             var btnW = ImGui.CalcTextSize("Add DJ").X + styleDj.FramePadding.X * 2f;
@@ -48,13 +50,13 @@ public sealed class DjListComponent
             if (ImGui.Button("Add DJ")) { OpenAddForm(); }
             if (ImGui.IsItemHovered()) { ImGui.BeginTooltip(); ImGui.TextUnformatted("Add a new DJ"); ImGui.EndTooltip(); }
         }
-        if (_openAddForm && canManage)
+        if (_openAddForm && canAddDjTop)
         {
             ImGui.Separator();
             ImGui.TextUnformatted("Add DJ");
             ImGui.PushItemWidth(220f);
-            ImGui.InputText("Name", ref _pendingName, 128);
-            ImGui.InputText("Twitch URL", ref _pendingTwitch, 256);
+            ImGui.InputTextWithHint("##dj_name", "DJ name", ref _pendingName, 128);
+            ImGui.InputTextWithHint("##dj_twitch", "Twitch URL or name", ref _pendingTwitch, 256);
             ImGui.PopItemWidth();
             ImGui.SameLine();
             ImGui.BeginDisabled(string.IsNullOrWhiteSpace(_pendingName));
@@ -169,7 +171,7 @@ public sealed class DjListComponent
                         }
                         if (ImGui.IsItemHovered()) { ImGui.BeginTooltip(); ImGui.TextUnformatted("Open Twitch link"); ImGui.EndTooltip(); }
                     }
-                    if (canManage)
+                    if (canRemoveDj)
                     {
                         if (anyPrinted) ImGui.SameLine();
                         ImGui.PushFont(UiBuilder.IconFont);

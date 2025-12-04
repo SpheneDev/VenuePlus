@@ -313,8 +313,9 @@ public sealed class StaffListComponent
                         var centerY = yBaseAct + (rowH - ImGui.GetFrameHeight()) / 2f;
                         ImGui.SetCursorPosY(centerY);
                         var isOwnerRow = string.Equals(_selectedJobsByClub[key], "Owner", System.StringComparison.Ordinal);
+                        var isSelfRow = !string.IsNullOrWhiteSpace(app.CurrentStaffUsername) && string.Equals(u.Username, app.CurrentStaffUsername, System.StringComparison.Ordinal);
                         var ctrlDown = ImGui.GetIO().KeyCtrl;
-                        ImGui.BeginDisabled(!ctrlDown || isOwnerRow);
+                        ImGui.BeginDisabled(!ctrlDown || isOwnerRow || isSelfRow);
                         if (ImGui.Button(FontAwesomeIcon.Trash.ToIconString() + $"##rm_{u.Username}"))
                         {
                             _rowStatus[u.Username] = "Removing...";
@@ -327,14 +328,17 @@ public sealed class StaffListComponent
                         ImGui.EndDisabled();
                         ImGui.SetWindowFontScale(1f);
                         ImGui.PopFont();
-                        if (ImGui.IsItemHovered(ImGuiHoveredFlags.AllowWhenDisabled)) { ImGui.BeginTooltip(); ImGui.TextUnformatted(isOwnerRow ? "Owner cannot be removed" : (ctrlDown ? "Remove this staff member" : "Hold Ctrl to remove this staff member")); ImGui.EndTooltip(); }
+                        if (ImGui.IsItemHovered(ImGuiHoveredFlags.AllowWhenDisabled)) { ImGui.BeginTooltip(); ImGui.TextUnformatted(isOwnerRow ? "Owner cannot be removed" : (isSelfRow ? "You cannot remove yourself" : (ctrlDown ? "Remove this staff member" : "Hold Ctrl to remove this staff member"))); ImGui.EndTooltip(); }
 
                         ImGui.SameLine();
                         ImGui.PushFont(UiBuilder.IconFont);
                         ImGui.SetWindowFontScale(0.9f);
                         centerY = yBaseAct + (rowH - ImGui.GetFrameHeight()) / 2f;
                         ImGui.SetCursorPosY(centerY);
-                        ImGui.BeginDisabled(isOwnerRow);
+                        var newJobSelf = _selectedJobsByClub[key];
+                        var rightsCacheSave = app.GetJobRightsCache();
+                        var selfLosesManageJobs = isSelfRow && !isOwnerRow && rightsCacheSave != null && rightsCacheSave.TryGetValue(newJobSelf, out var rInfoSelf) && !rInfoSelf.ManageJobs;
+                        ImGui.BeginDisabled(isOwnerRow || selfLosesManageJobs);
                         if (ImGui.Button(FontAwesomeIcon.Save.ToIconString() + $"##save_{u.Username}"))
                         {
                             var newJob = _selectedJobsByClub[key];
@@ -353,7 +357,7 @@ public sealed class StaffListComponent
                         ImGui.EndDisabled();
                         ImGui.SetWindowFontScale(1f);
                         ImGui.PopFont();
-                        if (ImGui.IsItemHovered(ImGuiHoveredFlags.AllowWhenDisabled)) { ImGui.BeginTooltip(); ImGui.TextUnformatted(isOwnerRow ? "Owner job cannot be changed" : "Save changes to this staff member's job"); ImGui.EndTooltip(); }
+                        if (ImGui.IsItemHovered(ImGuiHoveredFlags.AllowWhenDisabled)) { ImGui.BeginTooltip(); ImGui.TextUnformatted(isOwnerRow ? "Owner job cannot be changed" : (selfLosesManageJobs ? "You cannot assign yourself a role that removes role editing rights" : "Save changes to this staff member's job")); ImGui.EndTooltip(); }
                     }
                     if (_rowStatus.TryGetValue(u.Username, out var rs) && !string.IsNullOrEmpty(rs))
                     {

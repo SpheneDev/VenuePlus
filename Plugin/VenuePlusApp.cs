@@ -113,7 +113,7 @@ public sealed class VenuePlusApp : IDisposable
                 UsersDetailsChanged?.Invoke(incoming);
             }
         };
-        _remote.UserJobUpdated += (username, job) => { if (!string.IsNullOrWhiteSpace(_staffUsername) && string.Equals(_staffUsername, username, System.StringComparison.Ordinal)) { _selfJob = job; if (_jobRightsCache != null && _jobRightsCache.TryGetValue(job, out var r)) { _selfRights = new System.Collections.Generic.Dictionary<string, bool>{{"addVip", r.AddVip},{"removeVip", r.RemoveVip},{"manageUsers", r.ManageUsers},{"manageJobs", r.ManageJobs}}; } } UserJobUpdatedEvt?.Invoke(username, job); };
+        _remote.UserJobUpdated += (username, job) => { if (!string.IsNullOrWhiteSpace(_staffUsername) && string.Equals(_staffUsername, username, System.StringComparison.Ordinal)) { _selfJob = job; if (_jobRightsCache != null && _jobRightsCache.TryGetValue(job, out var r)) { _selfRights = new System.Collections.Generic.Dictionary<string, bool>{{"addVip", r.AddVip},{"removeVip", r.RemoveVip},{"manageUsers", r.ManageUsers},{"manageJobs", r.ManageJobs},{"editVipDuration", r.EditVipDuration},{"addDj", r.AddDj},{"removeDj", r.RemoveDj}}; } } UserJobUpdatedEvt?.Invoke(username, job); };
         _remote.MembershipRemoved += (username, clubIdEvt) =>
         {
             var removedClub = clubIdEvt ?? string.Empty;
@@ -321,9 +321,10 @@ public sealed class VenuePlusApp : IDisposable
 
     public async System.Threading.Tasks.Task<bool> AddDjAsync(string djName, string twitchLink)
     {
-        var canManage = IsOwnerCurrentClub || (HasStaffSession && StaffCanManageUsers);
-        if (!canManage) return false;
-        var entry = new VenuePlus.State.DjEntry { DjName = djName ?? string.Empty, TwitchLink = twitchLink ?? string.Empty, CreatedAt = System.DateTimeOffset.UtcNow };
+        var canAddDj = IsOwnerCurrentClub || (HasStaffSession && StaffCanAddDj);
+        if (!canAddDj) return false;
+        var link = NormalizeTwitchLink(twitchLink);
+        var entry = new VenuePlus.State.DjEntry { DjName = djName ?? string.Empty, TwitchLink = link, CreatedAt = System.DateTimeOffset.UtcNow };
         var cur = new System.Collections.Generic.List<VenuePlus.State.DjEntry>(_djEntries);
         var idx = cur.FindIndex(x => string.Equals(x.DjName, entry.DjName, System.StringComparison.Ordinal));
         if (idx >= 0) cur[idx] = entry; else cur.Add(entry);
@@ -335,10 +336,31 @@ public sealed class VenuePlusApp : IDisposable
         return true;
     }
 
+    private static string NormalizeTwitchLink(string twitchLink)
+    {
+        var s = twitchLink?.Trim() ?? string.Empty;
+        if (string.IsNullOrWhiteSpace(s)) return string.Empty;
+        var lower = s.ToLowerInvariant();
+        if (lower.StartsWith("http://")) s = "https://" + s.Substring(7);
+        lower = s.ToLowerInvariant();
+        if (lower.StartsWith("https://www.twitch.tv/")) s = "https://twitch.tv/" + s.Substring("https://www.twitch.tv/".Length);
+        else if (lower.StartsWith("www.twitch.tv/")) s = "https://twitch.tv/" + s.Substring("www.twitch.tv/".Length);
+        else if (lower.StartsWith("twitch.tv/")) s = "https://" + s;
+        else if (!lower.Contains("twitch.tv"))
+        {
+            var channel = s.TrimStart('@').Trim('/');
+            if (string.IsNullOrWhiteSpace(channel)) return string.Empty;
+            channel = channel.ToLowerInvariant();
+            s = "https://twitch.tv/" + channel;
+        }
+        if (s.EndsWith("/")) s = s.Substring(0, s.Length - 1);
+        return s;
+    }
+
     public async System.Threading.Tasks.Task<bool> RemoveDjAsync(string djName)
     {
-        var canManage = IsOwnerCurrentClub || (HasStaffSession && StaffCanManageUsers);
-        if (!canManage) return false;
+        var canRemoveDj = IsOwnerCurrentClub || (HasStaffSession && StaffCanRemoveDj);
+        if (!canRemoveDj) return false;
         var cur = new System.Collections.Generic.List<VenuePlus.State.DjEntry>(_djEntries);
         cur.RemoveAll(x => string.Equals(x.DjName, djName ?? string.Empty, System.StringComparison.Ordinal));
         _djEntries = cur.OrderBy(x => x.DjName, System.StringComparer.Ordinal).ToArray();
@@ -366,6 +388,8 @@ public sealed class VenuePlusApp : IDisposable
     public bool StaffCanManageUsers => _selfRights.TryGetValue("manageUsers", out var b) && b;
     public bool StaffCanManageJobs => _selfRights.TryGetValue("manageJobs", out var b) && b;
     public bool StaffCanEditVipDuration => _selfRights.TryGetValue("editVipDuration", out var b) && b;
+    public bool StaffCanAddDj => _selfRights.TryGetValue("addDj", out var b) && b;
+    public bool StaffCanRemoveDj => _selfRights.TryGetValue("removeDj", out var b) && b;
     public string CurrentStaffJob => _selfJob;
     public bool AccessLoading => _accessLoading;
     public bool RememberStaffLogin
@@ -834,7 +858,9 @@ public sealed class VenuePlusApp : IDisposable
                 ["removeVip"] = r.RemoveVip,
                 ["manageUsers"] = r.ManageUsers,
                 ["manageJobs"] = r.ManageJobs,
-                ["editVipDuration"] = r.EditVipDuration
+                ["editVipDuration"] = r.EditVipDuration,
+                ["addDj"] = r.AddDj,
+                ["removeDj"] = r.RemoveDj
             };
             return;
         }
@@ -886,11 +912,11 @@ public sealed class VenuePlusApp : IDisposable
 
     public string? CurrentStaffUid => _selfUid;
 
-    public async System.Threading.Tasks.Task<bool> UpdateJobRightsAsync(string name, bool addVip, bool removeVip, bool manageUsers, bool manageJobs, bool editVipDuration, string colorHex = "#FFFFFF", string iconKey = "User")
+    public async System.Threading.Tasks.Task<bool> UpdateJobRightsAsync(string name, bool addVip, bool removeVip, bool manageUsers, bool manageJobs, bool editVipDuration, bool addDj, bool removeDj, string colorHex = "#FFFFFF", string iconKey = "User")
     {
         var sess = _staffToken ?? string.Empty;
         if (string.IsNullOrWhiteSpace(sess)) return false;
-        var info = new JobRightsInfo { AddVip = addVip, RemoveVip = removeVip, ManageUsers = manageUsers, ManageJobs = manageJobs, EditVipDuration = editVipDuration, ColorHex = colorHex ?? "#FFFFFF", IconKey = iconKey ?? "User" };
+        var info = new JobRightsInfo { AddVip = addVip, RemoveVip = removeVip, ManageUsers = manageUsers, ManageJobs = manageJobs, EditVipDuration = editVipDuration, AddDj = addDj, RemoveDj = removeDj, ColorHex = colorHex ?? "#FFFFFF", IconKey = iconKey ?? "User" };
         return await _remote.UpdateJobRightsAsync(name, info, sess);
     }
 
@@ -898,13 +924,18 @@ public sealed class VenuePlusApp : IDisposable
     {
         var staffSess = _staffToken ?? string.Empty;
         if (string.IsNullOrWhiteSpace(staffSess)) return false;
+        if (!string.IsNullOrWhiteSpace(_staffUsername) && string.Equals(username, _staffUsername, System.StringComparison.Ordinal) && !IsOwnerCurrentClub)
+        {
+            var rightsCache = _jobRightsCache;
+            if (rightsCache == null || !rightsCache.TryGetValue(job, out var r) || !r.ManageJobs) return false;
+        }
         return await _remote.UpdateUserJobAsync(username, job, staffSess);
     }
 
     public async System.Threading.Tasks.Task<bool> DeleteStaffUserAsync(string username)
     {
         var staffSess = _staffToken ?? string.Empty;
-        if (IsOwnerCurrentClub && !string.IsNullOrWhiteSpace(_staffUsername) && string.Equals(username, _staffUsername, System.StringComparison.Ordinal)) return false;
+        if (!string.IsNullOrWhiteSpace(_staffUsername) && string.Equals(username, _staffUsername, System.StringComparison.Ordinal)) return false;
         if (string.IsNullOrWhiteSpace(staffSess)) return false;
         return await _remote.DeleteUserAsync(username, staffSess);
     }

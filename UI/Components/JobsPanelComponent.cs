@@ -25,6 +25,8 @@ public sealed class JobsPanelComponent
     private bool _editManageUsers;
     private bool _editManageJobs;
     private bool _editEditVipDuration;
+    private bool _editAddDj;
+    private bool _editRemoveDj;
     private bool _addWindowOpen;
     private string _newRoleNameInput = string.Empty;
     private bool _addAddVip;
@@ -32,6 +34,8 @@ public sealed class JobsPanelComponent
     private bool _addManageUsers;
     private bool _addManageJobs;
     private bool _addEditVipDuration;
+    private bool _addAddDj;
+    private bool _addRemoveDj;
     private string _addColorHex = "#FFFFFF";
     private string _addIconKey = "User";
     private string _editColorHex = "#FFFFFF";
@@ -124,6 +128,8 @@ public sealed class JobsPanelComponent
                     _editManageUsers = GetRight(j, "manageUsers");
                     _editManageJobs = GetRight(j, "manageJobs");
                     _editEditVipDuration = GetRight(j, "editVipDuration");
+                    _editAddDj = GetRight(j, "addDj");
+                    _editRemoveDj = GetRight(j, "removeDj");
                     if (_rights.TryGetValue(j, out var infoInit)) { _editColorHex = infoInit.ColorHex; _editIconKey = infoInit.IconKey; }
                     _editWindowOpen = true;
                 }
@@ -165,20 +171,50 @@ public sealed class JobsPanelComponent
 
         if (_addWindowOpen)
         {
-            ImGui.SetNextWindowSize(new System.Numerics.Vector2(380f, 0f), ImGuiCond.FirstUseEver);
-            if (ImGui.Begin("Add Role", ref _addWindowOpen, ImGuiWindowFlags.AlwaysAutoResize))
+            var mainPos = ImGui.GetWindowPos();
+            var mainSize = ImGui.GetWindowSize();
+            var styleAdd = ImGui.GetStyle();
+            var widthAdd = 420f;
+            ImGui.SetNextWindowSize(new System.Numerics.Vector2(widthAdd, 0f), ImGuiCond.Always);
+            var offsetX = styleAdd.WindowPadding.X + styleAdd.ItemSpacing.X;
+            var anchorXAdd = mainPos.X + mainSize.X + offsetX;
+            var anchorYAdd = mainPos.Y + styleAdd.WindowPadding.Y;
+            ImGui.SetNextWindowPos(new System.Numerics.Vector2(anchorXAdd, anchorYAdd), ImGuiCond.Always);
+            if (ImGui.Begin("Add Role", ref _addWindowOpen, ImGuiWindowFlags.NoMove | ImGuiWindowFlags.NoResize | ImGuiWindowFlags.NoCollapse | ImGuiWindowFlags.AlwaysAutoResize))
             {
+                ImGui.PushFont(UiBuilder.IconFont);
+                ImGui.PushStyleColor(ImGuiCol.Text, ColorUtil.HexToU32(_addColorHex));
+                ImGui.SetWindowFontScale(1f);
+                ImGui.TextUnformatted(IconDraw.ToIconStringFromKey(_addIconKey));
+                ImGui.PopStyleColor();
+                ImGui.PopFont();
+                ImGui.SameLine();
+                ImGui.TextUnformatted("Add Role");
+                ImGui.Separator();
+
                 ImGui.PushItemWidth(240f);
                 ImGui.InputText("Role Name", ref _newRoleNameInput, 64);
                 ImGui.PopItemWidth();
+
                 ImGui.Separator();
-                if (ImGui.Checkbox("Add VIP", ref _addAddVip)) { }
-                ImGui.SameLine();
-                if (ImGui.Checkbox("Remove VIP", ref _addRemoveVip)) { }
-                if (ImGui.Checkbox("Manage Users", ref _addManageUsers)) { }
-                ImGui.SameLine();
-                if (ImGui.Checkbox("Manage Roles", ref _addManageJobs)) { }
-                if (ImGui.Checkbox("Edit VIP Duration", ref _addEditVipDuration)) { }
+                ImGui.TextUnformatted("Permissions");
+                if (ImGui.BeginTable("add_perm_table", 2, ImGuiTableFlags.SizingFixedFit | ImGuiTableFlags.NoSavedSettings))
+                {
+                    ImGui.TableNextRow();
+                    ImGui.TableSetColumnIndex(0);
+                    if (ImGui.Checkbox("Add VIP", ref _addAddVip)) { }
+                    if (ImGui.Checkbox("Remove VIP", ref _addRemoveVip)) { }
+                    if (ImGui.Checkbox("Add DJ", ref _addAddDj)) { }
+                    if (ImGui.Checkbox("Remove DJ", ref _addRemoveDj)) { }
+                    ImGui.TableSetColumnIndex(1);
+                    if (ImGui.Checkbox("Manage Users", ref _addManageUsers)) { }
+                    if (ImGui.Checkbox("Manage Roles", ref _addManageJobs)) { }
+                    if (ImGui.Checkbox("Edit VIP Duration", ref _addEditVipDuration)) { }
+                    ImGui.EndTable();
+                }
+
+                ImGui.Separator();
+                ImGui.TextUnformatted("Appearance");
                 var colVecAdd4 = ColorUtil.HexToVec4(_addColorHex);
                 var colVecAdd = new System.Numerics.Vector3(colVecAdd4.X, colVecAdd4.Y, colVecAdd4.Z);
                 if (ImGui.ColorEdit3("Role Color", ref colVecAdd)) { _addColorHex = ColorUtil.Vec4ToHex(new System.Numerics.Vector4(colVecAdd.X, colVecAdd.Y, colVecAdd.Z, 1f)); }
@@ -197,7 +233,15 @@ public sealed class JobsPanelComponent
                     }
                     ImGui.EndCombo();
                 }
+
                 ImGui.Separator();
+                var sAdd = ImGui.GetStyle();
+                var saveWAdd = ImGui.CalcTextSize("Save").X + sAdd.FramePadding.X * 2f;
+                var cancelWAdd = ImGui.CalcTextSize("Cancel").X + sAdd.FramePadding.X * 2f;
+                var totalWAdd = saveWAdd + cancelWAdd + sAdd.ItemSpacing.X;
+                var startXAdd = ImGui.GetCursorPosX();
+                var rightXAdd = startXAdd + ImGui.GetContentRegionAvail().X - totalWAdd;
+                ImGui.SetCursorPosX(rightXAdd);
                 if (ImGui.Button("Save"))
                 {
                     var name = (_newRoleNameInput ?? string.Empty).Trim();
@@ -208,7 +252,7 @@ public sealed class JobsPanelComponent
                             var ok = await app.AddJobAsync(name);
                             if (ok)
                             {
-                                await app.UpdateJobRightsAsync(name, _addAddVip, _addRemoveVip, _addManageUsers, _addManageJobs, _addEditVipDuration, _addColorHex, _addIconKey);
+                                await app.UpdateJobRightsAsync(name, _addAddVip, _addRemoveVip, _addManageUsers, _addManageJobs, _addEditVipDuration, _addAddDj, _addRemoveDj, _addColorHex, _addIconKey);
                                 _selectedJob = name;
                             }
                         });
@@ -228,31 +272,62 @@ public sealed class JobsPanelComponent
 
         if (_editWindowOpen)
         {
-            ImGui.SetNextWindowSize(new System.Numerics.Vector2(360f, 0f), ImGuiCond.FirstUseEver);
-            if (ImGui.Begin("Edit Role Rights", ref _editWindowOpen, ImGuiWindowFlags.AlwaysAutoResize))
+            var mainPos = ImGui.GetWindowPos();
+            var mainSize = ImGui.GetWindowSize();
+            var styleEdit = ImGui.GetStyle();
+            var width = 420f;
+            ImGui.SetNextWindowSize(new System.Numerics.Vector2(width, 0f), ImGuiCond.Always);
+            var offsetXEdit = styleEdit.WindowPadding.X + styleEdit.ItemSpacing.X;
+            var anchorX = mainPos.X + mainSize.X + offsetXEdit;
+            var anchorY = mainPos.Y + styleEdit.WindowPadding.Y;
+            ImGui.SetNextWindowPos(new System.Numerics.Vector2(anchorX, anchorY), ImGuiCond.Always);
+            if (ImGui.Begin("Edit Role Rights", ref _editWindowOpen, ImGuiWindowFlags.NoMove | ImGuiWindowFlags.NoResize | ImGuiWindowFlags.NoCollapse | ImGuiWindowFlags.AlwaysAutoResize))
             {
+                ImGui.PushFont(UiBuilder.IconFont);
+                ImGui.PushStyleColor(ImGuiCol.Text, ColorUtil.HexToU32(_editColorHex));
+                ImGui.SetWindowFontScale(1f);
+                ImGui.TextUnformatted(IconDraw.ToIconStringFromKey(_editIconKey));
+                ImGui.PopStyleColor();
+                ImGui.PopFont();
+                ImGui.SameLine();
+                ImGui.TextUnformatted(string.IsNullOrWhiteSpace(_openEditJob) ? "Role" : _openEditJob);
+                ImGui.Separator();
+
                 ImGui.PushItemWidth(240f);
                 var editingOwner = string.Equals(_openEditJob, "Owner", System.StringComparison.Ordinal);
                 ImGui.BeginDisabled(editingOwner);
                 ImGui.InputText("Role Name", ref _editJobNameInput, 64);
                 ImGui.EndDisabled();
                 ImGui.PopItemWidth();
-                ImGui.Separator();
+
                 if (editingOwner)
                 {
                     ImGui.PushStyleColor(ImGuiCol.Text, ColorUtil.HexToU32("#FFC76A"));
                     ImGui.TextUnformatted("Owner has all permissions; permissions are not editable.");
                     ImGui.PopStyleColor();
                 }
+
+                ImGui.Separator();
+                ImGui.TextUnformatted("Permissions");
                 ImGui.BeginDisabled(editingOwner);
-                if (ImGui.Checkbox("Add VIP", ref _editAddVip)) { }
-                ImGui.SameLine();
-                if (ImGui.Checkbox("Remove VIP", ref _editRemoveVip)) { }
-                if (ImGui.Checkbox("Manage Users", ref _editManageUsers)) { }
-                ImGui.SameLine();
-                if (ImGui.Checkbox("Manage Roles", ref _editManageJobs)) { }
-                if (ImGui.Checkbox("Edit VIP Duration", ref _editEditVipDuration)) { }
+                if (ImGui.BeginTable("edit_perm_table", 2, ImGuiTableFlags.SizingFixedFit | ImGuiTableFlags.NoSavedSettings))
+                {
+                    ImGui.TableNextRow();
+                    ImGui.TableSetColumnIndex(0);
+                    if (ImGui.Checkbox("Add VIP", ref _editAddVip)) { }
+                    if (ImGui.Checkbox("Remove VIP", ref _editRemoveVip)) { }
+                    if (ImGui.Checkbox("Add DJ", ref _editAddDj)) { }
+                    if (ImGui.Checkbox("Remove DJ", ref _editRemoveDj)) { }
+                    ImGui.TableSetColumnIndex(1);
+                    if (ImGui.Checkbox("Manage Users", ref _editManageUsers)) { }
+                    if (ImGui.Checkbox("Manage Roles", ref _editManageJobs)) { }
+                    if (ImGui.Checkbox("Edit VIP Duration", ref _editEditVipDuration)) { }
+                    ImGui.EndTable();
+                }
                 ImGui.EndDisabled();
+
+                ImGui.Separator();
+                ImGui.TextUnformatted("Appearance");
                 var colVec4 = ColorUtil.HexToVec4(_editColorHex);
                 var colVec = new System.Numerics.Vector3(colVec4.X, colVec4.Y, colVec4.Z);
                 if (ImGui.ColorEdit3("Role Color", ref colVec)) { _editColorHex = ColorUtil.Vec4ToHex(new System.Numerics.Vector4(colVec.X, colVec.Y, colVec.Z, 1f)); }
@@ -271,7 +346,15 @@ public sealed class JobsPanelComponent
                     }
                     ImGui.EndCombo();
                 }
+
                 ImGui.Separator();
+                var s = ImGui.GetStyle();
+                var saveW = ImGui.CalcTextSize("Save").X + s.FramePadding.X * 2f;
+                var cancelW = ImGui.CalcTextSize("Cancel").X + s.FramePadding.X * 2f;
+                var totalW = saveW + cancelW + s.ItemSpacing.X;
+                var startX = ImGui.GetCursorPosX();
+                var rightX = startX + ImGui.GetContentRegionAvail().X - totalW;
+                ImGui.SetCursorPosX(rightX);
                 if (ImGui.Button("Save"))
                 {
                     var oldName = _openEditJob;
@@ -283,6 +366,8 @@ public sealed class JobsPanelComponent
                         SetRight(oldName, "manageUsers", _editManageUsers);
                         SetRight(oldName, "manageJobs", _editManageJobs);
                         SetRight(oldName, "editVipDuration", _editEditVipDuration);
+                        SetRight(oldName, "addDj", _editAddDj);
+                        SetRight(oldName, "removeDj", _editRemoveDj);
                         if (_rights.TryGetValue(oldName, out var infoOld)) { infoOld.ColorHex = _editColorHex; infoOld.IconKey = _editIconKey; }
                         SaveImmediate(app, oldName);
                         _editWindowOpen = false;
@@ -294,7 +379,7 @@ public sealed class JobsPanelComponent
                             var okAdd = await app.AddJobAsync(newName);
                             if (okAdd)
                             {
-                                await app.UpdateJobRightsAsync(newName, _editAddVip, _editRemoveVip, _editManageUsers, _editManageJobs, _editEditVipDuration, _editColorHex, _editIconKey);
+                                await app.UpdateJobRightsAsync(newName, _editAddVip, _editRemoveVip, _editManageUsers, _editManageJobs, _editEditVipDuration, _editAddDj, _editRemoveDj, _editColorHex, _editIconKey);
                                 var users = await app.ListStaffUsersDetailedAsync();
                                 if (users != null)
                                 {
@@ -350,6 +435,8 @@ public sealed class JobsPanelComponent
                 if (!_pending.TryGetValue(kv.Key, out var set3) || !set3.Contains("manageUsers")) { _rights[kv.Key].ManageUsers = incomingInfo.ManageUsers; }
                 if (!_pending.TryGetValue(kv.Key, out var set4) || !set4.Contains("manageJobs")) { _rights[kv.Key].ManageJobs = incomingInfo.ManageJobs; }
                 if (!_pending.TryGetValue(kv.Key, out var set7) || !set7.Contains("editVipDuration")) { _rights[kv.Key].EditVipDuration = incomingInfo.EditVipDuration; }
+                if (!_pending.TryGetValue(kv.Key, out var set8) || !set8.Contains("addDj")) { _rights[kv.Key].AddDj = incomingInfo.AddDj; }
+                if (!_pending.TryGetValue(kv.Key, out var set9) || !set9.Contains("removeDj")) { _rights[kv.Key].RemoveDj = incomingInfo.RemoveDj; }
                 if (!_pending.TryGetValue(kv.Key, out var set5) || !set5.Contains("colorHex")) { _rights[kv.Key].ColorHex = incomingInfo.ColorHex ?? "#FFFFFF"; }
                 if (!_pending.TryGetValue(kv.Key, out var set6) || !set6.Contains("iconKey")) { _rights[kv.Key].IconKey = incomingInfo.IconKey ?? "User"; }
             }
@@ -366,6 +453,8 @@ public sealed class JobsPanelComponent
             "manageUsers" => info.ManageUsers,
             "manageJobs" => info.ManageJobs,
             "editVipDuration" => info.EditVipDuration,
+            "addDj" => info.AddDj,
+            "removeDj" => info.RemoveDj,
             _ => false
         };
     }
@@ -380,6 +469,8 @@ public sealed class JobsPanelComponent
             case "manageUsers": info.ManageUsers = value; break;
             case "manageJobs": info.ManageJobs = value; break;
             case "editVipDuration": info.EditVipDuration = value; break;
+            case "addDj": info.AddDj = value; break;
+            case "removeDj": info.RemoveDj = value; break;
         }
     }
 
@@ -390,6 +481,8 @@ public sealed class JobsPanelComponent
         MarkPending(job, "manageUsers");
         MarkPending(job, "manageJobs");
         MarkPending(job, "editVipDuration");
+        MarkPending(job, "addDj");
+        MarkPending(job, "removeDj");
         MarkPending(job, "colorHex");
         MarkPending(job, "iconKey");
         _status = string.Empty;
@@ -398,17 +491,21 @@ public sealed class JobsPanelComponent
         var muVal = GetRight(job, "manageUsers");
         var mjVal = GetRight(job, "manageJobs");
         var edVal = GetRight(job, "editVipDuration");
+        var addDjVal = GetRight(job, "addDj");
+        var remDjVal = GetRight(job, "removeDj");
         System.Threading.Tasks.Task.Run(async () =>
         {
             var color = (_rights.TryGetValue(job, out var info) ? info.ColorHex : "#FFFFFF");
             var icon = (_rights.TryGetValue(job, out var info2) ? info2.IconKey : "User");
-            var ok = await app.UpdateJobRightsAsync(job, addVal, remVal, muVal, mjVal, edVal, color, icon);
+            var ok = await app.UpdateJobRightsAsync(job, addVal, remVal, muVal, mjVal, edVal, addDjVal, remDjVal, color, icon);
             _status = string.Empty;
             UnmarkPending(job, "addVip");
             UnmarkPending(job, "removeVip");
             UnmarkPending(job, "manageUsers");
             UnmarkPending(job, "manageJobs");
             UnmarkPending(job, "editVipDuration");
+            UnmarkPending(job, "addDj");
+            UnmarkPending(job, "removeDj");
             UnmarkPending(job, "colorHex");
             UnmarkPending(job, "iconKey");
             
