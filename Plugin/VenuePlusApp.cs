@@ -119,7 +119,7 @@ public sealed class VenuePlusApp : IDisposable
             var removedClub = clubIdEvt ?? string.Empty;
             var isSelf = !string.IsNullOrWhiteSpace(_staffUsername) && string.Equals(_staffUsername, username, System.StringComparison.Ordinal);
             var wasPresent = (_myClubs != null && System.Array.IndexOf(_myClubs, removedClub) >= 0) || (_myCreatedClubs != null && System.Array.IndexOf(_myCreatedClubs, removedClub) >= 0);
-            if (string.IsNullOrWhiteSpace(username) || isSelf || wasPresent)
+            if (isSelf)
             {
                 if (!string.IsNullOrWhiteSpace(removedClub))
                 {
@@ -153,7 +153,7 @@ public sealed class VenuePlusApp : IDisposable
                         _myCreatedClubs = await _remote.ListCreatedClubsAsync(_staffToken!);
                         var cur = CurrentClubId;
                         var inClubs = (!string.IsNullOrWhiteSpace(cur) && _myClubs != null && System.Array.IndexOf(_myClubs, cur) >= 0) || (!string.IsNullOrWhiteSpace(cur) && _myCreatedClubs != null && System.Array.IndexOf(_myCreatedClubs, cur) >= 0);
-                        if (!inClubs)
+                        if (isSelf && !inClubs)
                         {
                             var next = (_myClubs != null && _myClubs.Length > 0) ? _myClubs[0] : null;
                             SetClubId(next);
@@ -203,6 +203,8 @@ public sealed class VenuePlusApp : IDisposable
                             if (!string.IsNullOrWhiteSpace(clubId)) { try { await _remote.SwitchClubAsync(clubId!); } catch { } }
                             try { _jobRightsCache = await _remote.ListJobRightsAsync(_staffToken!) ?? _jobRightsCache; } catch { }
                             try { _usersDetailsCache = await _remote.ListUsersDetailedAsync(_staffToken!); } catch { }
+                            try { _myClubs = await _remote.ListUserClubsAsync(_staffToken!); } catch { }
+                            try { _myCreatedClubs = await _remote.ListCreatedClubsAsync(_staffToken!); } catch { }
                             try
                             {
                                 var logo = await _remote.GetClubLogoAsync(_staffToken!);
@@ -451,6 +453,8 @@ public sealed class VenuePlusApp : IDisposable
                 }
             }
             catch { }
+            try { _myClubs = await _remote.ListUserClubsAsync(_staffToken!); } catch { }
+            try { _myCreatedClubs = await _remote.ListCreatedClubsAsync(_staffToken!); } catch { }
         }
         var keyAuto = GetCurrentCharacterKey();
         Configuration.CharacterProfile? profAuto = null;
@@ -487,6 +491,8 @@ public sealed class VenuePlusApp : IDisposable
                 {
                     try { _jobRightsCache = await _remote.ListJobRightsAsync(_staffToken!) ?? _jobRightsCache; } catch { }
                     try { _usersDetailsCache = await _remote.ListUsersDetailedAsync(_staffToken!); } catch { }
+                    try { _myClubs = await _remote.ListUserClubsAsync(_staffToken!); } catch { }
+                    try { _myCreatedClubs = await _remote.ListCreatedClubsAsync(_staffToken!); } catch { }
                     EnsureSelfRights();
                 }
                 if (!ct.IsCancellationRequested) _myClubs = await _remote.ListUserClubsAsync(_staffToken!);
@@ -1295,7 +1301,8 @@ public sealed class VenuePlusApp : IDisposable
     public async System.Threading.Tasks.Task<bool> InviteStaffByUidAsync(string uid, string? job)
     {
         if (!_isPowerStaff || string.IsNullOrWhiteSpace(_staffToken)) return false;
-        if (!IsOwnerCurrentClub) return false;
+        var canInvite = IsOwnerCurrentClub || (HasStaffSession && StaffCanManageUsers);
+        if (!canInvite) return false;
         return await _remote.InviteStaffByUidAsync(uid, job, _staffToken!);
     }
 

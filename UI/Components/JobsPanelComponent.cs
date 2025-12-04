@@ -45,8 +45,11 @@ public sealed class JobsPanelComponent
         ImGui.PushItemWidth(260f);
         ImGui.InputTextWithHint("##roles_filter", "Search roles", ref _filter, 128);
         ImGui.PopItemWidth();
-        ImGui.SameLine();
-        ImGui.SameLine();
+        var styleRoles = ImGui.GetStyle();
+        var btnWRoles = ImGui.CalcTextSize("Add Role").X + styleRoles.FramePadding.X * 2f;
+        var startXRoles = ImGui.GetCursorPosX();
+        var rightXRoles = startXRoles + ImGui.GetContentRegionAvail().X - btnWRoles;
+        ImGui.SameLine(rightXRoles);
         if (ImGui.Button("Add Role"))
         {
             _newRoleNameInput = string.Empty;

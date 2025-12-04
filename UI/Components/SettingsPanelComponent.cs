@@ -27,6 +27,8 @@ public sealed class SettingsPanelComponent
     private string _inviteUid = string.Empty;
     private string _inviteJob = string.Empty;
     private string _inviteStatus = string.Empty;
+    private string[] _jobOptions = System.Array.Empty<string>();
+    private string _inviteJobSelected = "Unassigned";
 
     public void Draw(VenuePlusApp app)
     {
@@ -116,7 +118,7 @@ public sealed class SettingsPanelComponent
         ImGui.TextDisabled("Control how new staff members join your venue.");
         ImGui.Spacing();
         ImGui.BeginDisabled(!isOwner);
-        ImGui.PushItemWidth(200f);
+        ImGui.PushItemWidth(150f);
         ImGui.InputTextWithHint("##join_password_set", "Set Join Password", ref _joinPassword, 64, ImGuiInputTextFlags.Password);
         ImGui.PopItemWidth();
         ImGui.SameLine();
@@ -136,28 +138,57 @@ public sealed class SettingsPanelComponent
 
         ImGui.Spacing();
         ImGui.TextDisabled("Invite a specific registered user by UID.");
-        ImGui.BeginDisabled(!isOwner);
-        ImGui.PushItemWidth(180f);
-        ImGui.InputTextWithHint("##invite_uid", "Target UID", ref _inviteUid, 24);
-        ImGui.PopItemWidth();
-        ImGui.SameLine();
-        ImGui.PushItemWidth(140f);
-        ImGui.InputTextWithHint("##invite_job", "Initial Job (optional)", ref _inviteJob, 64);
-        ImGui.PopItemWidth();
-        ImGui.SameLine();
-        if (ImGui.Button("Invite"))
+        var canInviteUsers = app.IsOwnerCurrentClub || (app.HasStaffSession && app.StaffCanManageUsers);
+        if (canInviteUsers)
         {
-            _inviteStatus = "Submitting...";
-            var uid = _inviteUid; var job = _inviteJob;
-            System.Threading.Tasks.Task.Run(async () =>
+            ImGui.PushItemWidth(150f);
+            ImGui.InputTextWithHint("##invite_uid", "Target UID", ref _inviteUid, 24);
+            ImGui.PopItemWidth();
+            ImGui.SameLine();
+            var currentJob = string.IsNullOrWhiteSpace(_inviteJobSelected) ? "Unassigned" : _inviteJobSelected;
+            ImGui.PushItemWidth(150f);
+            if (ImGui.BeginCombo("##invite_job_select", currentJob))
             {
-                var ok = await app.InviteStaffByUidAsync(uid, string.IsNullOrWhiteSpace(job) ? null : job);
-                _inviteStatus = ok ? "Invitation sent" : (app.GetLastServerMessage() ?? "Invite failed");
-                if (ok) { _inviteUid = string.Empty; _inviteJob = string.Empty; }
-            });
+                foreach (var name in _jobOptions)
+                {
+                    if (string.Equals(name, "Owner", System.StringComparison.Ordinal)) continue;
+                    var rightsCache2 = app.GetJobRightsCache();
+                    if (rightsCache2 != null && rightsCache2.TryGetValue(name, out var infoOpt))
+                    {
+                        var col2 = VenuePlus.Helpers.ColorUtil.HexToU32(infoOpt.ColorHex);
+                        var icon2 = VenuePlus.Helpers.IconDraw.ParseIcon(infoOpt.IconKey);
+                        VenuePlus.Helpers.IconDraw.IconText(icon2, 0.9f, col2);
+                        ImGui.SameLine();
+                    }
+                    bool selected = string.Equals(currentJob, name, System.StringComparison.Ordinal);
+                    if (ImGui.Selectable(name, selected)) _inviteJobSelected = name;
+                    if (selected) ImGui.SetItemDefaultFocus();
+                }
+                ImGui.EndCombo();
+            }
+            ImGui.PopItemWidth();
+            ImGui.SameLine();
+            ImGui.BeginDisabled(string.IsNullOrWhiteSpace(_inviteUid));
+            if (ImGui.Button("Invite"))
+            {
+                _inviteStatus = "Submitting...";
+                var uid = _inviteUid; var jobSel = string.IsNullOrWhiteSpace(_inviteJobSelected) ? "Unassigned" : _inviteJobSelected;
+                System.Threading.Tasks.Task.Run(async () =>
+                {
+                    var ok = await app.InviteStaffByUidAsync(uid, jobSel);
+                    _inviteStatus = ok ? "Invitation sent" : (app.GetLastServerMessage() ?? "Invite failed");
+                    if (ok) { _inviteUid = string.Empty; _inviteJobSelected = "Unassigned"; }
+                });
+            }
+            ImGui.EndDisabled();
+            if (!string.IsNullOrEmpty(_inviteStatus)) ImGui.TextUnformatted(_inviteStatus);
         }
-        if (!string.IsNullOrEmpty(_inviteStatus)) ImGui.TextUnformatted(_inviteStatus);
-        ImGui.EndDisabled();
+    }
+
+    public void SetJobOptions(string[] jobs)
+    {
+        if (jobs != null && jobs.Length > 0) _jobOptions = System.Linq.Enumerable.ToArray(System.Linq.Enumerable.Distinct(jobs, System.StringComparer.Ordinal));
+        if (_jobOptions.Length == 0) _jobOptions = new[] { "Unassigned" };
     }
 
     private void DrawClubLogo(VenuePlusApp app)

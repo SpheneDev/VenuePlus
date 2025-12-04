@@ -492,7 +492,8 @@ public sealed class RemoteSyncService : IDisposable
             {
                 var tcs = new TaskCompletionSource<bool>();
                 _pendingInviteStaffTcs = tcs;
-                var msgInvite = JsonSerializer.Serialize(new { type = "club.invite", token = staffSession, targetUid, job });
+                var uidTrim = (targetUid ?? string.Empty).Trim();
+                var msgInvite = JsonSerializer.Serialize(new { type = "club.invite", token = staffSession, targetUid = uidTrim, job });
                 var seg = new ArraySegment<byte>(Encoding.UTF8.GetBytes(msgInvite));
                 await _ws.SendAsync(seg, WebSocketMessageType.Text, true, CancellationToken.None);
                 using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(6));

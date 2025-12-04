@@ -38,6 +38,16 @@ public sealed class DjListComponent
         ImGui.PushItemWidth(260f);
         ImGui.InputTextWithHint("##dj_filter", "Search DJs by name or link", ref _filter, 256);
         ImGui.PopItemWidth();
+        if (canManage)
+        {
+            var styleDj = ImGui.GetStyle();
+            var btnW = ImGui.CalcTextSize("Add DJ").X + styleDj.FramePadding.X * 2f;
+            var startX = ImGui.GetCursorPosX();
+            var rightX = startX + ImGui.GetContentRegionAvail().X - btnW;
+            ImGui.SameLine(rightX);
+            if (ImGui.Button("Add DJ")) { OpenAddForm(); }
+            if (ImGui.IsItemHovered()) { ImGui.BeginTooltip(); ImGui.TextUnformatted("Add a new DJ"); ImGui.EndTooltip(); }
+        }
         if (_openAddForm && canManage)
         {
             ImGui.Separator();

@@ -22,6 +22,7 @@ public sealed class StaffListComponent
     private bool _openInviteByUidRequested;
     private bool _inviteModalOpen;
     private string _inviteUid = string.Empty;
+    private string _inviteJobInline = string.Empty;
     private string _inviteStatus = string.Empty;
     private string[] _jobOptions = new[] { "Unassigned", "Greeter", "Barkeeper", "Dancer", "Escort" };
     private readonly System.Collections.Generic.HashSet<string> _dirtyKeys = new(System.StringComparer.Ordinal);
@@ -70,40 +71,77 @@ public sealed class StaffListComponent
         ImGui.PushItemWidth(260f);
         ImGui.InputTextWithHint("##staff_filter", "Search by username or job", ref _filter, 128);
         ImGui.PopItemWidth();
-        ImGui.SameLine();
         var visible = ApplyFilter(_users, _filter);
-        var countText = visible.Length.ToString(System.Globalization.CultureInfo.InvariantCulture);
-        ImGui.TextUnformatted(countText);
-        ImGui.SameLine();
-        ImGui.BeginDisabled(!app.IsOwnerCurrentClub);
-        if (ImGui.Button("Add"))
+        var canInvite = app.IsOwnerCurrentClub || (app.HasStaffSession && app.StaffCanManageUsers);
+        if (!canInvite) _inviteInlineOpen = false;
+        if (canInvite)
         {
-            _inviteInlineOpen = true;
-            _inviteStatus = string.Empty;
-            _inviteUid = string.Empty;
+            ImGui.SameLine();
+            var styleStaff = ImGui.GetStyle();
+            var btnWStaff = ImGui.CalcTextSize("Add Staff").X + styleStaff.FramePadding.X * 2f;
+            var startXStaff = ImGui.GetCursorPosX();
+            var rightXStaff = startXStaff + ImGui.GetContentRegionAvail().X - btnWStaff;
+            ImGui.SameLine(rightXStaff);
+            if (ImGui.Button("Add Staff##invite_open"))
+            {
+                _inviteInlineOpen = true;
+                _inviteStatus = string.Empty;
+                _inviteUid = string.Empty;
+                _inviteJobInline = "Unassigned";
+            }
         }
-        if (ImGui.IsItemHovered(ImGuiHoveredFlags.AllowWhenDisabled)) { ImGui.BeginTooltip(); ImGui.TextUnformatted(app.IsOwnerCurrentClub ? "Invite staff by UID" : "Only venue owner can invite staff"); ImGui.EndTooltip(); }
-        ImGui.EndDisabled();
-        if (_inviteInlineOpen)
+        if (_inviteInlineOpen && canInvite)
         {
             ImGui.Separator();
-            ImGui.InputText("User UID", ref _inviteUid, 64);
+            ImGui.PushItemWidth(150f);
+            ImGui.InputTextWithHint("##invite_uid_inline", "Target UID", ref _inviteUid, 24);
+            ImGui.PopItemWidth();
             ImGui.SameLine();
-            ImGui.BeginDisabled(string.IsNullOrWhiteSpace(_inviteUid) || !app.IsOwnerCurrentClub);
-            if (ImGui.Button("Add"))
+            var currentJob = string.IsNullOrWhiteSpace(_inviteJobInline) ? "Unassigned" : _inviteJobInline;
+            ImGui.PushItemWidth(150f);
+            if (ImGui.BeginCombo("##invite_job_inline", currentJob))
+            {
+                foreach (var name in _jobOptions)
+                {
+                    if (string.Equals(name, "Owner", System.StringComparison.Ordinal)) continue;
+                    var rightsCache2 = app.GetJobRightsCache();
+                    if (rightsCache2 != null && rightsCache2.TryGetValue(name, out var infoOpt))
+                    {
+                        var col2 = VenuePlus.Helpers.ColorUtil.HexToU32(infoOpt.ColorHex);
+                        var icon2 = VenuePlus.Helpers.IconDraw.ParseIcon(infoOpt.IconKey);
+                        VenuePlus.Helpers.IconDraw.IconText(icon2, 0.9f, col2);
+                        ImGui.SameLine();
+                    }
+                    bool selected = string.Equals(currentJob, name, System.StringComparison.Ordinal);
+                    if (ImGui.Selectable(name, selected)) _inviteJobInline = name;
+                    if (selected) ImGui.SetItemDefaultFocus();
+                }
+                ImGui.EndCombo();
+            }
+            ImGui.PopItemWidth();
+            ImGui.SameLine();
+            ImGui.BeginDisabled(string.IsNullOrWhiteSpace(_inviteUid));
+            if (ImGui.Button("Add##invite_submit"))
             {
                 _inviteStatus = "Submitting...";
                 var uid = _inviteUid;
+                var jobInline = string.IsNullOrWhiteSpace(_inviteJobInline) ? "Unassigned" : _inviteJobInline;
                 System.Threading.Tasks.Task.Run(async () =>
                 {
-                    var ok = await app.InviteStaffByUidAsync(uid, null);
+                    var ok = await app.InviteStaffByUidAsync(uid, jobInline);
                     _inviteStatus = ok ? "Added" : (app.GetLastServerMessage() ?? "Invite failed");
-                    if (ok) _inviteInlineOpen = false;
+                    if (ok)
+                    {
+                        _inviteInlineOpen = false;
+                        _inviteUid = string.Empty;
+                        _inviteJobInline = string.Empty;
+                        TriggerRefresh(app);
+                    }
                 });
             }
             ImGui.EndDisabled();
             ImGui.SameLine();
-            if (ImGui.Button("Close")) { _inviteInlineOpen = false; _inviteStatus = string.Empty; }
+            if (ImGui.Button("Close##invite_inline_close")) { _inviteInlineOpen = false; _inviteStatus = string.Empty; }
             if (!string.IsNullOrEmpty(_inviteStatus)) { ImGui.TextUnformatted(_inviteStatus); }
             ImGui.Separator();
         }
@@ -343,8 +381,9 @@ public sealed class StaffListComponent
         {
             ImGui.InputText("User UID", ref _inviteUid, 64);
             ImGui.SameLine();
-            ImGui.BeginDisabled(string.IsNullOrWhiteSpace(_inviteUid) || !app.IsOwnerCurrentClub);
-            if (ImGui.Button("Add"))
+            var canInvite = app.IsOwnerCurrentClub || (app.HasStaffSession && app.StaffCanManageUsers);
+            ImGui.BeginDisabled(string.IsNullOrWhiteSpace(_inviteUid) || !canInvite);
+            if (ImGui.Button("Add##invite_modal_submit"))
             {
                 _inviteStatus = "Submitting...";
                 var uid = _inviteUid;
@@ -357,7 +396,7 @@ public sealed class StaffListComponent
             }
             ImGui.EndDisabled();
             ImGui.SameLine();
-            if (ImGui.Button("Close")) { _inviteModalOpen = false; _inviteStatus = string.Empty; }
+            if (ImGui.Button("Close##invite_modal_close")) { _inviteModalOpen = false; _inviteStatus = string.Empty; }
             if (!string.IsNullOrEmpty(_inviteStatus)) { ImGui.TextUnformatted(_inviteStatus); }
             ImGui.EndPopup();
         }

@@ -67,6 +67,7 @@ public sealed class VenuePlusWindow : Window, IDisposable
         _app.JobsChanged += OnJobsChangedPanel;
         _app.JobRightsChanged += OnJobRightsChanged;
         _app.JobsChanged += OnJobsChangedStaffList;
+        _app.JobsChanged += OnJobsChangedSettingsPanel;
         _app.AutoLoginResultEvt += OnAutoLoginResult;
         _app.RememberStaffNeedsPasswordEvt += OnRememberStaffNeedsPassword;
         _app.ClubLogoChanged += OnClubLogoChanged;
@@ -476,17 +477,26 @@ public sealed class VenuePlusWindow : Window, IDisposable
                 ImGui.PopItemWidth();
                 var canAddVipTab = _app.IsOwnerCurrentClub || (_app.HasStaffSession && _app.StaffCanAddVip);
                 var canRemoveVipTab = _app.IsOwnerCurrentClub || (_app.HasStaffSession && _app.StaffCanRemoveVip);
-                if (canAddVipTab)
+                if (canAddVipTab || canRemoveVipTab)
                 {
-                    ImGui.SameLine();
-                    if (ImGui.Button("Add VIP")) { _vipTable.OpenAddForm(); }
-                    if (ImGui.IsItemHovered()) { ImGui.BeginTooltip(); ImGui.TextUnformatted("Add a new VIP"); ImGui.EndTooltip(); }
-                }
-                if (canRemoveVipTab)
-                {
-                    ImGui.SameLine();
-                    if (ImGui.Button("Purge Expired")) { _app.PurgeExpired(); }
-                    if (ImGui.IsItemHovered()) { ImGui.BeginTooltip(); ImGui.TextUnformatted("Remove expired VIPs"); ImGui.EndTooltip(); }
+                    var styleVip = ImGui.GetStyle();
+                    float addW = canAddVipTab ? (ImGui.CalcTextSize("Add VIP").X + styleVip.FramePadding.X * 2f) : 0f;
+                    float purgeW = canRemoveVipTab ? (ImGui.CalcTextSize("Purge Expired").X + styleVip.FramePadding.X * 2f) : 0f;
+                    float totalW = addW + purgeW + ((canAddVipTab && canRemoveVipTab) ? styleVip.ItemSpacing.X : 0f);
+                    var startXVip = ImGui.GetCursorPosX();
+                    var rightXVip = startXVip + ImGui.GetContentRegionAvail().X - totalW;
+                    ImGui.SameLine(rightXVip);
+                    if (canAddVipTab)
+                    {
+                        if (ImGui.Button("Add VIP")) { _vipTable.OpenAddForm(); }
+                        if (ImGui.IsItemHovered()) { ImGui.BeginTooltip(); ImGui.TextUnformatted("Add a new VIP"); ImGui.EndTooltip(); }
+                    }
+                    if (canRemoveVipTab)
+                    {
+                        if (canAddVipTab) ImGui.SameLine();
+                        if (ImGui.Button("Purge Expired")) { _app.PurgeExpired(); }
+                        if (ImGui.IsItemHovered()) { ImGui.BeginTooltip(); ImGui.TextUnformatted("Remove expired VIPs"); ImGui.EndTooltip(); }
+                    }
                 }
                 ImGui.Separator();
                 _vipTable.Draw(_app, _filter);
@@ -499,12 +509,6 @@ public sealed class VenuePlusWindow : Window, IDisposable
                     _vipTable.CloseAddForm();
                     _staffList.CloseInviteInline();
                     var canManageDj = _app.IsOwnerCurrentClub || (_app.HasStaffSession && _app.StaffCanManageUsers);
-                    if (canManageDj)
-                    {
-                        if (ImGui.Button("Add DJ")) { _djList.OpenAddForm(); }
-                        if (ImGui.IsItemHovered()) { ImGui.BeginTooltip(); ImGui.TextUnformatted("Add a new DJ"); ImGui.EndTooltip(); }
-                        ImGui.SameLine();
-                    }
                     _djList.Draw(_app);
                     ImGui.EndTabItem();
                 }
@@ -528,12 +532,18 @@ public sealed class VenuePlusWindow : Window, IDisposable
             {
                 if (ImGui.BeginTabItem("Roles"))
                 {
+                    _vipTable.CloseAddForm();
+                    _djList.CloseAddForm();
+                    _staffList.CloseInviteInline();
                     _jobsPanel.Draw(_app);
                     ImGui.EndTabItem();
                 }
             }
             if (ImGui.BeginTabItem("Venue Settings"))
             {
+                _vipTable.CloseAddForm();
+                _djList.CloseAddForm();
+                _staffList.CloseInviteInline();
                 _settingsPanel.Draw(_app);
                 ImGui.EndTabItem();
             }
@@ -676,6 +686,11 @@ public sealed class VenuePlusWindow : Window, IDisposable
     private void OnJobsChangedStaffList(string[] jobs)
     {
         _staffList.SetJobOptions(jobs);
+    }
+
+    private void OnJobsChangedSettingsPanel(string[] jobs)
+    {
+        _settingsPanel.SetJobOptions(jobs);
     }
 
     private void OnRememberStaffNeedsPassword()
