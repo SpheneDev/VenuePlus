@@ -58,6 +58,7 @@ public sealed class VenuePlusApp : IDisposable
     public event Action<string?>? ClubLogoChanged;
     public event Action<string>? Notification;
     public event Action? OpenVenuesListRequested;
+    public event Action? OpenChangelogRequested;
 
     public VenuePlusApp(string? vipDataPath = null, string? pluginConfigPath = null, IPluginLog? log = null, IClientState? clientState = null, IObjectTable? objectTable = null)
     {
@@ -269,6 +270,22 @@ public sealed class VenuePlusApp : IDisposable
     public void OpenVenuesListWindow()
     {
         try { OpenVenuesListRequested?.Invoke(); } catch { }
+    }
+
+    public void OpenChangelogWindow()
+    {
+        try { OpenChangelogRequested?.Invoke(); } catch { }
+    }
+
+    public string? GetLastInstalledVersion()
+    {
+        return _pluginConfigService.Current.LastInstalledVersion;
+    }
+
+    public void SetLastInstalledVersion(string version)
+    {
+        _pluginConfigService.Current.LastInstalledVersion = version;
+        _pluginConfigService.Save();
     }
 
     private string? _requestedSettingsTab;

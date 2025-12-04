@@ -107,7 +107,7 @@ public sealed class SettingsWindow : Window, System.IDisposable
                 ImGui.PushStyleColor(ImGuiCol.Button, baseCol);
                 ImGui.PushStyleColor(ImGuiCol.ButtonHovered, hoverCol);
                 ImGui.PushStyleColor(ImGuiCol.ButtonActive, activeCol);
-                var btnSize = new System.Numerics.Vector2(140f, 0f);
+                var btnSize = new System.Numerics.Vector2(160f, 0f);
                 var wBtn = btnSize.X;
                 ImGui.SetCursorPosX(ImGui.GetCursorPosX() + (availX - wBtn) / 2f);
                 var clicked = ImGui.Button("Ko-fi##kofi_btn", btnSize);
@@ -131,6 +131,29 @@ public sealed class SettingsWindow : Window, System.IDisposable
                         try { System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(url) { UseShellExecute = true }); } catch { }
                     });
                 }
+
+                ImGui.Spacing();
+                var baseCol2 = VenuePlus.Helpers.ColorUtil.HexToVec4("#5E81AC");
+                var hoverCol2 = new System.Numerics.Vector4(baseCol2.X + 0.08f, baseCol2.Y + 0.08f, baseCol2.Z + 0.08f, 1f);
+                var activeCol2 = new System.Numerics.Vector4(baseCol2.X - 0.06f, baseCol2.Y - 0.06f, baseCol2.Z - 0.06f, 1f);
+                ImGui.PushStyleColor(ImGuiCol.Button, baseCol2);
+                ImGui.PushStyleColor(ImGuiCol.ButtonHovered, hoverCol2);
+                ImGui.PushStyleColor(ImGuiCol.ButtonActive, activeCol2);
+                ImGui.SetCursorPosX(ImGui.GetCursorPosX() + (availX - wBtn) / 2f);
+                var clicked2 = ImGui.Button("Changelog##changelog_btn", btnSize);
+                var rectMin2 = ImGui.GetItemRectMin();
+                var rectMax2 = ImGui.GetItemRectMax();
+                var draw2 = ImGui.GetWindowDrawList();
+                var iconStr2 = Dalamud.Interface.FontAwesomeIcon.ListUl.ToIconString();
+                ImGui.PushFont(UiBuilder.IconFont);
+                var iconSize2 = ImGui.CalcTextSize(iconStr2);
+                var yIcon2 = rectMin2.Y + ((rectMax2.Y - rectMin2.Y) - iconSize2.Y) / 2f;
+                var xIcon2 = rectMin2.X + ImGui.GetStyle().FramePadding.X;
+                draw2.AddText(new System.Numerics.Vector2(xIcon2, yIcon2), ImGui.GetColorU32(ImGuiCol.Text), iconStr2);
+                ImGui.PopFont();
+                ImGui.PopStyleColor(3);
+                if (ImGui.IsItemHovered()) { ImGui.BeginTooltip(); ImGui.TextUnformatted("Open plugin changelog"); ImGui.EndTooltip(); }
+                if (clicked2) { _app.OpenChangelogWindow(); }
                 ImGui.EndTabItem();
             }
 

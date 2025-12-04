@@ -12,5 +12,6 @@ public sealed class PluginConfig
     public bool ShowVipOverlay { get; set; } = false;
     public bool ShowVipNameplateHook { get; set; } = true;
     public ushort VipStarColorKey { get; set; } = 43;
+    public string? LastInstalledVersion { get; set; }
     public System.Collections.Generic.Dictionary<string, CharacterProfile> ProfilesByCharacter { get; set; } = new(System.StringComparer.Ordinal);
 }

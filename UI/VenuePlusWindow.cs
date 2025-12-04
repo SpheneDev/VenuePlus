@@ -58,7 +58,7 @@ public sealed class VenuePlusWindow : Window, IDisposable
         SizeCondition = ImGuiCond.FirstUseEver;
         SizeConstraints = new WindowSizeConstraints
         {
-            MinimumSize = new Vector2(520, 300),
+            MinimumSize = new Vector2(760, 300),
             MaximumSize = new Vector2(1600, 1200)
         };
         RespectCloseHotkey = true;
@@ -349,7 +349,7 @@ public sealed class VenuePlusWindow : Window, IDisposable
         var bottomLeftW = (availX - gearW - spacingX * 2f) * 0.5f;
         var bottomRightW = bottomLeftW;
         ImGui.BeginDisabled(!(_app.IsOwnerCurrentClub || _app.IsPowerStaff));
-        if (ImGui.Button("Account Settings", new Vector2(bottomLeftW, 0)))
+        if (ImGui.Button("Account Info", new Vector2(bottomLeftW, 0)))
         {
             _app.OpenSettingsWindowAccount();
             _showUserSettingsPanel = false;
