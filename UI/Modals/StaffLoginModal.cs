@@ -13,7 +13,7 @@ public sealed class StaffLoginModal
     public void Draw(VenuePlusApp app)
     {
         app.UpdateCurrentCharacterCache();
-        if (ImGui.BeginPopupModal("Staff Login", flags: ImGuiWindowFlags.AlwaysAutoResize))
+        if (ImGui.BeginPopupModal("Login", flags: ImGuiWindowFlags.AlwaysAutoResize))
         {
             var info = app.GetCurrentCharacter();
             var name = info?.name ?? "--";

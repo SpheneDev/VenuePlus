@@ -189,7 +189,7 @@ public sealed class SettingsWindow : Window, System.IDisposable
         ImGui.Spacing();
         ImGui.TextDisabled("Security");
         ImGui.SameLine();
-        DrawHelpIcon("Change your staff login password.");
+        DrawHelpIcon("Change your login password.");
         ImGui.Spacing();
 
         ImGui.PushItemWidth(150f);
@@ -208,7 +208,7 @@ public sealed class SettingsWindow : Window, System.IDisposable
             });
         }
         ImGui.SameLine();
-        DrawHelpIcon("Updates the password used to login as staff.");
+        DrawHelpIcon("Updates the password used to login.");
         if (!string.IsNullOrEmpty(_staffPassStatus)) ImGui.TextUnformatted(_staffPassStatus);
     }
 

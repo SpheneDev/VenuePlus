@@ -225,7 +225,7 @@ public sealed class VenuePlusWindow : Window, IDisposable
                     ImGui.BeginDisabled(!_app.RemoteConnected);
                     if (ImGui.Button("Register Account", new Vector2(-1f, 0))) { _registerModal.Open(); }
                     ImGui.EndDisabled();
-                    if (ImGui.IsItemHovered()) { ImGui.BeginTooltip(); ImGui.TextUnformatted("Create a staff account for this character"); ImGui.EndTooltip(); }
+                    if (ImGui.IsItemHovered()) { ImGui.BeginTooltip(); ImGui.TextUnformatted("Create an account for this character"); ImGui.EndTooltip(); }
                 }
             }
             else
@@ -241,7 +241,7 @@ public sealed class VenuePlusWindow : Window, IDisposable
                 ImGui.BeginDisabled(!_app.RemoteConnected);
                 if (!_app.IsPowerStaff && ImGui.Button("Register", new Vector2(-1f, 0))) { _registerModal.Open(); }
                 ImGui.EndDisabled();
-                if (ImGui.IsItemHovered()) { ImGui.BeginTooltip(); ImGui.TextUnformatted("Create a new staff account"); ImGui.EndTooltip(); }
+                if (ImGui.IsItemHovered()) { ImGui.BeginTooltip(); ImGui.TextUnformatted("Create a new account"); ImGui.EndTooltip(); }
             }
         }
 
@@ -394,7 +394,7 @@ public sealed class VenuePlusWindow : Window, IDisposable
             ImGui.Spacing();
             var halfN = (ImGui.GetContentRegionAvail().X - ImGui.GetStyle().ItemSpacing.X) * 0.5f;
             ImGui.Spacing();
-            ImGui.TextDisabled("Tip: Right-click your Username in the left panel to copy your UID after login.");
+            ImGui.TextDisabled("Tip: Copy your UID in the left panel to share it with Venue Owners to be invited to a venue.");
         }
         else if (_showUserSettingsPanel)
         {
@@ -415,7 +415,6 @@ public sealed class VenuePlusWindow : Window, IDisposable
             ImGui.Spacing();
             ImGui.TextUnformatted("Tips");
             ImGui.Separator();
-            ImGui.BulletText("Right-click your Username to copy your UID.");
             ImGui.BulletText("Use Settings to manage account and plugin options.");
             ImGui.BulletText("VIPs: add 4/12 weeks or lifetime durations, purge expired.");
             ImGui.BulletText("Venue Plus can be opened with /v+ or /venueplus.");
@@ -469,6 +468,7 @@ public sealed class VenuePlusWindow : Window, IDisposable
             {
             if (ImGui.BeginTabItem("VIPs"))
             {
+                ImGui.BeginChild("VipTabContent", new Vector2(0, ImGui.GetContentRegionAvail().Y), false);
                 _djList.CloseAddForm();
                 _staffList.CloseInviteInline();
                 ImGui.Spacing();
@@ -500,16 +500,19 @@ public sealed class VenuePlusWindow : Window, IDisposable
                 }
                 ImGui.Separator();
                 _vipTable.Draw(_app, _filter);
+                ImGui.EndChild();
                 ImGui.EndTabItem();
             }
             if (_app.HasStaffSession)
             {
                 if (ImGui.BeginTabItem("DJs"))
                 {
+                    ImGui.BeginChild("DjsTabContent", new Vector2(0, ImGui.GetContentRegionAvail().Y), false);
                     _vipTable.CloseAddForm();
                     _staffList.CloseInviteInline();
                     var canManageDj = _app.IsOwnerCurrentClub || (_app.HasStaffSession && _app.StaffCanManageUsers);
                     _djList.Draw(_app);
+                    ImGui.EndChild();
                     ImGui.EndTabItem();
                 }
             }
@@ -517,6 +520,7 @@ public sealed class VenuePlusWindow : Window, IDisposable
             {
                 if (ImGui.BeginTabItem("Staff"))
                 {
+                    ImGui.BeginChild("StaffTabContent", new Vector2(0, ImGui.GetContentRegionAvail().Y), false);
                     _vipTable.CloseAddForm();
                     _djList.CloseAddForm();
                     if (_staffLastRefresh == System.DateTimeOffset.MinValue)
@@ -525,6 +529,7 @@ public sealed class VenuePlusWindow : Window, IDisposable
                         _staffLastRefresh = System.DateTimeOffset.UtcNow;
                     }
                     _staffList.Draw(_app);
+                    ImGui.EndChild();
                     ImGui.EndTabItem();
                 }
             }
@@ -532,19 +537,23 @@ public sealed class VenuePlusWindow : Window, IDisposable
             {
                 if (ImGui.BeginTabItem("Roles"))
                 {
+                    ImGui.BeginChild("RolesTabContent", new Vector2(0, ImGui.GetContentRegionAvail().Y), false);
                     _vipTable.CloseAddForm();
                     _djList.CloseAddForm();
                     _staffList.CloseInviteInline();
                     _jobsPanel.Draw(_app);
+                    ImGui.EndChild();
                     ImGui.EndTabItem();
                 }
             }
             if (ImGui.BeginTabItem("Venue Settings"))
             {
+                ImGui.BeginChild("SettingsTabContent", new Vector2(0, ImGui.GetContentRegionAvail().Y), false);
                 _vipTable.CloseAddForm();
                 _djList.CloseAddForm();
                 _staffList.CloseInviteInline();
                 _settingsPanel.Draw(_app);
+                ImGui.EndChild();
                 ImGui.EndTabItem();
             }
             ImGui.EndTabBar();
