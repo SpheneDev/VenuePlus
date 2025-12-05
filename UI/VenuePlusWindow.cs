@@ -246,13 +246,7 @@ public sealed class VenuePlusWindow : Window, IDisposable
         }
 
 
-        var btnH_top = ImGui.GetFrameHeight();
-        var spacingY_top = style.ItemSpacing.Y;
-        var extraRows_top = _app.HasStaffSession ? 1 : 0;
-        var bottomBlockH_top = btnH_top + (extraRows_top > 0 ? (btnH_top + spacingY_top) : 0f);
-        var fudgeTop = 10f;
-        var topH = MathF.Max(0f, ImGui.GetContentRegionAvail().Y - bottomBlockH_top - fudgeTop);
-        ImGui.BeginChild("LeftTopContent", new Vector2(0, topH), false);
+        
         if (_app.HasStaffSession)
         {
             ImGui.TextUnformatted("User");
@@ -319,51 +313,56 @@ public sealed class VenuePlusWindow : Window, IDisposable
             {
                 if (ImGui.Button("Venues List", new Vector2(-1f, 0))) { _app.OpenVenuesListWindow(); }
                 if (ImGui.IsItemHovered()) { ImGui.BeginTooltip(); ImGui.TextUnformatted("My Venues List"); ImGui.EndTooltip(); }
+                var availTop = ImGui.GetContentRegionAvail().X;
+                var halfTop = (availTop - style.ItemSpacing.X) * 0.5f;
+                if (ImGui.Button("Register Venue", new Vector2(halfTop, 0))) { _registerClubModal.Open(); }
+                if (ImGui.IsItemHovered()) { ImGui.BeginTooltip(); ImGui.TextUnformatted("Create a new venue"); ImGui.EndTooltip(); }
+                ImGui.SameLine();
+                if (ImGui.Button("Join Venue", new Vector2(halfTop, 0))) { _joinClubModal.Open(); }
+                if (ImGui.IsItemHovered()) { ImGui.BeginTooltip(); ImGui.TextUnformatted("Join an existing venue"); ImGui.EndTooltip(); }
+                ImGui.Spacing();
             }
             ImGui.PopItemWidth();
         }
-        ImGui.TextUnformatted("Server:");
+        
+        var btnH = ImGui.GetFrameHeight();
+        var spacingY = style.ItemSpacing.Y;
+        var textH = ImGui.GetTextLineHeightWithSpacing();
+        var bottomH = textH + spacingY + btnH;
+        var offsetY = MathF.Max(0f, ImGui.GetContentRegionAvail().Y - bottomH);
+        ImGui.SetCursorPosY(ImGui.GetCursorPosY() + offsetY);
+        ImGui.TextUnformatted("Server Status:");
         ImGui.SameLine();
         var statusTextL = _app.RemoteConnected ? "Online" : "Offline";
         var statusColorL = _app.RemoteConnected ? new System.Numerics.Vector4(0.2f, 0.85f, 0.2f, 1f) : new System.Numerics.Vector4(0.9f, 0.25f, 0.25f, 1f);
         ImGui.PushStyleColor(ImGuiCol.Text, statusColorL);
         ImGui.TextUnformatted(statusTextL);
         ImGui.PopStyleColor();
-
-        ImGui.EndChild();
-        var btnH = ImGui.GetFrameHeight();
-        if (_app.HasStaffSession)
-        {
-            var availTop = ImGui.GetContentRegionAvail().X;
-            var halfTop = (availTop - style.ItemSpacing.X) * 0.5f;
-            if (ImGui.Button("Register Venue", new Vector2(halfTop, 0))) { _registerClubModal.Open(); }
-            if (ImGui.IsItemHovered()) { ImGui.BeginTooltip(); ImGui.TextUnformatted("Create a new venue"); ImGui.EndTooltip(); }
-            ImGui.SameLine();
-            if (ImGui.Button("Join Venue", new Vector2(halfTop, 0))) { _joinClubModal.Open(); }
-            if (ImGui.IsItemHovered()) { ImGui.BeginTooltip(); ImGui.TextUnformatted("Join an existing venue"); ImGui.EndTooltip(); }
-            ImGui.Spacing();
-        }
+        ImGui.Spacing();
         var availX = ImGui.GetContentRegionAvail().X;
         var spacingX = style.ItemSpacing.X;
         var gearW = btnH + style.FramePadding.X * 2f;
-        var bottomLeftW = (availX - gearW - spacingX * 2f) * 0.5f;
-        var bottomRightW = bottomLeftW;
+        var iconW = gearW;
+        var logoutW = MathF.Max(0f, availX - (iconW + iconW + gearW) - spacingX * 3f);
         ImGui.BeginDisabled(!(_app.IsOwnerCurrentClub || _app.IsPowerStaff));
-        if (ImGui.Button("Account Info", new Vector2(bottomLeftW, 0)))
+        ImGui.PushFont(UiBuilder.IconFont);
+        ImGui.SetWindowFontScale(0.9f);
+        if (ImGui.Button(FontAwesomeIcon.IdCard.ToIconString() + "##account_icon_bottom", new Vector2(iconW, btnH)))
         {
             _app.OpenSettingsWindowAccount();
             _showUserSettingsPanel = false;
         }
-        if (ImGui.IsItemHovered()) { ImGui.BeginTooltip(); ImGui.TextUnformatted("Manage your account"); ImGui.EndTooltip(); }
-        ImGui.SameLine();
-        if (ImGui.Button("Logout", new Vector2(bottomRightW, 0)))
-        {
-            _app.LogoutAll();
-            _showUserSettingsPanel = false;
-            _showStaffForm = false; _adminPinInput = string.Empty; _staffUserInput = string.Empty; _staffPassInput = string.Empty; _adminLoginStatus = string.Empty; _staffLoginStatus = string.Empty;
-        }
-        if (ImGui.IsItemHovered()) { ImGui.BeginTooltip(); ImGui.TextUnformatted("Logout from all sessions"); ImGui.EndTooltip(); }
+        ImGui.SetWindowFontScale(1f);
+        ImGui.PopFont();
+        if (ImGui.IsItemHovered()) { ImGui.BeginTooltip(); ImGui.TextUnformatted("Account Info"); ImGui.EndTooltip(); }
         ImGui.EndDisabled();
+        ImGui.SameLine();
+        ImGui.PushFont(UiBuilder.IconFont);
+        ImGui.SetWindowFontScale(0.9f);
+        if (ImGui.Button(FontAwesomeIcon.Toolbox.ToIconString() + "##qol_icon_bottom", new Vector2(iconW, btnH))) { _app.OpenQolToolsWindow(); }
+        ImGui.SetWindowFontScale(1f);
+        ImGui.PopFont();
+        if (ImGui.IsItemHovered()) { ImGui.BeginTooltip(); ImGui.TextUnformatted("QOL Tools"); ImGui.EndTooltip(); }
         ImGui.SameLine();
         ImGui.PushFont(UiBuilder.IconFont);
         ImGui.SetWindowFontScale(0.9f);
@@ -374,8 +373,18 @@ public sealed class VenuePlusWindow : Window, IDisposable
         ImGui.SetWindowFontScale(1f);
         ImGui.PopFont();
         if (ImGui.IsItemHovered()) { ImGui.BeginTooltip(); ImGui.TextUnformatted("Open Settings"); ImGui.EndTooltip(); }
+        ImGui.SameLine();
+        ImGui.BeginDisabled(!(_app.IsOwnerCurrentClub || _app.IsPowerStaff));
+        if (ImGui.Button("Logout", new Vector2(logoutW, 0)))
+        {
+            _app.LogoutAll();
+            _showUserSettingsPanel = false;
+            _showStaffForm = false; _adminPinInput = string.Empty; _staffUserInput = string.Empty; _staffPassInput = string.Empty; _adminLoginStatus = string.Empty; _staffLoginStatus = string.Empty;
+        }
+        if (ImGui.IsItemHovered()) { ImGui.BeginTooltip(); ImGui.TextUnformatted("Logout from all sessions"); ImGui.EndTooltip(); }
+        ImGui.EndDisabled();
         ImGui.EndChild();
-
+        
         ImGui.SameLine();
         ImGui.BeginChild("RightPanel", new Vector2(rightW, 0), true);
         var canView = _app.HasStaffSession;
@@ -636,6 +645,7 @@ public sealed class VenuePlusWindow : Window, IDisposable
         if (ImGui.Button(label)) onClick();
         ImGui.SameLine();
     }
+
 
     public void OpenAddDialogWithPrefill(string name, string world, VenuePlus.State.VipDuration duration)
     {

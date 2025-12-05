@@ -59,6 +59,8 @@ public sealed class VenuePlusApp : IDisposable
     public event Action<string>? Notification;
     public event Action? OpenVenuesListRequested;
     public event Action? OpenChangelogRequested;
+    public event Action? OpenQolToolsRequested;
+    public event Action? OpenWhisperRequested;
 
     public VenuePlusApp(string? vipDataPath = null, string? pluginConfigPath = null, IPluginLog? log = null, IClientState? clientState = null, IObjectTable? objectTable = null)
     {
@@ -275,6 +277,16 @@ public sealed class VenuePlusApp : IDisposable
     public void OpenChangelogWindow()
     {
         try { OpenChangelogRequested?.Invoke(); } catch { }
+    }
+
+    public void OpenWhisperWindow()
+    {
+        try { OpenWhisperRequested?.Invoke(); } catch { }
+    }
+
+    public void OpenQolToolsWindow()
+    {
+        try { OpenQolToolsRequested?.Invoke(); } catch { }
     }
 
     public string? GetLastInstalledVersion()

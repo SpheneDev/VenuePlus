@@ -29,11 +29,14 @@ public sealed class Plugin : IDalamudPlugin
     private readonly UpdatePromptWindow _updatePromptWindow;
     private readonly WhisperWindow _whisperWindow;
     private readonly WhisperPresetEditorWindow _whisperEditorWindow;
+    private readonly QolToolsWindow _qolToolsWindow;
     private readonly ChangelogService _changelogService;
     private readonly string _currentVersion;
     private readonly Action _openSettingsHandler;
     private readonly Action _openVipListHandler;
     private readonly Action _openChangelogHandler;
+    private readonly Action _openWhisperHandler;
+    private readonly Action _openQolToolsHandler;
     private readonly IContextMenu _contextMenu;
     private readonly ICommandManager _commandManager;
     private readonly IPluginLog _log;
@@ -80,12 +83,18 @@ public sealed class Plugin : IDalamudPlugin
         _windowSystem.AddWindow(_updatePromptWindow);
         _windowSystem.AddWindow(_whisperWindow);
         _windowSystem.AddWindow(_whisperEditorWindow);
+        _qolToolsWindow = new QolToolsWindow(_app);
+        _windowSystem.AddWindow(_qolToolsWindow);
 
         _openSettingsHandler = () => { _settingsWindow.IsOpen = true; };
         _openVipListHandler = () => { _vipListWindow.IsOpen = true; };
+        _openWhisperHandler = () => { _whisperWindow.IsOpen = true; };
         _app.OpenSettingsRequested += _openSettingsHandler;
         _app.OpenVipListRequested += _openVipListHandler;
+        _app.OpenWhisperRequested += _openWhisperHandler;
         _app.OpenVenuesListRequested += () => { _venuesListWindow.IsOpen = true; };
+        _openQolToolsHandler = () => { _qolToolsWindow.IsOpen = true; };
+        _app.OpenQolToolsRequested += _openQolToolsHandler;
 
         _pluginInterface.UiBuilder.Draw += UiBuilderOnDraw;
         _pluginInterface.UiBuilder.OpenConfigUi += UiBuilderOnOpenConfigUi;
@@ -145,6 +154,9 @@ public sealed class Plugin : IDalamudPlugin
         try { _app.OpenSettingsRequested -= _openSettingsHandler; } catch { }
         try { _app.OpenVipListRequested -= _openVipListHandler; } catch { }
         try { _app.OpenChangelogRequested -= _openChangelogHandler; } catch { }
+        try { _app.OpenWhisperRequested -= _openWhisperHandler; } catch { }
+        try { _qolToolsWindow.IsOpen = false; } catch { }
+        try { _app.OpenQolToolsRequested -= _openQolToolsHandler; } catch { }
         try { _nameplateVipService.Dispose(); } catch { }
         try { _window.Dispose(); } catch { }
         try { _app.DisconnectRemoteAsync().GetAwaiter().GetResult(); } catch { }
