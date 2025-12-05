@@ -8,12 +8,16 @@ public sealed class RegisterModal
     private bool _open;
     private string _password = string.Empty;
     private string _status = string.Empty;
+    private System.DateTimeOffset _submittedAt;
+    private bool _delayCloseRequested;
 
     public void Open()
     {
         _password = string.Empty;
         _status = string.Empty;
         _open = true;
+        _submittedAt = System.DateTimeOffset.MinValue;
+        _delayCloseRequested = false;
     }
 
     public void Draw(VenuePlusApp app)
@@ -38,11 +42,13 @@ public sealed class RegisterModal
                 if (ImGui.Button("Register"))
                 {
                     _status = "Submitting...";
+                    var n = name; var w = world; var p = _password;
+                    _delayCloseRequested = true;
+                    _submittedAt = System.DateTimeOffset.UtcNow;
                     System.Threading.Tasks.Task.Run(async () =>
                     {
-                        var ok = info.HasValue && await app.RegisterCharacterAsync(name, world, _password);
+                        var ok = await app.RegisterCharacterAsync(n, w, p);
                         _status = ok ? "Registration successful" : "Registration failed";
-                        if (ok) _open = false;
                     });
                 }
                 ImGui.EndDisabled();
@@ -53,9 +59,11 @@ public sealed class RegisterModal
                     _password = string.Empty;
                     _status = string.Empty;
                     _open = false;
+                    _delayCloseRequested = false;
                 }
                 if (ImGui.IsItemHovered()) { ImGui.BeginTooltip(); ImGui.TextUnformatted("Close this dialog"); ImGui.EndTooltip(); }
                 if (!string.IsNullOrEmpty(_status)) ImGui.TextUnformatted(_status);
+                if (_delayCloseRequested && System.DateTimeOffset.UtcNow >= _submittedAt.AddSeconds(2)) _open = false;
                 ImGui.EndPopup();
             }
         }
