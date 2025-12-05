@@ -30,7 +30,7 @@ public sealed class VipListWindow : Window
 
     public override void Draw()
     {
-        ImGui.PushItemWidth(170f);
+        ImGui.PushItemWidth(200f);
         ImGui.InputTextWithHint("##vip_list_filter", "Search by name or homeworld", ref _filter, 256);
         ImGui.PopItemWidth();
         ImGui.Separator();

@@ -24,20 +24,13 @@ public sealed class WhisperWindow : Window
     private Vector2 _lastPos;
     private Vector2 _lastSize;
 
-    public WhisperWindow(VenuePlusApp app, ITargetManager targetManager, ICommandManager commandManager, IPluginLog log) : base("Whisper Helper")
+    public WhisperWindow(VenuePlusApp app, ITargetManager targetManager, ICommandManager commandManager, IPluginLog log) : base("Whisper Helper", ImGuiWindowFlags.AlwaysAutoResize)
     {
         _app = app;
         _targetManager = targetManager;
         _commandManager = commandManager;
         _log = log;
         _persistMessage = _app.KeepWhisperMessage;
-        Size = new Vector2(360f, 280f);
-        SizeCondition = ImGuiCond.FirstUseEver;
-        SizeConstraints = new WindowSizeConstraints
-        {
-            MinimumSize = new Vector2(240f, 280f),
-            MaximumSize = new Vector2(float.MaxValue, float.MaxValue)
-        };
         RespectCloseHotkey = true;
     }
     public void SetEditor(WhisperPresetEditorWindow editor)
@@ -69,102 +62,97 @@ public sealed class WhisperWindow : Window
         var target = _targetManager.Target as IPlayerCharacter;
         var targetName = target?.Name.TextValue ?? "—";
         var worldName = target?.HomeWorld.Value.Name.ToString() ?? "—";
-        ImGui.TextUnformatted("Target");
-        ImGui.SameLine();
+        ImGui.TextUnformatted("Target:");
+        ImGui.SameLine(0f, ImGui.GetStyle().ItemSpacing.X);
         var targetStr = targetName + "@" + worldName;
         var c = new Vector4(0.58f, 0.72f, 0.98f, 1f);
         ImGui.PushStyleColor(ImGuiCol.Text, c);
         ImGui.TextUnformatted(targetStr);
         ImGui.PopStyleColor();
-        ImGui.Separator();
-
-        ImGui.PushItemWidth(-1);
-        var style = ImGui.GetStyle();
-        var frameH = ImGui.GetFrameHeight();
-        var reserved = frameH * 3.8f + style.ItemSpacing.Y * 9f + 10f;
-        var msgH = System.Math.Max(80f, ImGui.GetContentRegionAvail().Y - reserved);
-        ImGui.InputTextMultiline("##whisper_msg_text", ref _message, 500, new Vector2(-1, msgH));
-        ImGui.PopItemWidth();
-
-        var presets = _app.GetWhisperPresets();
-        var currentLabel = (_presetIndex >= 0 && _presetIndex < presets.Length) ? presets[_presetIndex].Name : "Select preset";
-        ImGui.SetNextItemWidth(220f);
-        if (ImGui.BeginCombo("##whisper_preset_combo", currentLabel))
-        {
-            for (int i = 0; i < presets.Length; i++)
-            {
-                var sel = i == _presetIndex;
-                if (ImGui.Selectable(presets[i].Name, sel))
-                {
-                    _presetIndex = i;
-                }
-            }
-            ImGui.EndCombo();
-        }
-        var spacing = ImGui.GetStyle().ItemSpacing.X;
-        var btnSize = new Vector2(100f, 0f);
-        var totalBtnW = btnSize.X * 3f + spacing * 2f;
-        ImGui.SameLine();
-        var avail = ImGui.GetContentRegionAvail().X;
-        if (avail < totalBtnW)
-        {
-            ImGui.NewLine();
-        }
-        if (ImGui.Button("Apply", btnSize))
-        {
-            if (_presetIndex >= 0 && _presetIndex < presets.Length)
-            {
-                _message = presets[_presetIndex].Text;
-            }
-        }
-        ImGui.SameLine();
-        if (_editor != null && ImGui.Button("Create preset", btnSize))
-        {
-            var text = _message?.Trim() ?? string.Empty;
-            _editor.OpenCreate(text);
-        }
-        var canDelete = _presetIndex >= 0 && _presetIndex < presets.Length;
-        if (!canDelete) ImGui.BeginDisabled();
-        if (ImGui.Button("Delete preset", btnSize))
-        {
-            if (_presetIndex >= 0)
-            {
-                _ = _app.RemoveWhisperPresetAtAsync(_presetIndex);
-                _presetIndex = -1;
-            }
-        }
-        if (!canDelete) ImGui.EndDisabled();
-        ImGui.SameLine();
-        var canEdit = _presetIndex >= 0 && _presetIndex < presets.Length;
-        if (!canEdit || _editor == null) ImGui.BeginDisabled();
-        if (ImGui.Button("Edit", btnSize))
-        {
-            _editor!.OpenForIndex(_presetIndex);
-        }
-        if (!canEdit || _editor == null) ImGui.EndDisabled();
-
+        ImGui.InputTextMultiline("##whisper_msg_text", ref _message, 500, new Vector2(300f, 200f));
         var chk = _persistMessage;
-        if (ImGui.Checkbox("Keep message after send", ref chk))
+        if (ImGui.Checkbox("Keep Message", ref chk))
         {
             _persistMessage = chk;
             _ = _app.SetKeepWhisperMessageAsync(chk);
         }
         ImGui.SameLine();
         IconDraw.IconText(Dalamud.Interface.FontAwesomeIcon.QuestionCircle, "Keep the text after sending");
+        ImGui.Separator();
+        
+        ImGui.PushStyleColor(ImGuiCol.Header, 0x00ffffff);
+        ImGui.SetNextItemOpen(true, ImGuiCond.Appearing);
+        if (ImGui.CollapsingHeader("Presets"))
+        {
+            var presets = _app.GetWhisperPresets();
+            var currentLabel = (_presetIndex >= 0 && _presetIndex < presets.Length) ? presets[_presetIndex].Name : "Select preset";
+            var style = ImGui.GetStyle();
+            var useBtnW = 40f;
+            var comboW = System.MathF.Max(100f, ImGui.GetContentRegionAvail().X - useBtnW - style.ItemSpacing.X);
+            ImGui.SetNextItemWidth(comboW);
+            if (ImGui.BeginCombo("##whisper_preset_combo", currentLabel))
+            {
+                for (int i = 0; i < presets.Length; i++)
+                {
+                    var sel = i == _presetIndex;
+                    if (ImGui.Selectable(presets[i].Name, sel))
+                    {
+                        _presetIndex = i;
+                    }
+                }
+                ImGui.EndCombo();
+            }
+            ImGui.SameLine(0f, style.ItemSpacing.X);
+            if (ImGui.Button("Use", new Vector2(useBtnW, 0)))
+            {
+                if (_presetIndex >= 0 && _presetIndex < presets.Length)
+                {
+                    _message = presets[_presetIndex].Text;
+                }
+            }
 
+            var avail = ImGui.GetContentRegionAvail().X;
+            var spacingX = style.ItemSpacing.X;
+            var perW = System.MathF.Max(60f, (avail - spacingX * 2f) / 3f);
+            if (_editor != null)
+            {
+                if (ImGui.Button("Create", new Vector2(perW, 0)))
+                {
+                    var text = _message?.Trim() ?? string.Empty;
+                    _editor.OpenCreate(text);
+                }
+                ImGui.SameLine();
+            }
+            var canDelete = _presetIndex >= 0 && _presetIndex < presets.Length;
+            if (!canDelete) ImGui.BeginDisabled();
+            if (ImGui.Button("Delete", new Vector2(perW, 0)))
+            {
+                if (_presetIndex >= 0)
+                {
+                    _ = _app.RemoveWhisperPresetAtAsync(_presetIndex);
+                    _presetIndex = -1;
+                }
+            }
+            if (!canDelete) ImGui.EndDisabled();
+            ImGui.SameLine();
+            var canEdit = _presetIndex >= 0 && _presetIndex < presets.Length && _editor != null;
+            if (!canEdit) ImGui.BeginDisabled();
+            if (ImGui.Button("Edit", new Vector2(perW, 0)))
+            {
+                _editor!.OpenForIndex(_presetIndex);
+            }
+            if (!canEdit) ImGui.EndDisabled();
+        }
+        ImGui.PopStyleColor();
+        ImGui.Separator();
         var canSend = target != null && !string.IsNullOrWhiteSpace(_message);
-        if (!canSend)
-        {
-            ImGui.BeginDisabled();
-        }
-        var clicked = ImGui.Button("Send");
-        if (!canSend)
-        {
-            ImGui.EndDisabled();
-        }
-
+        var styleBottom = ImGui.GetStyle();
+        var half = (ImGui.GetContentRegionAvail().X - styleBottom.ItemSpacing.X) * 0.5f;
+        if (!canSend) ImGui.BeginDisabled();
+        var clicked = ImGui.Button("Send", new Vector2(half, 0));
+        if (!canSend) ImGui.EndDisabled();
         ImGui.SameLine();
-        if (ImGui.Button("Clear"))
+        if (ImGui.Button("Clear", new Vector2(half, 0)))
         {
             _message = string.Empty;
         }
