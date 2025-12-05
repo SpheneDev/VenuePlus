@@ -14,4 +14,12 @@ public sealed class PluginConfig
     public ushort VipStarColorKey { get; set; } = 43;
     public string? LastInstalledVersion { get; set; }
     public System.Collections.Generic.Dictionary<string, CharacterProfile> ProfilesByCharacter { get; set; } = new(System.StringComparer.Ordinal);
+    public bool KeepWhisperMessage { get; set; } = false;
+    public System.Collections.Generic.List<WhisperPreset> WhisperPresets { get; set; } = new();
+}
+
+public sealed class WhisperPreset
+{
+    public string Name { get; set; } = string.Empty;
+    public string Text { get; set; } = string.Empty;
 }

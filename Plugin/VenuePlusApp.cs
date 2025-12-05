@@ -445,6 +445,8 @@ public sealed class VenuePlusApp : IDisposable
     public bool ShowVipOverlay => _pluginConfigService.Current.ShowVipOverlay;
     public bool ShowVipNameplateHook => _pluginConfigService.Current.ShowVipNameplateHook;
     public ushort VipStarColorKey => _pluginConfigService.Current.VipStarColorKey;
+    public bool KeepWhisperMessage => _pluginConfigService.Current.KeepWhisperMessage;
+    public VenuePlus.Configuration.WhisperPreset[] GetWhisperPresets() => _pluginConfigService.Current.WhisperPresets?.ToArray() ?? System.Array.Empty<VenuePlus.Configuration.WhisperPreset>();
 
     public System.Threading.Tasks.Task SetShowVipOverlayAsync(bool enable)
     {
@@ -464,6 +466,101 @@ public sealed class VenuePlusApp : IDisposable
         _pluginConfigService.Current.VipStarColorKey = colorKey;
         _pluginConfigService.Save();
         return System.Threading.Tasks.Task.CompletedTask;
+    }
+
+    public System.Threading.Tasks.Task SetKeepWhisperMessageAsync(bool enable)
+    {
+        _pluginConfigService.Current.KeepWhisperMessage = enable;
+        _pluginConfigService.Save();
+        return System.Threading.Tasks.Task.CompletedTask;
+    }
+
+    public System.Threading.Tasks.Task<bool> AddWhisperPresetAsync(string text)
+    {
+        if (string.IsNullOrWhiteSpace(text)) return System.Threading.Tasks.Task.FromResult(false);
+        var trimmed = text.Trim();
+        if (trimmed.Length == 0) return System.Threading.Tasks.Task.FromResult(false);
+        if (System.Text.Encoding.UTF8.GetByteCount(trimmed) > 500) return System.Threading.Tasks.Task.FromResult(false);
+        var list = _pluginConfigService.Current.WhisperPresets ?? new System.Collections.Generic.List<VenuePlus.Configuration.WhisperPreset>();
+        if (!list.Exists(p => string.Equals(p.Text, trimmed, System.StringComparison.Ordinal)))
+        {
+            var name = GeneratePresetName(trimmed, list.Count + 1);
+            list.Add(new VenuePlus.Configuration.WhisperPreset { Name = name, Text = trimmed });
+            list.Sort((a, b) => string.Compare(a.Name, b.Name, System.StringComparison.Ordinal));
+            _pluginConfigService.Current.WhisperPresets = list;
+            _pluginConfigService.Save();
+        }
+        return System.Threading.Tasks.Task.FromResult(true);
+    }
+
+    public System.Threading.Tasks.Task<bool> RemoveWhisperPresetAtAsync(int index)
+    {
+        var list = _pluginConfigService.Current.WhisperPresets ?? new System.Collections.Generic.List<VenuePlus.Configuration.WhisperPreset>();
+        if (index < 0 || index >= list.Count) return System.Threading.Tasks.Task.FromResult(false);
+        list.RemoveAt(index);
+        _pluginConfigService.Current.WhisperPresets = list;
+        _pluginConfigService.Save();
+        return System.Threading.Tasks.Task.FromResult(true);
+    }
+
+    public System.Threading.Tasks.Task<bool> UpdateWhisperPresetAtAsync(int index, string text)
+    {
+        var list = _pluginConfigService.Current.WhisperPresets ?? new System.Collections.Generic.List<VenuePlus.Configuration.WhisperPreset>();
+        if (index < 0 || index >= list.Count) return System.Threading.Tasks.Task.FromResult(false);
+        var trimmed = text?.Trim() ?? string.Empty;
+        if (string.IsNullOrWhiteSpace(trimmed)) return System.Threading.Tasks.Task.FromResult(false);
+        if (System.Text.Encoding.UTF8.GetByteCount(trimmed) > 500) return System.Threading.Tasks.Task.FromResult(false);
+        var item = list[index];
+        item.Text = trimmed;
+        list[index] = item;
+        list.Sort((a, b) => string.Compare(a.Name, b.Name, System.StringComparison.Ordinal));
+        _pluginConfigService.Current.WhisperPresets = list;
+        _pluginConfigService.Save();
+        return System.Threading.Tasks.Task.FromResult(true);
+    }
+
+    public System.Threading.Tasks.Task<bool> UpdateWhisperPresetAtAsync(int index, string name, string text)
+    {
+        var list = _pluginConfigService.Current.WhisperPresets ?? new System.Collections.Generic.List<VenuePlus.Configuration.WhisperPreset>();
+        if (index < 0 || index >= list.Count) return System.Threading.Tasks.Task.FromResult(false);
+        var t = text?.Trim() ?? string.Empty;
+        var n = name?.Trim() ?? string.Empty;
+        if (string.IsNullOrWhiteSpace(t)) return System.Threading.Tasks.Task.FromResult(false);
+        if (string.IsNullOrWhiteSpace(n)) n = GeneratePresetName(t, index + 1);
+        if (System.Text.Encoding.UTF8.GetByteCount(t) > 500) return System.Threading.Tasks.Task.FromResult(false);
+        list[index] = new VenuePlus.Configuration.WhisperPreset { Name = n, Text = t };
+        list.Sort((a, b) => string.Compare(a.Name, b.Name, System.StringComparison.Ordinal));
+        _pluginConfigService.Current.WhisperPresets = list;
+        _pluginConfigService.Save();
+        return System.Threading.Tasks.Task.FromResult(true);
+    }
+
+    public System.Threading.Tasks.Task<bool> CreateWhisperPresetAsync(string name, string text)
+    {
+        var t = text?.Trim() ?? string.Empty;
+        var n = name?.Trim() ?? string.Empty;
+        if (string.IsNullOrWhiteSpace(t)) return System.Threading.Tasks.Task.FromResult(false);
+        if (System.Text.Encoding.UTF8.GetByteCount(t) > 500) return System.Threading.Tasks.Task.FromResult(false);
+        if (string.IsNullOrWhiteSpace(n)) n = GeneratePresetName(t, 0);
+        var list = _pluginConfigService.Current.WhisperPresets ?? new System.Collections.Generic.List<VenuePlus.Configuration.WhisperPreset>();
+        if (!list.Exists(p => string.Equals(p.Name, n, System.StringComparison.Ordinal)))
+        {
+            list.Add(new VenuePlus.Configuration.WhisperPreset { Name = n, Text = t });
+            list.Sort((a, b) => string.Compare(a.Name, b.Name, System.StringComparison.Ordinal));
+            _pluginConfigService.Current.WhisperPresets = list;
+            _pluginConfigService.Save();
+        }
+        return System.Threading.Tasks.Task.FromResult(true);
+    }
+
+    private static string GeneratePresetName(string text, int index)
+    {
+        var trimmed = (text ?? string.Empty).Trim();
+        var max = 24;
+        var baseName = trimmed.Length <= max ? trimmed : trimmed.Substring(0, max);
+        baseName = baseName.Replace("\n", " ").Replace("\r", " ");
+        if (baseName.Length == 0) baseName = "Preset";
+        return baseName;
     }
 
     public bool IsOwnerCurrentClub => _myCreatedClubs != null && System.Array.IndexOf(_myCreatedClubs, CurrentClubId) >= 0;

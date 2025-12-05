@@ -27,6 +27,8 @@ public sealed class Plugin : IDalamudPlugin
     private readonly VenuesListWindow _venuesListWindow;
     private readonly ChangelogWindow _changelogWindow;
     private readonly UpdatePromptWindow _updatePromptWindow;
+    private readonly WhisperWindow _whisperWindow;
+    private readonly WhisperPresetEditorWindow _whisperEditorWindow;
     private readonly ChangelogService _changelogService;
     private readonly string _currentVersion;
     private readonly Action _openSettingsHandler;
@@ -59,6 +61,9 @@ public sealed class Plugin : IDalamudPlugin
 
         _window = new VenuePlusWindow(_app, _textureProvider);
         _vipTargetOverlay = new VenuePlus.UI.Components.VipTargetOverlay(_targetManager);
+        _whisperWindow = new WhisperWindow(_app, _targetManager, _commandManager, _log);
+        _whisperEditorWindow = new WhisperPresetEditorWindow(_app, _whisperWindow, _log);
+        _whisperWindow.SetEditor(_whisperEditorWindow);
         _nameplateVipService = new NameplateVipService(namePlateGui, _app);
         _settingsWindow = new SettingsWindow(_app, _textureProvider);
         _vipListWindow = new VipListWindow(_app);
@@ -73,6 +78,8 @@ public sealed class Plugin : IDalamudPlugin
         _windowSystem.AddWindow(_venuesListWindow);
         _windowSystem.AddWindow(_changelogWindow);
         _windowSystem.AddWindow(_updatePromptWindow);
+        _windowSystem.AddWindow(_whisperWindow);
+        _windowSystem.AddWindow(_whisperEditorWindow);
 
         _openSettingsHandler = () => { _settingsWindow.IsOpen = true; };
         _openVipListHandler = () => { _vipListWindow.IsOpen = true; };
@@ -96,6 +103,11 @@ public sealed class Plugin : IDalamudPlugin
             HelpMessage = "Open Venue Plus window",
             ShowInHelp = true
         });
+        _commandManager.AddHandler("/vpwhisper", new CommandInfo(OnWhisperCommand)
+        {
+            HelpMessage = "Open whisper window",
+            ShowInHelp = true
+        });
 
         _openChangelogHandler = () => { _changelogWindow.IsOpen = true; };
         _app.OpenChangelogRequested += _openChangelogHandler;
@@ -114,6 +126,7 @@ public sealed class Plugin : IDalamudPlugin
         _contextMenu.OnMenuOpened -= OnMenuOpened;
         _commandManager.RemoveHandler("/venueplus");
         _commandManager.RemoveHandler("/v+");
+        _commandManager.RemoveHandler("/vpwhisper");
         try { _pluginInterface.UiBuilder.Draw -= UiBuilderOnDraw; } catch { }
         try { _pluginInterface.UiBuilder.OpenConfigUi -= UiBuilderOnOpenConfigUi; } catch { }
         try { _pluginInterface.UiBuilder.OpenMainUi -= UiBuilderOnOpenMainUi; } catch { }
@@ -165,6 +178,12 @@ public sealed class Plugin : IDalamudPlugin
     {
         _log.Debug("/v+ invoked");
         _window.IsOpen = true;
+    }
+
+    private void OnWhisperCommand(string command, string args)
+    {
+        _log.Debug("/vpwhisper invoked");
+        _whisperWindow.IsOpen = true;
     }
 
     
