@@ -21,14 +21,9 @@ public sealed class WhisperPresetEditorWindow : Window
         _app = app;
         _whisper = whisper;
         _log = log;
-        Size = new Vector2(360f, 280f);
-        SizeCondition = ImGuiCond.FirstUseEver;
-        SizeConstraints = new WindowSizeConstraints
-        {
-            MinimumSize = new Vector2(240f, 280f),
-            MaximumSize = new Vector2(float.MaxValue, float.MaxValue)
-        };
-        Flags = ImGuiWindowFlags.NoMove | ImGuiWindowFlags.NoCollapse;
+        Size = new Vector2(250f, _whisper.WindowSize.Y);
+        SizeCondition = ImGuiCond.Always;
+        Flags = ImGuiWindowFlags.NoMove | ImGuiWindowFlags.NoCollapse | ImGuiWindowFlags.NoResize;
         RespectCloseHotkey = true;
     }
 
@@ -64,6 +59,11 @@ public sealed class WhisperPresetEditorWindow : Window
 
     public override void Draw()
     {
+        if (!_whisper.IsOpen)
+        {
+            IsOpen = false;
+            return;
+        }
         var vp = ImGui.GetMainViewport();
         var leftEdge = vp.WorkPos.X;
         var rightEdge = vp.WorkPos.X + vp.WorkSize.X;
@@ -76,7 +76,9 @@ public sealed class WhisperPresetEditorWindow : Window
         var atLeftEdge = wPos.X <= leftEdge + threshold;
         var atRightEdge = (wPos.X + wSize.X) >= rightEdge - threshold;
         var attachToLeft = atRightEdge;
-        var width = 320f;
+        var width = 250f;
+        Size = new Vector2(width, wSize.Y);
+        SizeCondition = ImGuiCond.Always;
         var anchorX = attachToLeft ? (wPos.X - width - offsetX) : (wPos.X + wSize.X + offsetX);
         var anchorY = wPos.Y + offsetY;
         var ownSizeX = ImGui.GetWindowSize().X;
@@ -90,6 +92,7 @@ public sealed class WhisperPresetEditorWindow : Window
         ImGui.InputText("Name", ref _name, 128);
         ImGui.Separator();
         var style2 = ImGui.GetStyle();
+        var spacingX = style2.ItemSpacing.X;
         var btnRowH = ImGui.GetFrameHeight() + style2.ItemSpacing.Y;
         var msgHeight = System.Math.Max(60f, ImGui.GetContentRegionAvail().Y - btnRowH);
         ImGui.InputTextMultiline("##preset_edit_text", ref _text, 2000, new Vector2(-1, msgHeight));
@@ -97,8 +100,10 @@ public sealed class WhisperPresetEditorWindow : Window
 
         var canSave = _index >= 0 && !string.IsNullOrWhiteSpace(_text?.Trim());
         var canCreate = _createMode && !string.IsNullOrWhiteSpace(_text?.Trim());
+        var availW = ImGui.GetContentRegionAvail().X;
+        var halfW = System.Math.Max(1f, (availW - spacingX) / 2f);
         if (!canSave && !canCreate) ImGui.BeginDisabled();
-        if (ImGui.Button("Save", new Vector2(100f, 0f)))
+        if (ImGui.Button("Save", new Vector2(halfW, 0f)))
         {
             if (_createMode)
             {
@@ -117,7 +122,7 @@ public sealed class WhisperPresetEditorWindow : Window
         }
         if (!canSave && !canCreate) ImGui.EndDisabled();
         ImGui.SameLine();
-        if (ImGui.Button("Close", new Vector2(100f, 0f)))
+        if (ImGui.Button("Close", new Vector2(halfW, 0f)))
         {
             IsOpen = false;
         }
@@ -142,11 +147,11 @@ public sealed class WhisperPresetEditorWindow : Window
         var atLeftEdge = whisperPos.X <= leftEdge + threshold;
         var atRightEdge = (whisperPos.X + whisperSize.X) >= rightEdge - threshold;
         var attachToLeft = atRightEdge;
-        var width = 320f;
+        var width = 250f;
         var anchorX = attachToLeft ? (whisperPos.X - width - offsetX) : (whisperPos.X + whisperSize.X + offsetX);
         var anchorY = whisperPos.Y + offsetY;
         var clampedX = System.Math.Clamp(anchorX, leftEdge, rightEdge - width);
-        var height = Size.HasValue ? Size.Value.Y : 180f;
+        var height = whisperSize.Y;
         var clampedY = System.Math.Clamp(anchorY, vp.WorkPos.Y, vp.WorkPos.Y + vp.WorkSize.Y - height);
         Position = new System.Numerics.Vector2(clampedX, clampedY);
         PositionCondition = ImGuiCond.Always;
