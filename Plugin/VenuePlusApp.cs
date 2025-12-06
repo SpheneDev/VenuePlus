@@ -575,7 +575,7 @@ public sealed class VenuePlusApp : IDisposable
         return baseName;
     }
 
-    public bool IsOwnerCurrentClub => _myCreatedClubs != null && System.Array.IndexOf(_myCreatedClubs, CurrentClubId) >= 0;
+    public bool IsOwnerCurrentClub => (string.Equals(_selfJob, "Owner", System.StringComparison.Ordinal)) || (_myCreatedClubs != null && System.Array.IndexOf(_myCreatedClubs, CurrentClubId) >= 0);
     private string? _currentClubLogoBase64;
     public string? CurrentClubLogoBase64 => _currentClubLogoBase64;
     private readonly System.Collections.Generic.Dictionary<string, string?> _clubLogosByClub = new(System.StringComparer.Ordinal);
@@ -1050,11 +1050,15 @@ public sealed class VenuePlusApp : IDisposable
 
     public string? CurrentStaffUid => _selfUid;
 
-    public async System.Threading.Tasks.Task<bool> UpdateJobRightsAsync(string name, bool addVip, bool removeVip, bool manageUsers, bool manageJobs, bool editVipDuration, bool addDj, bool removeDj, string colorHex = "#FFFFFF", string iconKey = "User")
+    public async System.Threading.Tasks.Task<bool> UpdateJobRightsAsync(string name, bool addVip, bool removeVip, bool manageUsers, bool manageJobs, bool editVipDuration, bool addDj, bool removeDj, string colorHex = "#FFFFFF", string iconKey = "User", int rank = 1)
     {
         var sess = _staffToken ?? string.Empty;
         if (string.IsNullOrWhiteSpace(sess)) return false;
-        var info = new JobRightsInfo { AddVip = addVip, RemoveVip = removeVip, ManageUsers = manageUsers, ManageJobs = manageJobs, EditVipDuration = editVipDuration, AddDj = addDj, RemoveDj = removeDj, ColorHex = colorHex ?? "#FFFFFF", IconKey = iconKey ?? "User" };
+        int r;
+        if (string.Equals(name, "Owner", System.StringComparison.Ordinal)) r = 10;
+        else if (string.Equals(name, "Unassigned", System.StringComparison.Ordinal)) r = 0;
+        else r = rank <= 0 ? 1 : (rank > 9 ? 9 : rank);
+        var info = new JobRightsInfo { AddVip = addVip, RemoveVip = removeVip, ManageUsers = manageUsers, ManageJobs = manageJobs, EditVipDuration = editVipDuration, AddDj = addDj, RemoveDj = removeDj, Rank = r, ColorHex = colorHex ?? "#FFFFFF", IconKey = iconKey ?? "User" };
         return await _remote.UpdateJobRightsAsync(name, info, sess);
     }
 
@@ -1066,6 +1070,21 @@ public sealed class VenuePlusApp : IDisposable
         {
             var rightsCache = _jobRightsCache;
             if (rightsCache == null || !rightsCache.TryGetValue(job, out var r) || !r.ManageJobs) return false;
+        }
+        if (string.Equals(job, "Owner", System.StringComparison.Ordinal) && !IsOwnerCurrentClub) return false;
+        if (!string.Equals(job, "Owner", System.StringComparison.Ordinal))
+        {
+            var owners = 0;
+            var isTargetOwner = false;
+            var list = await ListStaffUsersDetailedAsync();
+            var arr = list ?? System.Array.Empty<VenuePlus.State.StaffUser>();
+            for (int i = 0; i < arr.Length; i++)
+            {
+                var u = arr[i];
+                if (string.Equals(u.Job, "Owner", System.StringComparison.Ordinal)) owners++;
+                if (string.Equals(u.Username, username, System.StringComparison.Ordinal) && string.Equals(u.Job, "Owner", System.StringComparison.Ordinal)) isTargetOwner = true;
+            }
+            if (isTargetOwner && owners <= 1 && !string.IsNullOrWhiteSpace(_staffUsername) && string.Equals(username, _staffUsername, System.StringComparison.Ordinal)) return false;
         }
         return await _remote.UpdateUserJobAsync(username, job, staffSess);
     }

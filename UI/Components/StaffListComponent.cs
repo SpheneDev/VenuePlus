@@ -15,8 +15,8 @@ public sealed class StaffListComponent
     private StaffUser[] _users = Array.Empty<StaffUser>();
     private string _status = string.Empty;
     private string _filter = string.Empty;
-    private int _sortCol;
-    private bool _sortAsc = true;
+    private int _sortCol = 1;
+    private bool _sortAsc = false;
     private readonly Dictionary<string, string> _selectedJobsByClub = new(StringComparer.Ordinal);
     private readonly Dictionary<string, string> _rowStatus = new();
     private bool _openInviteByUidRequested;
@@ -27,6 +27,10 @@ public sealed class StaffListComponent
     private string[] _jobOptions = new[] { "Unassigned", "Greeter", "Barkeeper", "Dancer", "Escort" };
     private readonly System.Collections.Generic.HashSet<string> _dirtyKeys = new(System.StringComparer.Ordinal);
     private bool _inviteInlineOpen;
+    private bool _confirmOpen;
+    private string _confirmUser = string.Empty;
+    private string _confirmNewJob = string.Empty;
+    private string _confirmStatus = string.Empty;
 
     public void TriggerRefresh(VenuePlusApp app)
     {
@@ -99,25 +103,37 @@ public sealed class StaffListComponent
             ImGui.SameLine();
             var currentJob = string.IsNullOrWhiteSpace(_inviteJobInline) ? "Unassigned" : _inviteJobInline;
             ImGui.PushItemWidth(150f);
-            if (ImGui.BeginCombo("##invite_job_inline", currentJob))
-            {
-                foreach (var name in _jobOptions)
+                if (ImGui.BeginCombo("##invite_job_inline", currentJob))
                 {
-                    if (string.Equals(name, "Owner", System.StringComparison.Ordinal)) continue;
-                    var rightsCache2 = app.GetJobRightsCache();
-                    if (rightsCache2 != null && rightsCache2.TryGetValue(name, out var infoOpt))
+                    var rights = app.GetJobRightsCache();
+                    var names = _jobOptions ?? Array.Empty<string>();
+                    System.Array.Sort(names, (a, b) =>
                     {
-                        var col2 = VenuePlus.Helpers.ColorUtil.HexToU32(infoOpt.ColorHex);
-                        var icon2 = VenuePlus.Helpers.IconDraw.ParseIcon(infoOpt.IconKey);
-                        VenuePlus.Helpers.IconDraw.IconText(icon2, 0.9f, col2);
-                        ImGui.SameLine();
+                        int ra = 1;
+                        int rb = 1;
+                        if (rights != null && rights.TryGetValue(a, out var ia)) ra = ia.Rank; else if (string.Equals(a, "Owner", System.StringComparison.Ordinal)) ra = 10; else if (string.Equals(a, "Unassigned", System.StringComparison.Ordinal)) ra = 0;
+                        if (rights != null && rights.TryGetValue(b, out var ib)) rb = ib.Rank; else if (string.Equals(b, "Owner", System.StringComparison.Ordinal)) rb = 10; else if (string.Equals(b, "Unassigned", System.StringComparison.Ordinal)) rb = 0;
+                        int cmp = rb.CompareTo(ra);
+                        if (cmp != 0) return cmp;
+                        return string.Compare(a, b, System.StringComparison.OrdinalIgnoreCase);
+                    });
+                    foreach (var name in names)
+                    {
+                        if (string.Equals(name, "Owner", System.StringComparison.Ordinal) && !app.IsOwnerCurrentClub) continue;
+                        var rightsCache2 = rights;
+                        if (rightsCache2 != null && rightsCache2.TryGetValue(name, out var infoOpt))
+                        {
+                            var col2 = VenuePlus.Helpers.ColorUtil.HexToU32(infoOpt.ColorHex);
+                            var icon2 = VenuePlus.Helpers.IconDraw.ParseIcon(infoOpt.IconKey);
+                            VenuePlus.Helpers.IconDraw.IconText(icon2, 0.9f, col2);
+                            ImGui.SameLine();
+                        }
+                        bool selected = string.Equals(currentJob, name, System.StringComparison.Ordinal);
+                        if (ImGui.Selectable(name, selected)) _inviteJobInline = name;
+                        if (selected) ImGui.SetItemDefaultFocus();
                     }
-                    bool selected = string.Equals(currentJob, name, System.StringComparison.Ordinal);
-                    if (ImGui.Selectable(name, selected)) _inviteJobInline = name;
-                    if (selected) ImGui.SetItemDefaultFocus();
+                    ImGui.EndCombo();
                 }
-                ImGui.EndCombo();
-            }
             ImGui.PopItemWidth();
             ImGui.SameLine();
             ImGui.BeginDisabled(string.IsNullOrWhiteSpace(_inviteUid));
@@ -191,10 +207,23 @@ public sealed class StaffListComponent
                         r = string.Compare(a.Username, b.Username, System.StringComparison.OrdinalIgnoreCase);
                         break;
                     case 1:
-                        r = string.Compare(a.Job, b.Job, System.StringComparison.OrdinalIgnoreCase);
+                        var rights = app.GetJobRightsCache();
+                        int ra = 1;
+                        int rb = 1;
+                        var aj = a.Job ?? string.Empty;
+                        var bj = b.Job ?? string.Empty;
+                        if (rights != null && rights.TryGetValue(aj, out var ia)) ra = ia.Rank;
+                        else if (string.Equals(aj, "Owner", System.StringComparison.Ordinal)) ra = 10;
+                        else if (string.Equals(aj, "Unassigned", System.StringComparison.Ordinal)) ra = 0;
+                        if (rights != null && rights.TryGetValue(bj, out var ib)) rb = ib.Rank;
+                        else if (string.Equals(bj, "Owner", System.StringComparison.Ordinal)) rb = 10;
+                        else if (string.Equals(bj, "Unassigned", System.StringComparison.Ordinal)) rb = 0;
+                        r = ra.CompareTo(rb);
+                        if (!_sortAsc) r = -r;
+                        if (r == 0) r = string.Compare(aj, bj, System.StringComparison.OrdinalIgnoreCase);
                         break;
                 }
-                return _sortAsc ? r : -r;
+                return r;
             });
             foreach (var u in visible)
             {
@@ -246,18 +275,30 @@ public sealed class StaffListComponent
                 }
                 ImGui.PushStyleVar(ImGuiStyleVar.FramePadding, new System.Numerics.Vector2(padX, padY));
                 var isOwnerJob = string.Equals(current, "Owner", System.StringComparison.Ordinal);
-                ImGui.BeginDisabled(!canAct || isOwnerJob);
+                ImGui.BeginDisabled(!canAct || (isOwnerJob && !app.IsOwnerCurrentClub));
                 if (ImGui.BeginCombo($"##job_{u.Username}", currentName))
                 {
-                    if (Array.IndexOf(_jobOptions, current) < 0)
+                    if (Array.IndexOf(_jobOptions ?? Array.Empty<string>(), current) < 0)
                     {
                         bool selected = true;
                         if (ImGui.Selectable(current, selected)) { _selectedJobsByClub[key] = current; _dirtyKeys.Add(key); }
                     }
-                    foreach (var name in _jobOptions)
+                    var rights = app.GetJobRightsCache();
+                    var names = _jobOptions ?? Array.Empty<string>();
+                    System.Array.Sort(names, (a, b) =>
                     {
-                        if (string.Equals(name, "Owner", System.StringComparison.Ordinal)) continue;
-                        var rightsCache2 = app.GetJobRightsCache();
+                        int ra = 1;
+                        int rb = 1;
+                        if (rights != null && rights.TryGetValue(a, out var ia)) ra = ia.Rank; else if (string.Equals(a, "Owner", System.StringComparison.Ordinal)) ra = 10; else if (string.Equals(a, "Unassigned", System.StringComparison.Ordinal)) ra = 0;
+                        if (rights != null && rights.TryGetValue(b, out var ib)) rb = ib.Rank; else if (string.Equals(b, "Owner", System.StringComparison.Ordinal)) rb = 10; else if (string.Equals(b, "Unassigned", System.StringComparison.Ordinal)) rb = 0;
+                        int cmp = rb.CompareTo(ra);
+                        if (cmp != 0) return cmp;
+                        return string.Compare(a, b, System.StringComparison.OrdinalIgnoreCase);
+                    });
+                    foreach (var name in names)
+                    {
+                        if (string.Equals(name, "Owner", System.StringComparison.Ordinal) && !app.IsOwnerCurrentClub) continue;
+                        var rightsCache2 = rights;
                         if (rightsCache2 != null && rightsCache2.TryGetValue(name, out var infoOpt))
                         {
                             var col2 = VenuePlus.Helpers.ColorUtil.HexToU32(infoOpt.ColorHex);
@@ -322,7 +363,7 @@ public sealed class StaffListComponent
                             System.Threading.Tasks.Task.Run(async () =>
                             {
                                 var ok = await app.DeleteStaffUserAsync(u.Username);
-                                _rowStatus[u.Username] = ok ? "Removed" : "Remove failed";
+                                _rowStatus[u.Username] = ok ? "Removed" : (app.GetLastServerMessage() ?? "Remove failed");
                             });
                         }
                         ImGui.EndDisabled();
@@ -338,21 +379,33 @@ public sealed class StaffListComponent
                         var newJobSelf = _selectedJobsByClub[key];
                         var rightsCacheSave = app.GetJobRightsCache();
                         var selfLosesManageJobs = isSelfRow && !isOwnerRow && rightsCacheSave != null && rightsCacheSave.TryGetValue(newJobSelf, out var rInfoSelf) && !rInfoSelf.ManageJobs;
-                        ImGui.BeginDisabled(isOwnerRow || selfLosesManageJobs);
+                        ImGui.BeginDisabled((isOwnerRow && !app.IsOwnerCurrentClub) || selfLosesManageJobs);
                         if (ImGui.Button(FontAwesomeIcon.Save.ToIconString() + $"##save_{u.Username}"))
                         {
+                            var prevJob = u.Job;
                             var newJob = _selectedJobsByClub[key];
-                            _rowStatus[u.Username] = "Saving...";
-                            System.Threading.Tasks.Task.Run(async () =>
+                            var ownerChange = string.Equals(prevJob, "Owner", System.StringComparison.Ordinal) || string.Equals(newJob, "Owner", System.StringComparison.Ordinal);
+                            if (ownerChange)
                             {
+                                _confirmOpen = true;
+                                _confirmUser = u.Username;
+                                _confirmNewJob = newJob;
+                                _confirmStatus = string.Empty;
+                            }
+                            else
+                            {
+                                _rowStatus[u.Username] = "Saving...";
+                                System.Threading.Tasks.Task.Run(async () =>
+                                {
                                 var ok = await app.UpdateStaffUserJobAsync(u.Username, newJob);
-                                _rowStatus[u.Username] = ok ? "Saved" : "Save failed";
+                                _rowStatus[u.Username] = ok ? "Saved" : (app.GetLastServerMessage() ?? "Save failed");
                                 if (ok)
                                 {
                                     var k = key;
                                     _dirtyKeys.Remove(k);
                                 }
                             });
+                            }
                         }
                         ImGui.EndDisabled();
                         ImGui.SetWindowFontScale(1f);
@@ -367,6 +420,39 @@ public sealed class StaffListComponent
                 }
             }
             ImGui.EndTable();
+        }
+
+        if (_confirmOpen)
+        {
+            ImGui.Separator();
+            ImGui.TextUnformatted("Confirm owner role change");
+            ImGui.SameLine();
+            if (ImGui.Button("Confirm##owner_change_confirm"))
+            {
+                _confirmStatus = "Saving...";
+                var uname = _confirmUser;
+                var job = _confirmNewJob;
+                System.Threading.Tasks.Task.Run(async () =>
+                {
+                    var ok = await app.UpdateStaffUserJobAsync(uname, job);
+                    _confirmStatus = ok ? "Saved" : (app.GetLastServerMessage() ?? "Save failed");
+                    if (ok)
+                    {
+                        _confirmOpen = false;
+                        _rowStatus[uname] = "Saved";
+                        var k = app.CurrentClubId + "|" + uname;
+                        _dirtyKeys.Remove(k);
+                    }
+                });
+            }
+            ImGui.SameLine();
+            if (ImGui.Button("Cancel##owner_change_cancel"))
+            {
+                _confirmOpen = false;
+                _confirmStatus = string.Empty;
+            }
+            if (!string.IsNullOrEmpty(_confirmStatus)) ImGui.TextUnformatted(_confirmStatus);
+            ImGui.Separator();
         }
         
     }

@@ -17,7 +17,7 @@ public sealed class JobsPanelComponent
     private string _filter = string.Empty;
     private string _openEditJob = string.Empty;
     private bool _editWindowOpen;
-    private bool _sortAsc = true;
+    private bool _sortAsc = false;
     private int _sortColRoles;
     private string _editJobNameInput = string.Empty;
     private bool _editAddVip;
@@ -40,6 +40,8 @@ public sealed class JobsPanelComponent
     private string _addIconKey = "User";
     private string _editColorHex = "#FFFFFF";
     private string _editIconKey = "User";
+    private int _addRank = 1;
+    private int _editRank = 1;
     private readonly string[] _iconOptions = new[] { "User", "Shield", "Star", "Beer", "Music", "GlassCheers", "Heart", "Sun", "Moon", "Crown", "Gem", "Fire", "Snowflake" };
 
     public void Draw(VenuePlusApp app)
@@ -61,6 +63,7 @@ public sealed class JobsPanelComponent
             _addRemoveVip = false;
             _addManageUsers = false;
             _addManageJobs = false;
+            _addRank = 1;
             _addWindowOpen = true;
         }
         if (ImGui.IsItemHovered()) { ImGui.BeginTooltip(); ImGui.TextUnformatted("Create a new role"); ImGui.EndTooltip(); }
@@ -76,19 +79,38 @@ public sealed class JobsPanelComponent
         ImGui.PopFont();
         actionsWidth += style.ItemSpacing.X;
         var tflags = ImGuiTableFlags.RowBg | ImGuiTableFlags.Borders | ImGuiTableFlags.SizingStretchProp;
-        if (ImGui.BeginTable("roles_table", 2, tflags))
+        if (ImGui.BeginTable("roles_table", 3, tflags))
         {
             ImGui.TableSetupColumn("Role");
+            ImGui.TableSetupColumn("Rank", ImGuiTableColumnFlags.WidthFixed, 80f);
             ImGui.TableSetupColumn("Actions", ImGuiTableColumnFlags.WidthFixed, actionsWidth);
             ImGui.TableNextRow(ImGuiTableRowFlags.Headers);
             ImGui.TableSetColumnIndex(0);
             TableSortUi.DrawSortableHeader("Role", 0, ref _sortColRoles, ref _sortAsc);
             ImGui.TableSetColumnIndex(1);
+            TableSortUi.DrawSortableHeader("Rank", 1, ref _sortColRoles, ref _sortAsc);
+            ImGui.TableSetColumnIndex(2);
             ImGui.TextUnformatted("Actions");
             System.Array.Sort(jobs, (a, b) =>
             {
-                var r = string.Compare(a ?? string.Empty, b ?? string.Empty, System.StringComparison.OrdinalIgnoreCase);
-                return _sortAsc ? r : -r;
+                int ra = 1;
+                int rb = 1;
+                if (!string.IsNullOrWhiteSpace(a))
+                {
+                    if (_rights.TryGetValue(a, out var ia)) ra = ia.Rank;
+                    else if (string.Equals(a, "Owner", System.StringComparison.Ordinal)) ra = 10;
+                    else if (string.Equals(a, "Unassigned", System.StringComparison.Ordinal)) ra = 0;
+                }
+                if (!string.IsNullOrWhiteSpace(b))
+                {
+                    if (_rights.TryGetValue(b, out var ib)) rb = ib.Rank;
+                    else if (string.Equals(b, "Owner", System.StringComparison.Ordinal)) rb = 10;
+                    else if (string.Equals(b, "Unassigned", System.StringComparison.Ordinal)) rb = 0;
+                }
+                int cmp = ra.CompareTo(rb);
+                if (!_sortAsc) cmp = -cmp;
+                if (cmp != 0) return cmp;
+                return string.Compare(a ?? string.Empty, b ?? string.Empty, System.StringComparison.OrdinalIgnoreCase);
             });
             foreach (var j in jobs)
             {
@@ -111,6 +133,12 @@ public sealed class JobsPanelComponent
                 }
                 ImGui.TextUnformatted(j);
                 ImGui.TableSetColumnIndex(1);
+                int rankDisplay = 1;
+                if (_rights.TryGetValue(j, out var infoRank)) rankDisplay = infoRank.Rank;
+                else if (string.Equals(j, "Owner", System.StringComparison.Ordinal)) rankDisplay = 10;
+                else if (string.Equals(j, "Unassigned", System.StringComparison.Ordinal)) rankDisplay = 0;
+                ImGui.TextUnformatted(rankDisplay.ToString(System.Globalization.CultureInfo.InvariantCulture));
+                ImGui.TableSetColumnIndex(2);
                 ImGui.PushFont(UiBuilder.IconFont);
                 ImGui.SetWindowFontScale(0.9f);
                 var yBase = ImGui.GetCursorPosY();
@@ -130,7 +158,17 @@ public sealed class JobsPanelComponent
                     _editEditVipDuration = GetRight(j, "editVipDuration");
                     _editAddDj = GetRight(j, "addDj");
                     _editRemoveDj = GetRight(j, "removeDj");
-                    if (_rights.TryGetValue(j, out var infoInit)) { _editColorHex = infoInit.ColorHex; _editIconKey = infoInit.IconKey; }
+                    if (_rights.TryGetValue(j, out var infoInit))
+                    {
+                        _editColorHex = infoInit.ColorHex;
+                        _editIconKey = infoInit.IconKey;
+                        var rIn = infoInit.Rank;
+                        int r;
+                        if (string.Equals(j, "Owner", System.StringComparison.Ordinal)) r = 10;
+                        else if (string.Equals(j, "Unassigned", System.StringComparison.Ordinal)) r = 0;
+                        else r = rIn <= 0 ? 1 : (rIn > 9 ? 9 : rIn);
+                        _editRank = r;
+                    }
                     _editWindowOpen = true;
                 }
                 ImGui.EndDisabled();
@@ -214,6 +252,14 @@ public sealed class JobsPanelComponent
                 }
 
                 ImGui.Separator();
+                ImGui.TextUnformatted("Rank");
+                ImGui.PushItemWidth(120f);
+                ImGui.InputInt("Role Rank", ref _addRank);
+                if (_addRank < 1) _addRank = 1;
+                if (_addRank > 9) _addRank = 9;
+                ImGui.PopItemWidth();
+
+                ImGui.Separator();
                 ImGui.TextUnformatted("Appearance");
                 var colVecAdd4 = ColorUtil.HexToVec4(_addColorHex);
                 var colVecAdd = new System.Numerics.Vector3(colVecAdd4.X, colVecAdd4.Y, colVecAdd4.Z);
@@ -252,7 +298,7 @@ public sealed class JobsPanelComponent
                             var ok = await app.AddJobAsync(name);
                             if (ok)
                             {
-                                await app.UpdateJobRightsAsync(name, _addAddVip, _addRemoveVip, _addManageUsers, _addManageJobs, _addEditVipDuration, _addAddDj, _addRemoveDj, _addColorHex, _addIconKey);
+                                await app.UpdateJobRightsAsync(name, _addAddVip, _addRemoveVip, _addManageUsers, _addManageJobs, _addEditVipDuration, _addAddDj, _addRemoveDj, _addColorHex, _addIconKey, _addRank);
                                 _selectedJob = name;
                             }
                         });
@@ -295,6 +341,7 @@ public sealed class JobsPanelComponent
 
                 ImGui.PushItemWidth(240f);
                 var editingOwner = string.Equals(_openEditJob, "Owner", System.StringComparison.Ordinal);
+                var editingUnassigned = string.Equals(_openEditJob, "Unassigned", System.StringComparison.Ordinal);
                 ImGui.BeginDisabled(editingOwner);
                 ImGui.InputText("Role Name", ref _editJobNameInput, 64);
                 ImGui.EndDisabled();
@@ -348,6 +395,20 @@ public sealed class JobsPanelComponent
                 }
 
                 ImGui.Separator();
+                ImGui.TextUnformatted("Rank");
+                var disableRank = editingOwner || editingUnassigned;
+                ImGui.BeginDisabled(disableRank);
+                ImGui.PushItemWidth(120f);
+                ImGui.InputInt("Role Rank", ref _editRank);
+                if (!disableRank)
+                {
+                    if (_editRank < 1) _editRank = 1;
+                    if (_editRank > 9) _editRank = 9;
+                }
+                ImGui.PopItemWidth();
+                ImGui.EndDisabled();
+
+                ImGui.Separator();
                 var s = ImGui.GetStyle();
                 var saveW = ImGui.CalcTextSize("Save").X + s.FramePadding.X * 2f;
                 var cancelW = ImGui.CalcTextSize("Cancel").X + s.FramePadding.X * 2f;
@@ -368,7 +429,7 @@ public sealed class JobsPanelComponent
                         SetRight(oldName, "editVipDuration", _editEditVipDuration);
                         SetRight(oldName, "addDj", _editAddDj);
                         SetRight(oldName, "removeDj", _editRemoveDj);
-                        if (_rights.TryGetValue(oldName, out var infoOld)) { infoOld.ColorHex = _editColorHex; infoOld.IconKey = _editIconKey; }
+                        if (_rights.TryGetValue(oldName, out var infoOld)) { infoOld.ColorHex = _editColorHex; infoOld.IconKey = _editIconKey; infoOld.Rank = _editRank; }
                         SaveImmediate(app, oldName);
                         _editWindowOpen = false;
                     }
@@ -379,7 +440,8 @@ public sealed class JobsPanelComponent
                             var okAdd = await app.AddJobAsync(newName);
                             if (okAdd)
                             {
-                                await app.UpdateJobRightsAsync(newName, _editAddVip, _editRemoveVip, _editManageUsers, _editManageJobs, _editEditVipDuration, _editAddDj, _editRemoveDj, _editColorHex, _editIconKey);
+                                var rankOld = (_rights.TryGetValue(oldName, out var infoOldR) ? infoOldR.Rank : 1);
+                                await app.UpdateJobRightsAsync(newName, _editAddVip, _editRemoveVip, _editManageUsers, _editManageJobs, _editEditVipDuration, _editAddDj, _editRemoveDj, _editColorHex, _editIconKey, rankOld);
                                 var users = await app.ListStaffUsersDetailedAsync();
                                 if (users != null)
                                 {
@@ -426,19 +488,31 @@ public sealed class JobsPanelComponent
         var incoming = rights ?? new System.Collections.Generic.Dictionary<string, JobRightsInfo>();
         foreach (var kv in incoming)
         {
-            if (!_rights.ContainsKey(kv.Key)) _rights[kv.Key] = new JobRightsInfo();
+            var keyName = kv.Key ?? string.Empty;
+            if (string.IsNullOrWhiteSpace(keyName)) continue;
+            if (!_rights.ContainsKey(keyName)) _rights[keyName] = new JobRightsInfo();
             var incomingInfo = kv.Value;
             if (incomingInfo != null)
             {
-                if (!_pending.TryGetValue(kv.Key, out var set) || !set.Contains("addVip")) { _rights[kv.Key].AddVip = incomingInfo.AddVip; }
-                if (!_pending.TryGetValue(kv.Key, out var set2) || !set2.Contains("removeVip")) { _rights[kv.Key].RemoveVip = incomingInfo.RemoveVip; }
-                if (!_pending.TryGetValue(kv.Key, out var set3) || !set3.Contains("manageUsers")) { _rights[kv.Key].ManageUsers = incomingInfo.ManageUsers; }
-                if (!_pending.TryGetValue(kv.Key, out var set4) || !set4.Contains("manageJobs")) { _rights[kv.Key].ManageJobs = incomingInfo.ManageJobs; }
-                if (!_pending.TryGetValue(kv.Key, out var set7) || !set7.Contains("editVipDuration")) { _rights[kv.Key].EditVipDuration = incomingInfo.EditVipDuration; }
-                if (!_pending.TryGetValue(kv.Key, out var set8) || !set8.Contains("addDj")) { _rights[kv.Key].AddDj = incomingInfo.AddDj; }
-                if (!_pending.TryGetValue(kv.Key, out var set9) || !set9.Contains("removeDj")) { _rights[kv.Key].RemoveDj = incomingInfo.RemoveDj; }
-                if (!_pending.TryGetValue(kv.Key, out var set5) || !set5.Contains("colorHex")) { _rights[kv.Key].ColorHex = incomingInfo.ColorHex ?? "#FFFFFF"; }
-                if (!_pending.TryGetValue(kv.Key, out var set6) || !set6.Contains("iconKey")) { _rights[kv.Key].IconKey = incomingInfo.IconKey ?? "User"; }
+                if (!_pending.TryGetValue(keyName, out var set) || !set.Contains("addVip")) { _rights[keyName].AddVip = incomingInfo.AddVip; }
+                if (!_pending.TryGetValue(keyName, out var set2) || !set2.Contains("removeVip")) { _rights[keyName].RemoveVip = incomingInfo.RemoveVip; }
+                if (!_pending.TryGetValue(keyName, out var set3) || !set3.Contains("manageUsers")) { _rights[keyName].ManageUsers = incomingInfo.ManageUsers; }
+                if (!_pending.TryGetValue(keyName, out var set4) || !set4.Contains("manageJobs")) { _rights[keyName].ManageJobs = incomingInfo.ManageJobs; }
+                if (!_pending.TryGetValue(keyName, out var set7) || !set7.Contains("editVipDuration")) { _rights[keyName].EditVipDuration = incomingInfo.EditVipDuration; }
+                if (!_pending.TryGetValue(keyName, out var set8) || !set8.Contains("addDj")) { _rights[keyName].AddDj = incomingInfo.AddDj; }
+                if (!_pending.TryGetValue(keyName, out var set9) || !set9.Contains("removeDj")) { _rights[keyName].RemoveDj = incomingInfo.RemoveDj; }
+                if (!_pending.TryGetValue(keyName, out var set5) || !set5.Contains("colorHex")) { _rights[keyName].ColorHex = incomingInfo.ColorHex ?? "#FFFFFF"; }
+                if (!_pending.TryGetValue(keyName, out var set6) || !set6.Contains("iconKey")) { _rights[keyName].IconKey = incomingInfo.IconKey ?? "User"; }
+                if (!_pending.TryGetValue(keyName, out var setR) || !setR.Contains("rank"))
+                {
+                    var name = keyName;
+                    var rIn = incomingInfo.Rank;
+                    int r;
+                    if (string.Equals(name, "Owner", System.StringComparison.Ordinal)) r = 10;
+                    else if (string.Equals(name, "Unassigned", System.StringComparison.Ordinal)) r = 0;
+                    else r = rIn <= 0 ? 1 : (rIn > 9 ? 9 : rIn);
+                    _rights[name].Rank = r;
+                }
             }
         }
     }
@@ -485,6 +559,7 @@ public sealed class JobsPanelComponent
         MarkPending(job, "removeDj");
         MarkPending(job, "colorHex");
         MarkPending(job, "iconKey");
+        MarkPending(job, "rank");
         _status = string.Empty;
         var addVal = GetRight(job, "addVip");
         var remVal = GetRight(job, "removeVip");
@@ -497,7 +572,8 @@ public sealed class JobsPanelComponent
         {
             var color = (_rights.TryGetValue(job, out var info) ? info.ColorHex : "#FFFFFF");
             var icon = (_rights.TryGetValue(job, out var info2) ? info2.IconKey : "User");
-            var ok = await app.UpdateJobRightsAsync(job, addVal, remVal, muVal, mjVal, edVal, addDjVal, remDjVal, color, icon);
+            var rankCur = (_rights.TryGetValue(job, out var infoR) ? infoR.Rank : 1);
+            var ok = await app.UpdateJobRightsAsync(job, addVal, remVal, muVal, mjVal, edVal, addDjVal, remDjVal, color, icon, rankCur);
             _status = string.Empty;
             UnmarkPending(job, "addVip");
             UnmarkPending(job, "removeVip");
@@ -508,6 +584,7 @@ public sealed class JobsPanelComponent
             UnmarkPending(job, "removeDj");
             UnmarkPending(job, "colorHex");
             UnmarkPending(job, "iconKey");
+            UnmarkPending(job, "rank");
             
         });
     }
