@@ -46,6 +46,10 @@ public sealed class RemoteSyncService : IDisposable
     public event Action<VenuePlus.State.DjEntry[]>? DjSnapshotReceived;
     public event Action<VenuePlus.State.DjEntry>? DjEntryAdded;
     public event Action<VenuePlus.State.DjEntry>? DjEntryRemoved;
+    public event Action<VenuePlus.State.ShiftEntry[]>? ShiftSnapshotReceived;
+    public event Action<VenuePlus.State.ShiftEntry>? ShiftEntryAdded;
+    public event Action<VenuePlus.State.ShiftEntry>? ShiftEntryUpdated;
+    public event Action<Guid>? ShiftEntryRemoved;
 
     private TaskCompletionSource<string[]?>? _pendingUserClubsTcs;
     private TaskCompletionSource<string[]?>? _pendingCreatedClubsTcs;
@@ -80,6 +84,7 @@ public sealed class RemoteSyncService : IDisposable
     private TaskCompletionSource<bool?>? _pendingUserExistsTcs;
     private TaskCompletionSource<string?>? _pendingLoginTcs;
     private readonly System.Collections.Concurrent.ConcurrentDictionary<string, TaskCompletionSource<string?>> _pendingClubLogoForByClub = new(System.StringComparer.Ordinal);
+    private TaskCompletionSource<bool>? _pendingShiftUpdateTcs;
 
     public RemoteSyncService(IPluginLog? log = null)
     {
@@ -110,6 +115,25 @@ public sealed class RemoteSyncService : IDisposable
                 return true;
             }
             catch (Exception ex) { _log?.Debug($"WS switch.club async failed: {ex.Message}"); return false; }
+        }
+        return false;
+    }
+
+    public async Task<bool> RequestShiftSnapshotAsync(string? staffSession = null)
+    {
+        if (_useWebSocket && _ws != null && _ws.State == WebSocketState.Open)
+        {
+            try
+            {
+                object payloadObj = string.IsNullOrWhiteSpace(staffSession)
+                    ? new { type = "shift.snapshot.request" }
+                    : new { type = "shift.snapshot.request", token = staffSession };
+                var payload = JsonSerializer.Serialize(payloadObj);
+                var seg = new ArraySegment<byte>(Encoding.UTF8.GetBytes(payload));
+                await _ws.SendAsync(seg, WebSocketMessageType.Text, true, CancellationToken.None);
+                return true;
+            }
+            catch (Exception ex) { _log?.Debug($"WS snapshot request failed: {ex.Message}"); return false; }
         }
         return false;
     }
@@ -275,6 +299,72 @@ public sealed class RemoteSyncService : IDisposable
                 return ok;
             }
             catch (Exception ex) { _log?.Debug($"WS publish DJ add failed: {ex.Message}"); _pendingDjUpdateTcs = null; return false; }
+        }
+        return false;
+    }
+
+    public async Task<bool> PublishAddShiftAsync(VenuePlus.State.ShiftEntry entry, string session)
+    {
+        if (_useWebSocket && _ws != null && _ws.State == WebSocketState.Open)
+        {
+            try
+            {
+                var tcs = new TaskCompletionSource<bool>();
+                _pendingShiftUpdateTcs = tcs;
+                var payload = JsonSerializer.Serialize(new { type = "shift.add", entry, token = session }, new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.CamelCase });
+                var seg = new ArraySegment<byte>(Encoding.UTF8.GetBytes(payload));
+                await _ws.SendAsync(seg, WebSocketMessageType.Text, true, CancellationToken.None);
+                using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(8));
+                await Task.WhenAny(tcs.Task, Task.Delay(Timeout.Infinite, cts.Token)).ConfigureAwait(false);
+                var ok = tcs.Task.IsCompleted && tcs.Task.Result;
+                _pendingShiftUpdateTcs = null;
+                return ok;
+            }
+            catch (Exception ex) { _log?.Debug($"WS publish shift add failed: {ex.Message}"); _pendingShiftUpdateTcs = null; return false; }
+        }
+        return false;
+    }
+
+    public async Task<bool> PublishUpdateShiftAsync(VenuePlus.State.ShiftEntry entry, string session)
+    {
+        if (_useWebSocket && _ws != null && _ws.State == WebSocketState.Open)
+        {
+            try
+            {
+                var tcs = new TaskCompletionSource<bool>();
+                _pendingShiftUpdateTcs = tcs;
+                var payload = JsonSerializer.Serialize(new { type = "shift.update", entry, token = session }, new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.CamelCase });
+                var seg = new ArraySegment<byte>(Encoding.UTF8.GetBytes(payload));
+                await _ws.SendAsync(seg, WebSocketMessageType.Text, true, CancellationToken.None);
+                using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(8));
+                await Task.WhenAny(tcs.Task, Task.Delay(Timeout.Infinite, cts.Token)).ConfigureAwait(false);
+                var ok = tcs.Task.IsCompleted && tcs.Task.Result;
+                _pendingShiftUpdateTcs = null;
+                return ok;
+            }
+            catch (Exception ex) { _log?.Debug($"WS publish shift update failed: {ex.Message}"); _pendingShiftUpdateTcs = null; return false; }
+        }
+        return false;
+    }
+
+    public async Task<bool> PublishRemoveShiftAsync(Guid id, string session)
+    {
+        if (_useWebSocket && _ws != null && _ws.State == WebSocketState.Open)
+        {
+            try
+            {
+                var tcs = new TaskCompletionSource<bool>();
+                _pendingShiftUpdateTcs = tcs;
+                var payload = JsonSerializer.Serialize(new { type = "shift.remove", id = id.ToString(), token = session }, new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.CamelCase });
+                var seg = new ArraySegment<byte>(Encoding.UTF8.GetBytes(payload));
+                await _ws.SendAsync(seg, WebSocketMessageType.Text, true, CancellationToken.None);
+                using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(8));
+                await Task.WhenAny(tcs.Task, Task.Delay(Timeout.Infinite, cts.Token)).ConfigureAwait(false);
+                var ok = tcs.Task.IsCompleted && tcs.Task.Result;
+                _pendingShiftUpdateTcs = null;
+                return ok;
+            }
+            catch (Exception ex) { _log?.Debug($"WS publish shift remove failed: {ex.Message}"); _pendingShiftUpdateTcs = null; return false; }
         }
         return false;
     }
@@ -1355,6 +1445,19 @@ public sealed class RemoteSyncService : IDisposable
                             catch { }
                         }
                     }
+                    else if (type == "shift.snapshot")
+                    {
+                        var arrEl = root.TryGetProperty("entries", out var e2) ? e2 : default;
+                        if (arrEl.ValueKind == JsonValueKind.Array)
+                        {
+                            try
+                            {
+                                var det = System.Text.Json.JsonSerializer.Deserialize<VenuePlus.State.ShiftEntry[]>(arrEl.GetRawText(), new System.Text.Json.JsonSerializerOptions { PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.CamelCase }) ?? Array.Empty<VenuePlus.State.ShiftEntry>();
+                                ShiftSnapshotReceived?.Invoke(det);
+                            }
+                            catch { }
+                        }
+                    }
                     else if (type == "dj.update")
                     {
                         var op = root.TryGetProperty("op", out var o) ? (o.GetString() ?? string.Empty) : string.Empty;
@@ -1372,6 +1475,45 @@ public sealed class RemoteSyncService : IDisposable
                             }
                             catch { }
                         }
+                    }
+                    else if (type == "shift.update")
+                    {
+                        var op = root.TryGetProperty("op", out var o) ? (o.GetString() ?? string.Empty) : string.Empty;
+                        var entryEl = root.TryGetProperty("entry", out var e) ? e : default;
+                        if (string.Equals(op, "remove", StringComparison.Ordinal))
+                        {
+                            var idEl = root.TryGetProperty("id", out var idProp) ? idProp : default;
+                            if (idEl.ValueKind == JsonValueKind.String)
+                            {
+                                var idStr = idEl.GetString() ?? string.Empty;
+                                if (Guid.TryParse(idStr, out var idVal)) ShiftEntryRemoved?.Invoke(idVal);
+                            }
+                        }
+                        else if (entryEl.ValueKind == JsonValueKind.Object)
+                        {
+                            try
+                            {
+                                var entry = System.Text.Json.JsonSerializer.Deserialize<VenuePlus.State.ShiftEntry>(entryEl.GetRawText(), new System.Text.Json.JsonSerializerOptions { PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.CamelCase });
+                                if (entry != null)
+                                {
+                                    if (string.Equals(op, "add", StringComparison.Ordinal)) ShiftEntryAdded?.Invoke(entry);
+                                    else if (string.Equals(op, "update", StringComparison.Ordinal)) ShiftEntryUpdated?.Invoke(entry);
+                                }
+                            }
+                            catch { }
+                        }
+                    }
+                    else if (type == "shift.update.ok")
+                    {
+                        _pendingShiftUpdateTcs?.TrySetResult(true);
+                        _pendingShiftUpdateTcs = null;
+                    }
+                    else if (type == "shift.update.fail")
+                    {
+                        _lastErrorMessage = null;
+                        try { if (root.TryGetProperty("message", out var m)) _lastErrorMessage = m.GetString(); } catch { }
+                        _pendingShiftUpdateTcs?.TrySetResult(false);
+                        _pendingShiftUpdateTcs = null;
                     }
                     else if (type == "dj.update.ok")
                     {
@@ -1409,6 +1551,18 @@ public sealed class RemoteSyncService : IDisposable
                         {
                             if (op == "add") DjEntryAdded?.Invoke(entryDj);
                             else if (op == "remove") DjEntryRemoved?.Invoke(entryDj);
+                            goto EndOp;
+                        }
+                    }
+                    catch { }
+                    try
+                    {
+                        var entryShift = System.Text.Json.JsonSerializer.Deserialize<VenuePlus.State.ShiftEntry>(entryEl.GetRawText(), new System.Text.Json.JsonSerializerOptions { PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.CamelCase });
+                        if (entryShift != null)
+                        {
+                            if (op == "add") ShiftEntryAdded?.Invoke(entryShift);
+                            else if (op == "update") ShiftEntryUpdated?.Invoke(entryShift);
+                            else if (op == "remove") ShiftEntryRemoved?.Invoke(entryShift.Id);
                         }
                     }
                     catch { }

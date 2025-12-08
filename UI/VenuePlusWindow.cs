@@ -20,6 +20,7 @@ public sealed class VenuePlusWindow : Window, IDisposable
     private readonly VipTableComponent _vipTable = new();
     private readonly StaffListComponent _staffList = new();
     private readonly DjListComponent _djList = new();
+    private readonly ShiftPlanComponent _shiftPlan = new();
     private readonly AddVipModal _addVip = new();
     private readonly StaffLoginModal _staffLoginModal = new();
     private readonly RegisterModal _registerModal = new();
@@ -530,15 +531,15 @@ public sealed class VenuePlusWindow : Window, IDisposable
                 ImGui.EndChild();
                 ImGui.EndTabItem();
             }
-            if (_app.HasStaffSession)
+            if (!_app.HasStaffSession)
             {
-                if (ImGui.BeginTabItem("DJs"))
+                if (ImGui.BeginTabItem("Shifts"))
                 {
-                    ImGui.BeginChild("DjsTabContent", new Vector2(0, ImGui.GetContentRegionAvail().Y), false);
+                    ImGui.BeginChild("ShiftsTabContent", new Vector2(0, ImGui.GetContentRegionAvail().Y), false);
                     _vipTable.CloseAddForm();
                     _staffList.CloseInviteInline();
-                    var canManageDj = _app.IsOwnerCurrentClub || (_app.HasStaffSession && _app.StaffCanManageUsers);
-                    _djList.Draw(_app);
+                    _djList.CloseAddForm();
+                    _shiftPlan.Draw(_app);
                     ImGui.EndChild();
                     ImGui.EndTabItem();
                 }
@@ -556,6 +557,18 @@ public sealed class VenuePlusWindow : Window, IDisposable
                         _staffLastRefresh = System.DateTimeOffset.UtcNow;
                     }
                     _staffList.Draw(_app);
+                    ImGui.EndChild();
+                    ImGui.EndTabItem();
+                }
+            }
+            if (_app.HasStaffSession)
+            {
+                if (ImGui.BeginTabItem("DJs"))
+                {
+                    ImGui.BeginChild("DjsTabContent", new Vector2(0, ImGui.GetContentRegionAvail().Y), false);
+                    _vipTable.CloseAddForm();
+                    _staffList.CloseInviteInline();
+                    _djList.Draw(_app);
                     ImGui.EndChild();
                     ImGui.EndTabItem();
                 }

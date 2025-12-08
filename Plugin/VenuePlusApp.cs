@@ -41,6 +41,7 @@ public sealed class VenuePlusApp : IDisposable
     private bool _accessLoading;
     private bool _autoLoginAttempted;
     private VenuePlus.State.DjEntry[] _djEntries = Array.Empty<VenuePlus.State.DjEntry>();
+    private VenuePlus.State.ShiftEntry[] _shiftEntries = Array.Empty<VenuePlus.State.ShiftEntry>();
     private readonly System.Threading.SemaphoreSlim _connectGate = new(1, 1);
     private readonly System.Threading.SemaphoreSlim _autoLoginGate = new(1, 1);
     private readonly System.Threading.CancellationTokenSource _cts = new();
@@ -78,6 +79,10 @@ public sealed class VenuePlusApp : IDisposable
         _remote.DjSnapshotReceived += OnDjSnapshotReceived;
         _remote.DjEntryAdded += OnDjEntryAdded;
         _remote.DjEntryRemoved += OnDjEntryRemoved;
+        _remote.ShiftSnapshotReceived += OnShiftSnapshotReceived;
+        _remote.ShiftEntryAdded += OnShiftEntryAdded;
+        _remote.ShiftEntryUpdated += OnShiftEntryUpdated;
+        _remote.ShiftEntryRemoved += OnShiftEntryRemoved;
         _remote.JobsListReceived += arr =>
         {
             var incoming = arr ?? Array.Empty<string>();
@@ -118,7 +123,7 @@ public sealed class VenuePlusApp : IDisposable
                 UsersDetailsChanged?.Invoke(incoming);
             }
         };
-        _remote.UserJobUpdated += (username, job) => { if (!string.IsNullOrWhiteSpace(_staffUsername) && string.Equals(_staffUsername, username, System.StringComparison.Ordinal)) { _selfJob = job; if (_jobRightsCache != null && _jobRightsCache.TryGetValue(job, out var r)) { _selfRights = new System.Collections.Generic.Dictionary<string, bool>{{"addVip", r.AddVip},{"removeVip", r.RemoveVip},{"manageUsers", r.ManageUsers},{"manageJobs", r.ManageJobs},{"editVipDuration", r.EditVipDuration},{"addDj", r.AddDj},{"removeDj", r.RemoveDj}}; } } UserJobUpdatedEvt?.Invoke(username, job); };
+        _remote.UserJobUpdated += (username, job) => { if (!string.IsNullOrWhiteSpace(_staffUsername) && string.Equals(_staffUsername, username, System.StringComparison.Ordinal)) { _selfJob = job; if (_jobRightsCache != null && _jobRightsCache.TryGetValue(job, out var r)) { _selfRights = new System.Collections.Generic.Dictionary<string, bool>{{"addVip", r.AddVip},{"removeVip", r.RemoveVip},{"manageUsers", r.ManageUsers},{"manageJobs", r.ManageJobs},{"editVipDuration", r.EditVipDuration},{"addDj", r.AddDj},{"removeDj", r.RemoveDj},{"editShiftPlan", r.EditShiftPlan}}; } } UserJobUpdatedEvt?.Invoke(username, job); };
         _remote.MembershipRemoved += (username, clubIdEvt) =>
         {
             var removedClub = clubIdEvt ?? string.Empty;
@@ -360,6 +365,11 @@ public sealed class VenuePlusApp : IDisposable
         return _djEntries;
     }
 
+    public VenuePlus.State.ShiftEntry[] GetShiftEntries()
+    {
+        return _shiftEntries;
+    }
+
     public async System.Threading.Tasks.Task<bool> AddDjAsync(string djName, string twitchLink)
     {
         var canAddDj = IsOwnerCurrentClub || (HasStaffSession && StaffCanAddDj);
@@ -413,6 +423,41 @@ public sealed class VenuePlusApp : IDisposable
         return true;
     }
 
+    public async System.Threading.Tasks.Task<bool> AddShiftAsync(string title, System.DateTimeOffset startAt, System.DateTimeOffset endAt, string? assignedUid = null, string? job = null)
+    {
+        var canEdit = IsOwnerCurrentClub || (HasStaffSession && StaffCanEditShiftPlan);
+        if (!canEdit) return false;
+        var entry = new VenuePlus.State.ShiftEntry { Id = Guid.Empty, Title = title ?? string.Empty, AssignedUid = string.IsNullOrWhiteSpace(assignedUid) ? null : assignedUid, Job = string.IsNullOrWhiteSpace(job) ? null : job, StartAt = startAt, EndAt = endAt };
+        if (HasStaffSession)
+        {
+            try { return await _remote.PublishAddShiftAsync(entry, _staffToken!); } catch { return false; }
+        }
+        return false;
+    }
+
+    public async System.Threading.Tasks.Task<bool> UpdateShiftAsync(Guid id, string title, System.DateTimeOffset startAt, System.DateTimeOffset endAt, string? assignedUid = null, string? job = null)
+    {
+        var canEdit = IsOwnerCurrentClub || (HasStaffSession && StaffCanEditShiftPlan);
+        if (!canEdit) return false;
+        var entry = new VenuePlus.State.ShiftEntry { Id = id, Title = title ?? string.Empty, AssignedUid = string.IsNullOrWhiteSpace(assignedUid) ? null : assignedUid, Job = string.IsNullOrWhiteSpace(job) ? null : job, StartAt = startAt, EndAt = endAt };
+        if (HasStaffSession)
+        {
+            try { return await _remote.PublishUpdateShiftAsync(entry, _staffToken!); } catch { return false; }
+        }
+        return false;
+    }
+
+    public async System.Threading.Tasks.Task<bool> RemoveShiftAsync(Guid id)
+    {
+        var canEdit = IsOwnerCurrentClub || (HasStaffSession && StaffCanEditShiftPlan);
+        if (!canEdit) return false;
+        if (HasStaffSession)
+        {
+            try { return await _remote.PublishRemoveShiftAsync(id, _staffToken!); } catch { return false; }
+        }
+        return false;
+    }
+
     public bool IsVip(string characterName, string homeWorld)
     {
         return _vipService.ExistsActive(characterName, homeWorld);
@@ -431,6 +476,7 @@ public sealed class VenuePlusApp : IDisposable
     public bool StaffCanEditVipDuration => _selfRights.TryGetValue("editVipDuration", out var b) && b;
     public bool StaffCanAddDj => _selfRights.TryGetValue("addDj", out var b) && b;
     public bool StaffCanRemoveDj => _selfRights.TryGetValue("removeDj", out var b) && b;
+    public bool StaffCanEditShiftPlan => _selfRights.TryGetValue("editShiftPlan", out var b) && b;
     public string CurrentStaffJob => _selfJob;
     public bool AccessLoading => _accessLoading;
     public bool RememberStaffLogin
@@ -603,6 +649,7 @@ public sealed class VenuePlusApp : IDisposable
         if (_remote.RemoteUseWebSocket && !string.IsNullOrWhiteSpace(CurrentClubId))
         {
             try { await _remote.SwitchClubAsync(CurrentClubId!); } catch { }
+            try { await _remote.RequestShiftSnapshotAsync(_staffToken); } catch { }
         }
         if (_remote.RemoteUseWebSocket && !string.IsNullOrWhiteSpace(token))
         {
@@ -998,7 +1045,8 @@ public sealed class VenuePlusApp : IDisposable
                 ["manageJobs"] = r.ManageJobs,
                 ["editVipDuration"] = r.EditVipDuration,
                 ["addDj"] = r.AddDj,
-                ["removeDj"] = r.RemoveDj
+                ["removeDj"] = r.RemoveDj,
+                ["editShiftPlan"] = r.EditShiftPlan
             };
             return;
         }
@@ -1050,7 +1098,7 @@ public sealed class VenuePlusApp : IDisposable
 
     public string? CurrentStaffUid => _selfUid;
 
-    public async System.Threading.Tasks.Task<bool> UpdateJobRightsAsync(string name, bool addVip, bool removeVip, bool manageUsers, bool manageJobs, bool editVipDuration, bool addDj, bool removeDj, string colorHex = "#FFFFFF", string iconKey = "User", int rank = 1)
+    public async System.Threading.Tasks.Task<bool> UpdateJobRightsAsync(string name, bool addVip, bool removeVip, bool manageUsers, bool manageJobs, bool editVipDuration, bool addDj, bool removeDj, bool editShiftPlan, string colorHex = "#FFFFFF", string iconKey = "User", int rank = 1)
     {
         var sess = _staffToken ?? string.Empty;
         if (string.IsNullOrWhiteSpace(sess)) return false;
@@ -1058,7 +1106,7 @@ public sealed class VenuePlusApp : IDisposable
         if (string.Equals(name, "Owner", System.StringComparison.Ordinal)) r = 10;
         else if (string.Equals(name, "Unassigned", System.StringComparison.Ordinal)) r = 0;
         else r = rank <= 0 ? 1 : (rank > 9 ? 9 : rank);
-        var info = new JobRightsInfo { AddVip = addVip, RemoveVip = removeVip, ManageUsers = manageUsers, ManageJobs = manageJobs, EditVipDuration = editVipDuration, AddDj = addDj, RemoveDj = removeDj, Rank = r, ColorHex = colorHex ?? "#FFFFFF", IconKey = iconKey ?? "User" };
+        var info = new JobRightsInfo { AddVip = addVip, RemoveVip = removeVip, ManageUsers = manageUsers, ManageJobs = manageJobs, EditVipDuration = editVipDuration, AddDj = addDj, RemoveDj = removeDj, EditShiftPlan = editShiftPlan, Rank = r, ColorHex = colorHex ?? "#FFFFFF", IconKey = iconKey ?? "User" };
         return await _remote.UpdateJobRightsAsync(name, info, sess);
     }
 
@@ -1197,6 +1245,32 @@ public sealed class VenuePlusApp : IDisposable
         _djEntries = _djEntries.Where(x => !string.Equals(x.DjName, entry.DjName, System.StringComparison.Ordinal)).ToArray();
     }
 
+    private void OnShiftSnapshotReceived(VenuePlus.State.ShiftEntry[]? entries)
+    {
+        _shiftEntries = (entries ?? Array.Empty<VenuePlus.State.ShiftEntry>()).OrderBy(e => e.StartAt).ToArray();
+    }
+
+    private void OnShiftEntryAdded(VenuePlus.State.ShiftEntry entry)
+    {
+        var list = new System.Collections.Generic.List<VenuePlus.State.ShiftEntry>(_shiftEntries);
+        list.RemoveAll(x => x.Id == entry.Id);
+        list.Add(entry);
+        _shiftEntries = list.OrderBy(x => x.StartAt).ToArray();
+    }
+
+    private void OnShiftEntryUpdated(VenuePlus.State.ShiftEntry entry)
+    {
+        var list = new System.Collections.Generic.List<VenuePlus.State.ShiftEntry>(_shiftEntries);
+        var idx = list.FindIndex(x => x.Id == entry.Id);
+        if (idx >= 0) list[idx] = entry;
+        _shiftEntries = list.OrderBy(x => x.StartAt).ToArray();
+    }
+
+    private void OnShiftEntryRemoved(Guid id)
+    {
+        _shiftEntries = _shiftEntries.Where(x => x.Id != id).OrderBy(x => x.StartAt).ToArray();
+    }
+
     public void Dispose()
     {
         if (_disposed) return;
@@ -1333,6 +1407,7 @@ public sealed class VenuePlusApp : IDisposable
                     if (_remote.RemoteUseWebSocket)
                     {
                         var _ = await _remote.SwitchClubAsync(clubId);
+                        try { await _remote.RequestShiftSnapshotAsync(_staffToken); } catch { }
                     }
                     else
                     {

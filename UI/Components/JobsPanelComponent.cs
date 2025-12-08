@@ -27,6 +27,7 @@ public sealed class JobsPanelComponent
     private bool _editEditVipDuration;
     private bool _editAddDj;
     private bool _editRemoveDj;
+    private bool _editEditShiftPlan;
     private bool _addWindowOpen;
     private string _newRoleNameInput = string.Empty;
     private bool _addAddVip;
@@ -36,6 +37,7 @@ public sealed class JobsPanelComponent
     private bool _addEditVipDuration;
     private bool _addAddDj;
     private bool _addRemoveDj;
+    private bool _addEditShiftPlan;
     private string _addColorHex = "#FFFFFF";
     private string _addIconKey = "User";
     private string _editColorHex = "#FFFFFF";
@@ -158,6 +160,7 @@ public sealed class JobsPanelComponent
                     _editEditVipDuration = GetRight(j, "editVipDuration");
                     _editAddDj = GetRight(j, "addDj");
                     _editRemoveDj = GetRight(j, "removeDj");
+                    _editEditShiftPlan = GetRight(j, "editShiftPlan");
                     if (_rights.TryGetValue(j, out var infoInit))
                     {
                         _editColorHex = infoInit.ColorHex;
@@ -248,6 +251,7 @@ public sealed class JobsPanelComponent
                     if (ImGui.Checkbox("Manage Users", ref _addManageUsers)) { }
                     if (ImGui.Checkbox("Manage Roles", ref _addManageJobs)) { }
                     if (ImGui.Checkbox("Edit VIP Duration", ref _addEditVipDuration)) { }
+                    //if (ImGui.Checkbox("Edit Shift Plan", ref _addEditShiftPlan)) { }
                     ImGui.EndTable();
                 }
 
@@ -298,7 +302,7 @@ public sealed class JobsPanelComponent
                             var ok = await app.AddJobAsync(name);
                             if (ok)
                             {
-                                await app.UpdateJobRightsAsync(name, _addAddVip, _addRemoveVip, _addManageUsers, _addManageJobs, _addEditVipDuration, _addAddDj, _addRemoveDj, _addColorHex, _addIconKey, _addRank);
+                                await app.UpdateJobRightsAsync(name, _addAddVip, _addRemoveVip, _addManageUsers, _addManageJobs, _addEditVipDuration, _addAddDj, _addRemoveDj, _addEditShiftPlan, _addColorHex, _addIconKey, _addRank);
                                 _selectedJob = name;
                             }
                         });
@@ -369,6 +373,7 @@ public sealed class JobsPanelComponent
                     if (ImGui.Checkbox("Manage Users", ref _editManageUsers)) { }
                     if (ImGui.Checkbox("Manage Roles", ref _editManageJobs)) { }
                     if (ImGui.Checkbox("Edit VIP Duration", ref _editEditVipDuration)) { }
+                    //if (ImGui.Checkbox("Edit Shift Plan", ref _editEditShiftPlan)) { }
                     ImGui.EndTable();
                 }
                 ImGui.EndDisabled();
@@ -429,6 +434,7 @@ public sealed class JobsPanelComponent
                         SetRight(oldName, "editVipDuration", _editEditVipDuration);
                         SetRight(oldName, "addDj", _editAddDj);
                         SetRight(oldName, "removeDj", _editRemoveDj);
+                        SetRight(oldName, "editShiftPlan", _editEditShiftPlan);
                         if (_rights.TryGetValue(oldName, out var infoOld)) { infoOld.ColorHex = _editColorHex; infoOld.IconKey = _editIconKey; infoOld.Rank = _editRank; }
                         SaveImmediate(app, oldName);
                         _editWindowOpen = false;
@@ -441,7 +447,7 @@ public sealed class JobsPanelComponent
                             if (okAdd)
                             {
                                 var rankOld = (_rights.TryGetValue(oldName, out var infoOldR) ? infoOldR.Rank : 1);
-                                await app.UpdateJobRightsAsync(newName, _editAddVip, _editRemoveVip, _editManageUsers, _editManageJobs, _editEditVipDuration, _editAddDj, _editRemoveDj, _editColorHex, _editIconKey, rankOld);
+                                await app.UpdateJobRightsAsync(newName, _editAddVip, _editRemoveVip, _editManageUsers, _editManageJobs, _editEditVipDuration, _editAddDj, _editRemoveDj, _editEditShiftPlan, _editColorHex, _editIconKey, rankOld);
                                 var users = await app.ListStaffUsersDetailedAsync();
                                 if (users != null)
                                 {
@@ -500,7 +506,8 @@ public sealed class JobsPanelComponent
                 if (!_pending.TryGetValue(keyName, out var set4) || !set4.Contains("manageJobs")) { _rights[keyName].ManageJobs = incomingInfo.ManageJobs; }
                 if (!_pending.TryGetValue(keyName, out var set7) || !set7.Contains("editVipDuration")) { _rights[keyName].EditVipDuration = incomingInfo.EditVipDuration; }
                 if (!_pending.TryGetValue(keyName, out var set8) || !set8.Contains("addDj")) { _rights[keyName].AddDj = incomingInfo.AddDj; }
-                if (!_pending.TryGetValue(keyName, out var set9) || !set9.Contains("removeDj")) { _rights[keyName].RemoveDj = incomingInfo.RemoveDj; }
+                if (!_pending.TryGetValue(keyName, out var set9) || !set9.Contains("editShiftPlan")) { _rights[keyName].EditShiftPlan = incomingInfo.EditShiftPlan; }
+                if (!_pending.TryGetValue(keyName, out var set10) || !set10.Contains("removeDj")) { _rights[keyName].RemoveDj = incomingInfo.RemoveDj; }
                 if (!_pending.TryGetValue(keyName, out var set5) || !set5.Contains("colorHex")) { _rights[keyName].ColorHex = incomingInfo.ColorHex ?? "#FFFFFF"; }
                 if (!_pending.TryGetValue(keyName, out var set6) || !set6.Contains("iconKey")) { _rights[keyName].IconKey = incomingInfo.IconKey ?? "User"; }
                 if (!_pending.TryGetValue(keyName, out var setR) || !setR.Contains("rank"))
@@ -529,6 +536,7 @@ public sealed class JobsPanelComponent
             "editVipDuration" => info.EditVipDuration,
             "addDj" => info.AddDj,
             "removeDj" => info.RemoveDj,
+            "editShiftPlan" => info.EditShiftPlan,
             _ => false
         };
     }
@@ -545,6 +553,7 @@ public sealed class JobsPanelComponent
             case "editVipDuration": info.EditVipDuration = value; break;
             case "addDj": info.AddDj = value; break;
             case "removeDj": info.RemoveDj = value; break;
+            case "editShiftPlan": info.EditShiftPlan = value; break;
         }
     }
 
@@ -557,6 +566,7 @@ public sealed class JobsPanelComponent
         MarkPending(job, "editVipDuration");
         MarkPending(job, "addDj");
         MarkPending(job, "removeDj");
+        MarkPending(job, "editShiftPlan");
         MarkPending(job, "colorHex");
         MarkPending(job, "iconKey");
         MarkPending(job, "rank");
@@ -568,12 +578,13 @@ public sealed class JobsPanelComponent
         var edVal = GetRight(job, "editVipDuration");
         var addDjVal = GetRight(job, "addDj");
         var remDjVal = GetRight(job, "removeDj");
+        var editShiftVal = GetRight(job, "editShiftPlan");
         System.Threading.Tasks.Task.Run(async () =>
         {
             var color = (_rights.TryGetValue(job, out var info) ? info.ColorHex : "#FFFFFF");
             var icon = (_rights.TryGetValue(job, out var info2) ? info2.IconKey : "User");
             var rankCur = (_rights.TryGetValue(job, out var infoR) ? infoR.Rank : 1);
-            var ok = await app.UpdateJobRightsAsync(job, addVal, remVal, muVal, mjVal, edVal, addDjVal, remDjVal, color, icon, rankCur);
+            var ok = await app.UpdateJobRightsAsync(job, addVal, remVal, muVal, mjVal, edVal, addDjVal, remDjVal, editShiftVal, color, icon, rankCur);
             _status = string.Empty;
             UnmarkPending(job, "addVip");
             UnmarkPending(job, "removeVip");
@@ -582,6 +593,7 @@ public sealed class JobsPanelComponent
             UnmarkPending(job, "editVipDuration");
             UnmarkPending(job, "addDj");
             UnmarkPending(job, "removeDj");
+            UnmarkPending(job, "editShiftPlan");
             UnmarkPending(job, "colorHex");
             UnmarkPending(job, "iconKey");
             UnmarkPending(job, "rank");
