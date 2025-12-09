@@ -257,7 +257,41 @@ internal sealed class AccessService
                 try { await _remote.SwitchClubAsync(currentClubId!); } catch { }
                 try { await _remote.RequestShiftSnapshotAsync(token); } catch { }
             }
-            if (!useWs)
+
+            if (useWs)
+            {
+                var tRights = _remote.GetSelfRightsAsync(token);
+                var tProfile = _remote.GetSelfProfileAsync(token);
+                var tJobRights = _remote.ListJobRightsAsync(token);
+                var tUsersDet = _remote.ListUsersDetailedAsync(token);
+                var tMyClubs = _remote.ListUserClubsAsync(token);
+                var tMyCreated = _remote.ListCreatedClubsAsync(token);
+                try { await System.Threading.Tasks.Task.WhenAll(new System.Threading.Tasks.Task[] { tRights, tProfile, tJobRights, tUsersDet, tMyClubs, tMyCreated }); } catch { }
+                try
+                {
+                    var r = tRights.IsCompleted ? tRights.Result : (System.ValueTuple<string, System.Collections.Generic.Dictionary<string, bool>>?)null;
+                    if (r.HasValue)
+                    {
+                        selfJob = r.Value.Item1;
+                        selfRights = r.Value.Item2 ?? new System.Collections.Generic.Dictionary<string, bool>();
+                    }
+                }
+                catch { }
+                try
+                {
+                    var p = tProfile.IsCompleted ? tProfile.Result : (System.ValueTuple<string, string>?)null;
+                    if (p.HasValue && string.Equals(p.Value.Item1, usernameFinal, StringComparison.Ordinal))
+                    {
+                        selfUid = string.IsNullOrWhiteSpace(p.Value.Item2) ? null : p.Value.Item2;
+                    }
+                }
+                catch { }
+                try { jobRights = tJobRights.IsCompleted ? (tJobRights.Result ?? jobRights) : jobRights; } catch { }
+                try { usersDet = tUsersDet.IsCompleted ? tUsersDet.Result : usersDet; } catch { }
+                try { myClubs = tMyClubs.IsCompleted ? tMyClubs.Result : myClubs; } catch { }
+                try { myCreated = tMyCreated.IsCompleted ? tMyCreated.Result : myCreated; } catch { }
+            }
+            else
             {
                 try
                 {
@@ -278,13 +312,6 @@ internal sealed class AccessService
                     }
                 }
                 catch { }
-            }
-            if (useWs)
-            {
-                try { jobRights = await _remote.ListJobRightsAsync(token) ?? jobRights; } catch { }
-                try { usersDet = await _remote.ListUsersDetailedAsync(token); } catch { }
-                try { myClubs = await _remote.ListUserClubsAsync(token); } catch { }
-                try { myCreated = await _remote.ListCreatedClubsAsync(token); } catch { }
             }
             try { myClubs ??= await _remote.ListUserClubsAsync(token); } catch { }
             try { myCreated ??= await _remote.ListCreatedClubsAsync(token); } catch { }

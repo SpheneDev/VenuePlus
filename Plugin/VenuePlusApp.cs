@@ -52,6 +52,8 @@ public sealed class VenuePlusApp : IDisposable, IEventListener
     private System.Threading.CancellationTokenSource? _autoLoginMonitorCts;
     private System.Threading.Tasks.Task? _autoLoginMonitorTask;
     private bool _isDisposing;
+    private string? _desiredClubId;
+    private bool _clubListsLoaded;
     public event Action<VenuePlus.State.StaffUser[]>? UsersDetailsChanged;
     public event Action<string, string>? UserJobUpdatedEvt;
     public event Action<string[]>? JobsChanged;
@@ -504,6 +506,7 @@ public sealed class VenuePlusApp : IDisposable, IEventListener
         _selfUid = result.SelfUid ?? _selfUid;
         _myClubs = result.MyClubs ?? _myClubs;
         _myCreatedClubs = result.MyCreatedClubs ?? _myCreatedClubs;
+        _clubListsLoaded = (_myClubs != null) || (_myCreatedClubs != null);
         _jobRightsCache = result.JobRightsCache ?? _jobRightsCache;
         _usersDetailsCache = result.UsersDetailsCache ?? _usersDetailsCache;
         if (!string.IsNullOrWhiteSpace(result.CurrentClubLogoBase64))
@@ -511,10 +514,20 @@ public sealed class VenuePlusApp : IDisposable, IEventListener
             _clubService.SetCurrentClubLogo(CurrentClubId, result.CurrentClubLogoBase64);
             try { ClubLogoChanged?.Invoke(result.CurrentClubLogoBase64); } catch { }
         }
-        if (!string.IsNullOrWhiteSpace(result.FirstClubCandidate)) SetClubId(result.FirstClubCandidate);
+        if (!string.IsNullOrWhiteSpace(result.FirstClubCandidate))
+        {
+            var pref = result.PreferredClubId ?? string.Empty;
+            var cand = result.FirstClubCandidate ?? string.Empty;
+            var hasPref = !string.IsNullOrWhiteSpace(pref);
+            var prefInCreated = hasPref && (_myCreatedClubs != null && System.Array.IndexOf(_myCreatedClubs, pref) >= 0);
+            var prefInMember = hasPref && (_myClubs != null && System.Array.IndexOf(_myClubs, pref) >= 0);
+            var prefValid = hasPref && (prefInCreated || prefInMember);
+            if (!prefValid) SetClubId(cand);
+        }
         _selfJob = result.SelfJob ?? _selfJob;
         if (result.SelfRights != null) _selfRights = result.SelfRights;
         EnsureSelfRights();
+        EnsureValidClubAfterListFetch();
         _accessLoading = false;
         var keySave = GetCurrentCharacterKey();
         Configuration.CharacterProfile? profSave = null;
@@ -1117,6 +1130,7 @@ public sealed class VenuePlusApp : IDisposable, IEventListener
 
     public void SetClubId(string? clubId)
     {
+        _desiredClubId = clubId;
         _vipService.SetActiveClub(clubId);
         _remote.SetClubId(clubId);
         if (string.IsNullOrWhiteSpace(clubId))
@@ -1571,17 +1585,25 @@ public sealed class VenuePlusApp : IDisposable, IEventListener
                     {
                         var clubId = CurrentClubId;
                         if (!string.IsNullOrWhiteSpace(clubId)) { try { await _remote.SwitchClubAsync(clubId!); } catch { } }
-                        try { _jobRightsCache = await _remote.ListJobRightsAsync(_staffToken!) ?? _jobRightsCache; } catch { }
-                        try { _usersDetailsCache = await _remote.ListUsersDetailedAsync(_staffToken!); } catch { }
-                        try { _myClubs = await _remote.ListUserClubsAsync(_staffToken!); } catch { }
-                        try { _myCreatedClubs = await _remote.ListCreatedClubsAsync(_staffToken!); } catch { }
+                        var tRights = _remote.ListJobRightsAsync(_staffToken!);
+                        var tUsers = _remote.ListUsersDetailedAsync(_staffToken!);
+                        var tClubs = _remote.ListUserClubsAsync(_staffToken!);
+                        var tCreated = _remote.ListCreatedClubsAsync(_staffToken!);
+                        var tLogo = _remote.GetClubLogoAsync(_staffToken!);
+                        try { await System.Threading.Tasks.Task.WhenAll(new System.Threading.Tasks.Task[] { tRights, tUsers, tClubs, tCreated, tLogo }); } catch { }
+                        try { _jobRightsCache = tRights.IsCompleted ? (tRights.Result ?? _jobRightsCache) : _jobRightsCache; } catch { }
+                        try { _usersDetailsCache = tUsers.IsCompleted ? tUsers.Result : _usersDetailsCache; } catch { }
+                        try { _myClubs = tClubs.IsCompleted ? tClubs.Result : _myClubs; } catch { }
+                        try { _myCreatedClubs = tCreated.IsCompleted ? tCreated.Result : _myCreatedClubs; } catch { }
+                        _clubListsLoaded = (_myClubs != null) || (_myCreatedClubs != null);
                         try
                         {
-                            var logo = await _remote.GetClubLogoAsync(_staffToken!);
+                            var logo = tLogo.IsCompleted ? tLogo.Result : null;
                             _clubService.SetCurrentClubLogo(CurrentClubId, logo);
                             try { ClubLogoChanged?.Invoke(logo); } catch { }
                         }
                         catch { }
+                        EnsureValidClubAfterListFetch();
                     }
                     finally { _accessLoading = false; }
                 });
@@ -1592,5 +1614,31 @@ public sealed class VenuePlusApp : IDisposable, IEventListener
                 System.Threading.Tasks.Task.Run(async () => { await TryAutoLoginAsync(); });
             }
         }
+    }
+
+    private void EnsureValidClubAfterListFetch()
+    {
+        if (!_clubListsLoaded) return;
+        var cur = CurrentClubId;
+        var inCreated = (!string.IsNullOrWhiteSpace(cur) && _myCreatedClubs != null && System.Array.IndexOf(_myCreatedClubs, cur) >= 0);
+        var inMember = (!string.IsNullOrWhiteSpace(cur) && _myClubs != null && System.Array.IndexOf(_myClubs, cur) >= 0);
+        var inClubs = inCreated || inMember;
+        var desired = _desiredClubId;
+        if (!string.IsNullOrWhiteSpace(desired))
+        {
+            var desiredInCreated = (_myCreatedClubs != null && System.Array.IndexOf(_myCreatedClubs, desired) >= 0);
+            var desiredInMember = (_myClubs != null && System.Array.IndexOf(_myClubs, desired) >= 0);
+            if (desiredInCreated || desiredInMember)
+            {
+                if (!string.Equals(cur, desired, System.StringComparison.Ordinal)) SetClubId(desired);
+                return;
+            }
+        }
+        if (!inClubs)
+        {
+            var next = (_myCreatedClubs != null && _myCreatedClubs.Length > 0) ? _myCreatedClubs[0] : ((_myClubs != null && _myClubs.Length > 0) ? _myClubs[0] : null);
+            if (!string.Equals(cur, next, System.StringComparison.Ordinal)) SetClubId(next);
+        }
+        else { }
     }
 }

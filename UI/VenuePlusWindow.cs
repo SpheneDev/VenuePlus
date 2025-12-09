@@ -277,16 +277,7 @@ public sealed class VenuePlusWindow : Window, IDisposable
             var labelCur = string.IsNullOrWhiteSpace(_app.CurrentClubId) ? "--" : _app.CurrentClubId;
             var created = _app.GetMyCreatedClubs() ?? Array.Empty<string>();
             var clubs = _app.GetMyClubs() ?? Array.Empty<string>();
-            if (!string.IsNullOrWhiteSpace(_app.CurrentClubId))
-            {
-                var present = System.Array.IndexOf(created, _app.CurrentClubId) >= 0 || System.Array.IndexOf(clubs, _app.CurrentClubId) >= 0;
-                if (!present)
-                {
-                    var next = created.Length > 0 ? created[0] : (clubs.Length > 0 ? clubs[0] : null);
-                    _app.SetClubId(next);
-                    labelCur = string.IsNullOrWhiteSpace(_app.CurrentClubId) ? "--" : _app.CurrentClubId;
-                }
-            }
+            
             if ((created.Length + clubs.Length) > 0 && ImGui.BeginCombo("##club_select", labelCur))
             {
                 foreach (var c in created)
