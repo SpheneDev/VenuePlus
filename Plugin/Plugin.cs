@@ -128,6 +128,7 @@ public sealed class Plugin : IDalamudPlugin
             _updatePromptWindow.SetVersions(prevVer, _currentVersion);
             _updatePromptWindow.IsOpen = true;
         }
+        try { _app.SetClubId(_app.CurrentClubId); } catch { }
         _ = _app.ConnectRemoteAsync();
         _ = _app.TryAutoLoginAsync();
     }

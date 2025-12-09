@@ -491,6 +491,11 @@ public sealed class VenuePlusApp : IDisposable, IEventListener
             ? username
             : ((!string.IsNullOrWhiteSpace(_currentCharName) && !string.IsNullOrWhiteSpace(_currentCharWorld)) ? (_currentCharName + "@" + _currentCharWorld) : string.Empty);
         if (string.IsNullOrWhiteSpace(usernameFinal)) return false;
+        var clubBeforeLogin = CurrentClubId;
+        if (!string.IsNullOrWhiteSpace(clubBeforeLogin))
+        {
+            SetClubId(clubBeforeLogin);
+        }
         var result = await _accessService.StaffLoginAsync(usernameFinal, password, GetCurrentCharacterKey(), CurrentClubId);
         if (result is null || string.IsNullOrWhiteSpace(result.Token)) return false;
         _isPowerStaff = true;
@@ -618,12 +623,16 @@ public sealed class VenuePlusApp : IDisposable, IEventListener
             await _autoLoginGate.WaitAsync();
             if (_autoLoginAttempted) { return; }
             _accessLoading = true;
+            var keyAuto = GetCurrentCharacterKey();
+            var info = _accessService.GetAutoLoginInfo(keyAuto);
+            if (!RemoteConnected)
+            {
+                SetClubId(info.PreferredClubId);
+            }
             var connected = RemoteConnected || await ConnectRemoteAsync();
             if (!connected) { AutoLoginResultEvt?.Invoke(false, false); var _np = GetNotificationPreferences(); if (_np.ShowLoginFailed) { try { _notifier?.ShowInfo("Staff login failed"); } catch { } } return; }
             if (HasStaffSession) { AutoLoginResultEvt?.Invoke(IsOwnerCurrentClub, true); var _np = GetNotificationPreferences(); if (_np.ShowLoginSuccess) { try { _notifier?.ShowInfo("Logged in to staff session"); } catch { } } return; }
             var staffOk = false;
-            var keyAuto = GetCurrentCharacterKey();
-            var info = _accessService.GetAutoLoginInfo(keyAuto);
             if (info.Enabled && info.Remembered && !string.IsNullOrWhiteSpace(info.SavedUsername) && !string.IsNullOrWhiteSpace(info.DecryptedPassword))
             {
                 try { _log?.Debug($"[AutoLogin] attempt club={info.PreferredClubId ?? "default"}"); } catch { }
@@ -732,6 +741,8 @@ public sealed class VenuePlusApp : IDisposable, IEventListener
             try
             {
                 if (RemoteConnected) return true;
+                var clubId = CurrentClubId;
+                if (!string.IsNullOrWhiteSpace(clubId)) _remote.SetClubId(clubId);
                 return await _remote.ConnectAsync(RemoteBaseUrlConst);
             }
             finally
@@ -971,7 +982,8 @@ public sealed class VenuePlusApp : IDisposable, IEventListener
 
     public void OnSnapshotReceived(System.Collections.Generic.IReadOnlyCollection<VipEntry> entries)
     {
-        _vipService.ReplaceAllForActiveClub(entries);
+        var cnt = entries.Count;
+        _vipService.ReplaceAllForActiveClub(entries ?? System.Array.Empty<VipEntry>());
     }
 
     public void OnEntryAdded(VipEntry entry)
@@ -1584,7 +1596,7 @@ public sealed class VenuePlusApp : IDisposable, IEventListener
                     try
                     {
                         var clubId = CurrentClubId;
-                        if (!string.IsNullOrWhiteSpace(clubId)) { try { await _remote.SwitchClubAsync(clubId!); } catch { } }
+                        if (!string.IsNullOrWhiteSpace(clubId)) { try { await _remote.SwitchClubAsync(clubId!); } catch { } try { await _remote.RequestShiftSnapshotAsync(_staffToken); } catch { } }
                         var tRights = _remote.ListJobRightsAsync(_staffToken!);
                         var tUsers = _remote.ListUsersDetailedAsync(_staffToken!);
                         var tClubs = _remote.ListUserClubsAsync(_staffToken!);
