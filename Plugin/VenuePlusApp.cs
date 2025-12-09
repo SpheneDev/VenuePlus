@@ -633,25 +633,27 @@ public sealed class VenuePlusApp : IDisposable, IEventListener
             if (!connected) { AutoLoginResultEvt?.Invoke(false, false); var _np = GetNotificationPreferences(); if (_np.ShowLoginFailed) { try { _notifier?.ShowInfo("Staff login failed"); } catch { } } return; }
             if (HasStaffSession) { AutoLoginResultEvt?.Invoke(IsOwnerCurrentClub, true); var _np = GetNotificationPreferences(); if (_np.ShowLoginSuccess) { try { _notifier?.ShowInfo("Logged in to staff session"); } catch { } } return; }
             var staffOk = false;
-            if (info.Enabled && info.Remembered && !string.IsNullOrWhiteSpace(info.SavedUsername) && !string.IsNullOrWhiteSpace(info.DecryptedPassword))
+            var attempted = info.Enabled && info.Remembered && !string.IsNullOrWhiteSpace(info.SavedUsername) && !string.IsNullOrWhiteSpace(info.DecryptedPassword);
+            if (attempted)
             {
-                try { _log?.Debug($"[AutoLogin] attempt club={info.PreferredClubId ?? "default"}"); } catch { }
                 var uname = (!string.IsNullOrWhiteSpace(_currentCharName) && !string.IsNullOrWhiteSpace(_currentCharWorld))
                     ? (_currentCharName + "@" + _currentCharWorld)
                     : info.SavedUsername!;
                 staffOk = await StaffLoginAsync(uname, info.DecryptedPassword!);
             }
-            AutoLoginResultEvt?.Invoke(false, staffOk);
-            var _np5 = GetNotificationPreferences();
-            if (staffOk)
+            if (attempted)
             {
-                if (_np5.ShowLoginSuccess) { try { _notifier?.ShowInfo("Logged in"); } catch { } }
+                AutoLoginResultEvt?.Invoke(false, staffOk);
+                var _np5 = GetNotificationPreferences();
+                if (staffOk)
+                {
+                    if (_np5.ShowLoginSuccess) { try { _notifier?.ShowInfo("Logged in"); } catch { } }
+                }
+                else
+                {
+                    if (_np5.ShowLoginFailed) { try { _notifier?.ShowInfo("Login failed"); } catch { } }
+                }
             }
-            else
-            {
-                if (_np5.ShowLoginFailed) { try { _notifier?.ShowInfo("Login failed"); } catch { } }
-            }
-            try { _log?.Debug($"[AutoLogin] result adminOk=false staffOk={staffOk}"); } catch { }
             _autoLoginAttempted = staffOk;
         }
         catch { }
