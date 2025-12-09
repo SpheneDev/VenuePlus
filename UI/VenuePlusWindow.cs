@@ -47,7 +47,6 @@ public sealed class VenuePlusWindow : Window, IDisposable
     private readonly System.Collections.Concurrent.ConcurrentDictionary<string, byte> _clubLogoFetchPending = new(System.StringComparer.Ordinal);
     private readonly System.Collections.Generic.HashSet<string> _logoPrefetchDone = new(System.StringComparer.Ordinal);
     private string _clubsFingerprint = string.Empty;
-    private readonly System.Collections.Generic.List<(string Message, System.DateTimeOffset ExpiresAt)> _notifications = new();
     private int _statsVipCount;
     private int _statsStaffCount;
 
@@ -72,7 +71,6 @@ public sealed class VenuePlusWindow : Window, IDisposable
         _app.AutoLoginResultEvt += OnAutoLoginResult;
         _app.RememberStaffNeedsPasswordEvt += OnRememberStaffNeedsPassword;
         _app.ClubLogoChanged += OnClubLogoChanged;
-        _app.Notification += OnNotification;
         OnClubLogoChanged(_app.CurrentClubLogoBase64);
     }
 
@@ -316,7 +314,7 @@ public sealed class VenuePlusWindow : Window, IDisposable
                 if (ImGui.IsItemHovered()) { ImGui.BeginTooltip(); ImGui.TextUnformatted("My Venues List"); ImGui.EndTooltip(); }
                 var availTop = ImGui.GetContentRegionAvail().X;
                 var halfTop = (availTop - style.ItemSpacing.X) * 0.5f;
-                if (ImGui.Button("Register Venue", new Vector2(halfTop, 0))) { _registerClubModal.Open(); }
+                if (ImGui.Button("Create Venue", new Vector2(halfTop, 0))) { _registerClubModal.Open(); }
                 if (ImGui.IsItemHovered()) { ImGui.BeginTooltip(); ImGui.TextUnformatted("Create a new venue"); ImGui.EndTooltip(); }
                 ImGui.SameLine();
                 if (ImGui.Button("Join Venue", new Vector2(halfTop, 0))) { _joinClubModal.Open(); }
@@ -424,7 +422,7 @@ public sealed class VenuePlusWindow : Window, IDisposable
             ImGui.BulletText("Or join an existing Venue using join password.");
             ImGui.Spacing();
             var half = (ImGui.GetContentRegionAvail().X - ImGui.GetStyle().ItemSpacing.X) * 0.5f;
-            if (ImGui.Button("Register Venue", new Vector2(half, 0))) { _registerClubModal.Open(); }
+            if (ImGui.Button("Create Venue", new Vector2(half, 0))) { _registerClubModal.Open(); }
             ImGui.SameLine();
             if (ImGui.Button("Join Venue", new Vector2(half, 0))) { _joinClubModal.Open(); }
             ImGui.Spacing();
@@ -612,7 +610,7 @@ public sealed class VenuePlusWindow : Window, IDisposable
         _registerClubModal.Draw(_app);
         _joinClubModal.Draw(_app);
         _addVip.Draw(_app);
-        RenderNotifications();
+        
     }
 
     private void OnAutoLoginResult(bool adminOk, bool staffOk)
@@ -625,29 +623,7 @@ public sealed class VenuePlusWindow : Window, IDisposable
         }
     }
 
-    private void OnNotification(string message)
-    {
-        var until = System.DateTimeOffset.UtcNow.AddSeconds(4);
-        _notifications.Add((message, until));
-    }
-
-    private void RenderNotifications()
-    {
-        var now = System.DateTimeOffset.UtcNow;
-        for (int i = _notifications.Count - 1; i >= 0; i--)
-        {
-            if (_notifications[i].ExpiresAt <= now) _notifications.RemoveAt(i);
-        }
-        if (_notifications.Count == 0) return;
-        var vp = ImGui.GetMainViewport();
-        ImGui.SetNextWindowPos(new Vector2(vp.WorkPos.X + vp.WorkSize.X - 12f, vp.WorkPos.Y + 12f), ImGuiCond.Always, new Vector2(1f, 0f));
-        ImGui.SetNextWindowBgAlpha(0.8f);
-        var flags = ImGuiWindowFlags.NoDecoration | ImGuiWindowFlags.AlwaysAutoResize | ImGuiWindowFlags.NoMove | ImGuiWindowFlags.NoInputs | ImGuiWindowFlags.NoFocusOnAppearing | ImGuiWindowFlags.NoNav;
-        ImGui.Begin("VenuePlusNotifications", flags);
-        var msg = _notifications[_notifications.Count - 1].Message;
-        ImGui.TextUnformatted(msg);
-        ImGui.End();
-    }
+    
 
     private void DrawWrappedButton(string label, Action onClick)
     {
@@ -675,7 +651,6 @@ public sealed class VenuePlusWindow : Window, IDisposable
         _app.JobsChanged -= OnJobsChangedPanel;
         _app.JobRightsChanged -= OnJobRightsChanged;
         _app.JobsChanged -= OnJobsChangedStaffList;
-        _app.Notification -= OnNotification;
         _app.AutoLoginResultEvt -= OnAutoLoginResult;
         _app.RememberStaffNeedsPasswordEvt -= OnRememberStaffNeedsPassword;
         _app.ClubLogoChanged -= OnClubLogoChanged;

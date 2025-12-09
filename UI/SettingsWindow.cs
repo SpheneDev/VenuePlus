@@ -41,7 +41,25 @@ public sealed class SettingsWindow : Window, System.IDisposable
         {
             if (ImGui.BeginTabItem("Settings", ImGuiTabItemFlags.None))
             {
-                DrawPluginOptions();
+                if (ImGui.BeginTabBar("SettingsInnerTabs"))
+                {
+                    if (ImGui.BeginTabItem("Login Behavior"))
+                    {
+                        DrawSettingsLoginBehavior();
+                        ImGui.EndTabItem();
+                    }
+                    if (ImGui.BeginTabItem("Appearance"))
+                    {
+                        DrawSettingsAppearance();
+                        ImGui.EndTabItem();
+                    }
+                    if (ImGui.BeginTabItem("Notifications"))
+                    {
+                        DrawSettingsNotifications();
+                        ImGui.EndTabItem();
+                    }
+                    ImGui.EndTabBar();
+                }
                 ImGui.EndTabItem();
             }
 
@@ -157,6 +175,7 @@ public sealed class SettingsWindow : Window, System.IDisposable
                 ImGui.EndTabItem();
             }
 
+            
             ImGui.EndTabBar();
         }
     }
@@ -235,12 +254,12 @@ public sealed class SettingsWindow : Window, System.IDisposable
         if (!string.IsNullOrEmpty(_staffPassStatus)) ImGui.TextUnformatted(_staffPassStatus);
     }
 
-    private void DrawPluginOptions()
+    private void DrawSettingsLoginBehavior()
     {
         ImGui.Spacing();
-
-        ImGui.TextUnformatted("Login Behavior");
-        ImGui.Separator();
+        ImGui.TextUnformatted("Control login privacy and automation.");
+        ImGui.TextDisabled("Store an encrypted password locally and auto-login on startup.");
+        ImGui.Spacing();
         var remember = _app.RememberStaffLogin;
         if (ImGui.Checkbox("Remember Login Password", ref remember))
         {
@@ -252,7 +271,7 @@ public sealed class SettingsWindow : Window, System.IDisposable
             });
         }
         ImGui.SameLine();
-        DrawHelpIcon("Stores your password locally to simplify login.");
+        DrawHelpIcon("Stores your password locally (encrypted) to simplify login.");
         var auto = _app.AutoLoginEnabled;
         if (ImGui.Checkbox("Auto login enabled", ref auto))
         {
@@ -267,25 +286,81 @@ public sealed class SettingsWindow : Window, System.IDisposable
         DrawHelpIcon("Attempts automatic login on plugin start.");
         if (!string.IsNullOrEmpty(_rememberStatus)) ImGui.TextUnformatted(_rememberStatus);
         if (!string.IsNullOrEmpty(_autoStatus)) ImGui.TextUnformatted(_autoStatus);
+    }
 
-
+    private void DrawSettingsAppearance()
+    {
         ImGui.Spacing();
-        ImGui.TextUnformatted("VIP Nameplate");
-        ImGui.Separator();
-        var showOverlay = _app.ShowVipOverlay;
-        if (ImGui.Checkbox("Show VIP overlay on target", ref showOverlay))
-        {
-            _app.SetShowVipOverlayAsync(showOverlay).GetAwaiter().GetResult();
-        }
-        ImGui.SameLine();
-        DrawHelpIcon("Displays VIP info overlay on the current target.");
+        ImGui.TextUnformatted("Customize how VIP information appears in-game.");
+        ImGui.TextDisabled("Nameplate options affect only visual presentation.");
+        ImGui.Spacing();
         var showNameplate = _app.ShowVipNameplateHook;
-        if (ImGui.Checkbox("Show VIP star in nameplate", ref showNameplate))
+        if (ImGui.Checkbox("Show VIP Indicator in nameplate", ref showNameplate))
         {
             _app.SetShowVipNameplateHookAsync(showNameplate).GetAwaiter().GetResult();
         }
         ImGui.SameLine();
-        DrawHelpIcon("Adds a colored star before VIP names in the nameplate.");
+        DrawHelpIcon("Adds a colored symbol before VIP names in the nameplate.");
+        ImGui.TextDisabled("Choose symbol & position.");
+        ImGui.Spacing();
+        var posOptions = new string[] { "Before name", "After name", "Before and after" };
+        int posIndex = _app.VipStarPosition == VenuePlus.Configuration.VipStarPosition.Left ? 0 : (_app.VipStarPosition == VenuePlus.Configuration.VipStarPosition.Right ? 1 : 2);
+        ImGui.PushItemWidth(160f);
+        if (ImGui.Combo("##vip_star_position", ref posIndex, posOptions, posOptions.Length))
+        {
+            var newPos = posIndex == 0 ? VenuePlus.Configuration.VipStarPosition.Left : (posIndex == 1 ? VenuePlus.Configuration.VipStarPosition.Right : VenuePlus.Configuration.VipStarPosition.Both);
+            _app.SetVipStarPositionAsync(newPos).GetAwaiter().GetResult();
+        }
+        ImGui.PopItemWidth();
+        var preset = new string[] { "None", "★", "☆", "♥", "♡" , "◆", "◇" };
+        int presetIndex = 0;
+        var currentSym = _app.VipStarChar;
+        for (int i = 1; i < preset.Length; i++) { if (string.Equals(currentSym, preset[i], System.StringComparison.Ordinal)) { presetIndex = i; break; } }
+        ImGui.PushItemWidth(160f);
+        if (ImGui.Combo("##vip_star_preset", ref presetIndex, preset, preset.Length))
+        {
+            var chosen = presetIndex == 0 ? string.Empty : preset[presetIndex];
+            _app.SetVipStarCharAsync(chosen).GetAwaiter().GetResult();
+        }
+        ImGui.PopItemWidth();
+        ImGui.SameLine();
+        ImGui.PushItemWidth(140f);
+        var starChar = _app.VipStarChar;
+        if (ImGui.InputText("##vip_star_char", ref starChar, 16))
+        {
+            _app.SetVipStarCharAsync(starChar).GetAwaiter().GetResult();
+        }
+        ImGui.PopItemWidth();
+        ImGui.SameLine();
+        DrawHelpIcon("Symbol preset or custom text; 'None' disables the symbol.");
+
+        ImGui.Spacing();
+        var lblEnabled = _app.VipTextEnabled;
+        if (ImGui.Checkbox("Show label text", ref lblEnabled))
+        {
+            _app.SetVipTextEnabledAsync(lblEnabled).GetAwaiter().GetResult();
+        }
+        ImGui.SameLine();
+        DrawHelpIcon("Shows custom label text near the nameplate (e.g., [VIP]).");
+        ImGui.PushItemWidth(220f);
+        var lblText = _app.VipLabelText;
+        if (ImGui.InputText("##vip_label_text", ref lblText, 32))
+        {
+            _app.SetVipLabelTextAsync(lblText).GetAwaiter().GetResult();
+        }
+        ImGui.PopItemWidth();
+
+        var orderOptions = new string[] { "Symbol + Text", "Text + Symbol" };
+        int orderIndex = _app.VipLabelOrder == VenuePlus.Configuration.VipLabelOrder.SymbolThenText ? 0 : 1;
+        ImGui.PushItemWidth(160f);
+        if (ImGui.Combo("##vip_label_order", ref orderIndex, orderOptions, orderOptions.Length))
+        {
+            var newOrder = orderIndex == 0 ? VenuePlus.Configuration.VipLabelOrder.SymbolThenText : VenuePlus.Configuration.VipLabelOrder.TextThenSymbol;
+            _app.SetVipLabelOrderAsync(newOrder).GetAwaiter().GetResult();
+        }
+        ImGui.PopItemWidth();
+        ImGui.SameLine();
+        DrawHelpIcon("Choose composition when both symbol and label are enabled.");
         ImGui.PushItemWidth(220f);
         var sliderIndex = GetSliderIndexFromActualKey((int)_app.VipStarColorKey);
         var sliderChanged = ImGui.SliderInt("##vip_star_color_key", ref sliderIndex, 0, 89);
@@ -307,9 +382,74 @@ public sealed class SettingsWindow : Window, System.IDisposable
         catch { rgbBox = new Vector4(1f, 0.84f, 0f, 1f); }
         ImGui.ColorButton("##vip_star_preview_settings", rgbBox, ImGuiColorEditFlags.NoTooltip | ImGuiColorEditFlags.NoDragDrop | ImGuiColorEditFlags.NoBorder, new Vector2(ImGui.GetFrameHeight(), ImGui.GetFrameHeight()));
         ImGui.SameLine();
-        DrawHelpIcon("Change color of VIP star in nameplate.");
+        DrawHelpIcon("Change color of VIP symbol in nameplate.");
         ImGui.PopItemWidth();
+    }
 
+    private void DrawSettingsNotifications()
+    {
+        var prefs = _app.GetNotificationPreferences();
+        ImGui.BeginChild("NotifContentInner", new Vector2(0, ImGui.GetContentRegionAvail().Y), false);
+        var modes = new string[] { "None", "Chat", "Toast", "Both" };
+        ImGui.TextUnformatted("Choose how and which notifications are shown.");
+        ImGui.TextDisabled("Select a display mode, then enable categories you care about.");
+        ImGui.Spacing();
+        int modeIndex = (int)prefs.DisplayMode;
+        ImGui.TextUnformatted("Display Mode");
+        ImGui.SameLine();
+        ImGui.PushItemWidth(160f);
+        if (ImGui.Combo("##notif_display_mode_inner", ref modeIndex, modes, modes.Length))
+        {
+            prefs.DisplayMode = (VenuePlus.Configuration.NotificationDisplayMode)modeIndex;
+            _app.SavePluginConfig();
+        }
+        ImGui.PopItemWidth();
+        ImGui.Spacing();
+        ImGui.PushStyleColor(ImGuiCol.Header, new Vector4(0, 0, 0, 0));
+        ImGui.PushStyleColor(ImGuiCol.HeaderHovered, new Vector4(0, 0, 0, 0));
+        ImGui.PushStyleColor(ImGuiCol.HeaderActive, new Vector4(0, 0, 0, 0));
+        if (ImGui.CollapsingHeader("Account & Access", ImGuiTreeNodeFlags.DefaultOpen))
+        {
+            ImGui.TextDisabled("Login results and password prompts.");
+            var s1 = prefs.ShowLoginSuccess; if (ImGui.Checkbox("Show login success", ref s1)) { prefs.ShowLoginSuccess = s1; _app.SavePluginConfig(); }
+            var s2 = prefs.ShowLoginFailed; if (ImGui.Checkbox("Show login failed", ref s2)) { prefs.ShowLoginFailed = s2; _app.SavePluginConfig(); }
+            var s3 = prefs.ShowPasswordRequired; if (ImGui.Checkbox("Show password required", ref s3)) { prefs.ShowPasswordRequired = s3; _app.SavePluginConfig(); }
+        }
+        if (ImGui.CollapsingHeader("Roles & Ownership", ImGuiTreeNodeFlags.DefaultOpen))
+        {
+            ImGui.TextDisabled("Role changes for you and ownership events.");
+            var r1 = prefs.ShowRoleChangedSelf; if (ImGui.Checkbox("Show role changed (self)", ref r1)) { prefs.ShowRoleChangedSelf = r1; _app.SavePluginConfig(); }
+            var r2 = prefs.ShowOwnershipGranted; if (ImGui.Checkbox("Show ownership granted", ref r2)) { prefs.ShowOwnershipGranted = r2; _app.SavePluginConfig(); }
+            var r3 = prefs.ShowOwnershipTransferred; if (ImGui.Checkbox("Show ownership transferred", ref r3)) { prefs.ShowOwnershipTransferred = r3; _app.SavePluginConfig(); }
+        }
+        if (ImGui.CollapsingHeader("Membership", ImGuiTreeNodeFlags.DefaultOpen))
+        {
+            ImGui.TextDisabled("Join or removal from venues affecting your account.");
+            var m1 = prefs.ShowMembershipJoined; if (ImGui.Checkbox("Show membership joined", ref m1)) { prefs.ShowMembershipJoined = m1; _app.SavePluginConfig(); }
+            var m2 = prefs.ShowMembershipRemoved; if (ImGui.Checkbox("Show membership removed", ref m2)) { prefs.ShowMembershipRemoved = m2; _app.SavePluginConfig(); }
+        }
+        if (ImGui.CollapsingHeader("VIPs", ImGuiTreeNodeFlags.DefaultOpen))
+        {
+            ImGui.TextDisabled("VIP list changes: added or removed entries.");
+            var v1 = prefs.ShowVipAdded; if (ImGui.Checkbox("Show VIP added", ref v1)) { prefs.ShowVipAdded = v1; _app.SavePluginConfig(); }
+            var v2 = prefs.ShowVipRemoved; if (ImGui.Checkbox("Show VIP removed", ref v2)) { prefs.ShowVipRemoved = v2; _app.SavePluginConfig(); }
+        }
+        if (ImGui.CollapsingHeader("DJs", ImGuiTreeNodeFlags.DefaultOpen))
+        {
+            ImGui.TextDisabled("DJ roster changes in the current venue.");
+            var d0 = prefs.ShowDjAdded; if (ImGui.Checkbox("Show DJ added", ref d0)) { prefs.ShowDjAdded = d0; _app.SavePluginConfig(); }
+            var d1 = prefs.ShowDjRemoved; if (ImGui.Checkbox("Show DJ removed", ref d1)) { prefs.ShowDjRemoved = d1; _app.SavePluginConfig(); }
+        }
+        // TODO: Comming soon
+        //if (ImGui.CollapsingHeader("Shifts", ImGuiTreeNodeFlags.DefaultOpen))
+        //{
+        //    ImGui.TextDisabled("Shift schedule updates and removals.");
+        //    var sh1 = prefs.ShowShiftCreated; if (ImGui.Checkbox("Show shift created", ref sh1)) { prefs.ShowShiftCreated = sh1; _app.SavePluginConfig(); }
+        //    var sh2 = prefs.ShowShiftUpdated; if (ImGui.Checkbox("Show shift updated", ref sh2)) { prefs.ShowShiftUpdated = sh2; _app.SavePluginConfig(); }
+        //    var sh3 = prefs.ShowShiftRemoved; if (ImGui.Checkbox("Show shift removed", ref sh3)) { prefs.ShowShiftRemoved = sh3; _app.SavePluginConfig(); }
+        //}
+        ImGui.PopStyleColor(3);
+        ImGui.EndChild();
     }
 
     private static void DrawHelpIcon(string text)

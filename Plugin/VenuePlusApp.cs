@@ -3,18 +3,21 @@ using System.Reflection;
 using VenuePlus.Services;
 using System.Linq;
 using VenuePlus.State;
-using VenuePlus.Configuration;
 using VenuePlus.Helpers;
+using VenuePlus.Configuration;
 using Dalamud.Plugin.Services;
 
 namespace VenuePlus.Plugin;
 
-public sealed class VenuePlusApp : IDisposable
+public sealed class VenuePlusApp : IDisposable, IEventListener
 {
     private readonly VipService _vipService;
     private readonly AutoPurgeService _autoPurge;
     private readonly PluginConfigService _pluginConfigService;
     private readonly RemoteSyncService _remote;
+    private readonly AccessService _accessService;
+    private readonly ClubService _clubService = new();
+    private readonly EventService _eventService;
     private readonly IPluginLog? _log;
     private readonly IClientState _clientState;
     private readonly IObjectTable _objectTable;
@@ -29,6 +32,7 @@ public sealed class VenuePlusApp : IDisposable
     private string _selfJob = string.Empty;
     private string? _selfUid;
     private bool _disposed;
+    private VenuePlus.Services.NotificationService? _notifier;
     private static readonly string RemoteBaseUrlConst = GetRemoteBaseUrl();
     private string[]? _jobsCache;
     private System.Collections.Generic.Dictionary<string, JobRightsInfo>? _jobRightsCache;
@@ -40,8 +44,8 @@ public sealed class VenuePlusApp : IDisposable
     private string[]? _myCreatedClubs;
     private bool _accessLoading;
     private bool _autoLoginAttempted;
-    private VenuePlus.State.DjEntry[] _djEntries = Array.Empty<VenuePlus.State.DjEntry>();
-    private VenuePlus.State.ShiftEntry[] _shiftEntries = Array.Empty<VenuePlus.State.ShiftEntry>();
+    private readonly DjService _djService = new();
+    private readonly ShiftService _shiftService = new();
     private readonly System.Threading.SemaphoreSlim _connectGate = new(1, 1);
     private readonly System.Threading.SemaphoreSlim _autoLoginGate = new(1, 1);
     private readonly System.Threading.CancellationTokenSource _cts = new();
@@ -57,7 +61,7 @@ public sealed class VenuePlusApp : IDisposable
     public event Action? OpenSettingsRequested;
     public event Action? OpenVipListRequested;
     public event Action<string?>? ClubLogoChanged;
-    public event Action<string>? Notification;
+    
     public event Action? OpenVenuesListRequested;
     public event Action? OpenChangelogRequested;
     public event Action? OpenQolToolsRequested;
@@ -72,168 +76,12 @@ public sealed class VenuePlusApp : IDisposable
         _vipService = new VipService(config);
         _autoPurge = new AutoPurgeService(_vipService);
         _pluginConfigService = new PluginConfigService(pluginConfigPath ?? string.Empty);
+        _accessService = new AccessService(_pluginConfigService);
         _remote = new RemoteSyncService(_log);
-        _remote.SnapshotReceived += OnSnapshotReceived;
-        _remote.EntryAdded += OnEntryAdded;
-        _remote.EntryRemoved += OnEntryRemoved;
-        _remote.DjSnapshotReceived += OnDjSnapshotReceived;
-        _remote.DjEntryAdded += OnDjEntryAdded;
-        _remote.DjEntryRemoved += OnDjEntryRemoved;
-        _remote.ShiftSnapshotReceived += OnShiftSnapshotReceived;
-        _remote.ShiftEntryAdded += OnShiftEntryAdded;
-        _remote.ShiftEntryUpdated += OnShiftEntryUpdated;
-        _remote.ShiftEntryRemoved += OnShiftEntryRemoved;
-        _remote.JobsListReceived += arr =>
-        {
-            var incoming = arr ?? Array.Empty<string>();
-            var fp = string.Join("|", incoming);
-            if (!string.Equals(_jobsFingerprint, fp, System.StringComparison.Ordinal))
-            {
-                _jobsFingerprint = fp;
-                _jobsCache = incoming;
-                JobsChanged?.Invoke(incoming);
-            }
-        };
-        _remote.JobRightsReceived += dict => { _jobRightsCache = dict; JobRightsChanged?.Invoke(dict); };
-        _remote.UsersListReceived += arr => { _usersCache = arr; };
-        _remote.UsersDetailsReceived += det =>
-        {
-            _usersDetailsCache = det;
-            var uname = _staffUsername ?? string.Empty;
-            if (!string.IsNullOrWhiteSpace(uname) && det != null)
-            {
-                for (int i = 0; i < det.Length; i++)
-                {
-                    if (string.Equals(det[i].Username, uname, System.StringComparison.Ordinal))
-                    {
-                        _selfJob = det[i].Job ?? string.Empty;
-                        var uidCandidate = det[i].Uid;
-                        _selfUid = string.IsNullOrWhiteSpace(uidCandidate) ? _selfUid : uidCandidate;
-                        EnsureSelfRights();
-                        break;
-                    }
-                }
-            }
-            var incoming = det ?? Array.Empty<VenuePlus.State.StaffUser>();
-            var ordered = incoming.OrderBy(u => u.Username, System.StringComparer.Ordinal).Select(u => (u.Username ?? string.Empty) + "#" + (u.Job ?? string.Empty) + "#" + (u.Uid ?? string.Empty)).ToArray();
-            var fp = string.Join("|", ordered);
-            if (!string.Equals(_usersDetailsFingerprint, fp, System.StringComparison.Ordinal))
-            {
-                _usersDetailsFingerprint = fp;
-                UsersDetailsChanged?.Invoke(incoming);
-            }
-        };
-        _remote.UserJobUpdated += (username, job) => { if (!string.IsNullOrWhiteSpace(_staffUsername) && string.Equals(_staffUsername, username, System.StringComparison.Ordinal)) { _selfJob = job; if (_jobRightsCache != null && _jobRightsCache.TryGetValue(job, out var r)) { _selfRights = new System.Collections.Generic.Dictionary<string, bool>{{"addVip", r.AddVip},{"removeVip", r.RemoveVip},{"manageUsers", r.ManageUsers},{"manageJobs", r.ManageJobs},{"editVipDuration", r.EditVipDuration},{"addDj", r.AddDj},{"removeDj", r.RemoveDj},{"editShiftPlan", r.EditShiftPlan}}; } } UserJobUpdatedEvt?.Invoke(username, job); };
-        _remote.MembershipRemoved += (username, clubIdEvt) =>
-        {
-            var removedClub = clubIdEvt ?? string.Empty;
-            var isSelf = !string.IsNullOrWhiteSpace(_staffUsername) && string.Equals(_staffUsername, username, System.StringComparison.Ordinal);
-            var wasPresent = (_myClubs != null && System.Array.IndexOf(_myClubs, removedClub) >= 0) || (_myCreatedClubs != null && System.Array.IndexOf(_myCreatedClubs, removedClub) >= 0);
-            if (isSelf)
-            {
-                if (!string.IsNullOrWhiteSpace(removedClub))
-                {
-                    if (_myClubs != null && _myClubs.Length > 0)
-                    {
-                        var list = new System.Collections.Generic.List<string>(_myClubs.Length);
-                        foreach (var c in _myClubs) { if (!string.Equals(c, removedClub, System.StringComparison.Ordinal)) list.Add(c); }
-                        _myClubs = list.ToArray();
-                    }
-                    if (_myCreatedClubs != null && _myCreatedClubs.Length > 0)
-                    {
-                        var list2 = new System.Collections.Generic.List<string>(_myCreatedClubs.Length);
-                        foreach (var c in _myCreatedClubs) { if (!string.Equals(c, removedClub, System.StringComparison.Ordinal)) list2.Add(c); }
-                        _myCreatedClubs = list2.ToArray();
-                    }
-                }
-                if (!string.IsNullOrWhiteSpace(CurrentClubId) && string.Equals(CurrentClubId, removedClub, System.StringComparison.Ordinal))
-                {
-                    var next = (_myClubs != null && _myClubs.Length > 0) ? _myClubs[0] : null;
-                    SetClubId(next);
-                }
-            }
-            var ct = _cts.Token;
-            System.Threading.Tasks.Task.Run(async () =>
-            {
-                try
-                {
-                    if (!ct.IsCancellationRequested && !string.IsNullOrWhiteSpace(_staffToken))
-                    {
-                        _myClubs = await _remote.ListUserClubsAsync(_staffToken!);
-                        _myCreatedClubs = await _remote.ListCreatedClubsAsync(_staffToken!);
-                        var cur = CurrentClubId;
-                        var inClubs = (!string.IsNullOrWhiteSpace(cur) && _myClubs != null && System.Array.IndexOf(_myClubs, cur) >= 0) || (!string.IsNullOrWhiteSpace(cur) && _myCreatedClubs != null && System.Array.IndexOf(_myCreatedClubs, cur) >= 0);
-                        if (isSelf && !inClubs)
-                        {
-                            var next = (_myClubs != null && _myClubs.Length > 0) ? _myClubs[0] : null;
-                            SetClubId(next);
-                        }
-                    }
-                }
-                catch { }
-            });
-        };
-        _remote.MembershipAdded += (username, clubId) =>
-        {
-            if (!string.IsNullOrWhiteSpace(_staffUsername) && string.Equals(_staffUsername, username, System.StringComparison.Ordinal))
-            {
-                if (!string.IsNullOrWhiteSpace(clubId))
-                {
-                    if (_myClubs == null) _myClubs = new[] { clubId };
-                    else if (System.Array.IndexOf(_myClubs, clubId) < 0)
-                    {
-                        var list = new System.Collections.Generic.List<string>(_myClubs);
-                        list.Add(clubId);
-                        list.Sort(System.StringComparer.Ordinal);
-                        _myClubs = list.ToArray();
-                    }
-                    SetClubId(clubId);
-                    try { Notification?.Invoke($"Joined venue: {clubId}"); } catch { }
-                }
-                var ct = _cts.Token;
-                System.Threading.Tasks.Task.Run(async () => { try { if (!ct.IsCancellationRequested && !string.IsNullOrWhiteSpace(_staffToken)) _myClubs = await _remote.ListUserClubsAsync(_staffToken!); } catch { } });
-            }
-        };
-        _remote.ClubLogoReceived += base64 => { _currentClubLogoBase64 = base64; try { ClubLogoChanged?.Invoke(base64); } catch { } if (!string.IsNullOrWhiteSpace(CurrentClubId)) _clubLogosByClub[CurrentClubId!] = base64; };
-        _remote.ConnectionChanged += connected =>
-        {
-            if (!connected)
-            {
-                OnRemoteDisconnected();
-            }
-            else
-            {
-                if (HasStaffSession)
-                {
-                    System.Threading.Tasks.Task.Run(async () =>
-                    {
-                        try
-                        {
-                            var clubId = CurrentClubId;
-                            if (!string.IsNullOrWhiteSpace(clubId)) { try { await _remote.SwitchClubAsync(clubId!); } catch { } }
-                            try { _jobRightsCache = await _remote.ListJobRightsAsync(_staffToken!) ?? _jobRightsCache; } catch { }
-                            try { _usersDetailsCache = await _remote.ListUsersDetailedAsync(_staffToken!); } catch { }
-                            try { _myClubs = await _remote.ListUserClubsAsync(_staffToken!); } catch { }
-                            try { _myCreatedClubs = await _remote.ListCreatedClubsAsync(_staffToken!); } catch { }
-                            try
-                            {
-                                var logo = await _remote.GetClubLogoAsync(_staffToken!);
-                                _currentClubLogoBase64 = logo;
-                                try { ClubLogoChanged?.Invoke(logo); } catch { }
-                                if (!string.IsNullOrWhiteSpace(CurrentClubId)) _clubLogosByClub[CurrentClubId] = logo;
-                            }
-                            catch { }
-                        }
-                        finally { _accessLoading = false; }
-                    });
-                }
-                else if (AutoLoginEnabled && !_autoLoginAttempted)
-                {
-                    try { _log?.Debug($"[AutoLogin] connected event: enabled={AutoLoginEnabled} hasSession={HasStaffSession} attempted={_autoLoginAttempted}"); } catch { }
-                    System.Threading.Tasks.Task.Run(async () => { await TryAutoLoginAsync(); });
-                }
-            }
-        };
+        _accessService.SetRemote(_remote);
+        _eventService = new EventService(_remote);
+        _eventService.Register(this);
+        
         
         if (!_pluginConfigService.Current.RemoteUseWebSocket)
         {
@@ -263,7 +111,6 @@ public sealed class VenuePlusApp : IDisposable
             }
         }, ctMon);
     }
-
     public void OpenSettingsWindow()
     {
         try { OpenSettingsRequested?.Invoke(); } catch { }
@@ -362,24 +209,21 @@ public sealed class VenuePlusApp : IDisposable
 
     public System.Collections.Generic.IReadOnlyCollection<VenuePlus.State.DjEntry> GetDjEntries()
     {
-        return _djEntries;
+        return _djService.GetAll();
     }
 
     public VenuePlus.State.ShiftEntry[] GetShiftEntries()
     {
-        return _shiftEntries;
+        return _shiftService.GetAll();
     }
 
     public async System.Threading.Tasks.Task<bool> AddDjAsync(string djName, string twitchLink)
     {
         var canAddDj = IsOwnerCurrentClub || (HasStaffSession && StaffCanAddDj);
         if (!canAddDj) return false;
-        var link = NormalizeTwitchLink(twitchLink);
+        var link = DjService.NormalizeTwitchLink(twitchLink);
         var entry = new VenuePlus.State.DjEntry { DjName = djName ?? string.Empty, TwitchLink = link, CreatedAt = System.DateTimeOffset.UtcNow };
-        var cur = new System.Collections.Generic.List<VenuePlus.State.DjEntry>(_djEntries);
-        var idx = cur.FindIndex(x => string.Equals(x.DjName, entry.DjName, System.StringComparison.Ordinal));
-        if (idx >= 0) cur[idx] = entry; else cur.Add(entry);
-        _djEntries = cur.OrderBy(x => x.DjName, System.StringComparer.Ordinal).ToArray();
+        _djService.SetOrAdd(entry);
         if (HasStaffSession)
         {
             try { return await _remote.PublishAddDjAsync(entry, _staffToken!); } catch { return false; }
@@ -387,73 +231,52 @@ public sealed class VenuePlusApp : IDisposable
         return true;
     }
 
-    private static string NormalizeTwitchLink(string twitchLink)
-    {
-        var s = twitchLink?.Trim() ?? string.Empty;
-        if (string.IsNullOrWhiteSpace(s)) return string.Empty;
-        var lower = s.ToLowerInvariant();
-        if (lower.StartsWith("http://")) s = "https://" + s.Substring(7);
-        lower = s.ToLowerInvariant();
-        if (lower.StartsWith("https://www.twitch.tv/")) s = "https://twitch.tv/" + s.Substring("https://www.twitch.tv/".Length);
-        else if (lower.StartsWith("www.twitch.tv/")) s = "https://twitch.tv/" + s.Substring("www.twitch.tv/".Length);
-        else if (lower.StartsWith("twitch.tv/")) s = "https://" + s;
-        else if (!lower.Contains("twitch.tv"))
-        {
-            var channel = s.TrimStart('@').Trim('/');
-            if (string.IsNullOrWhiteSpace(channel)) return string.Empty;
-            channel = channel.ToLowerInvariant();
-            s = "https://twitch.tv/" + channel;
-        }
-        if (s.EndsWith("/")) s = s.Substring(0, s.Length - 1);
-        return s;
-    }
+    
 
     public async System.Threading.Tasks.Task<bool> RemoveDjAsync(string djName)
     {
         var canRemoveDj = IsOwnerCurrentClub || (HasStaffSession && StaffCanRemoveDj);
         if (!canRemoveDj) return false;
-        var cur = new System.Collections.Generic.List<VenuePlus.State.DjEntry>(_djEntries);
-        cur.RemoveAll(x => string.Equals(x.DjName, djName ?? string.Empty, System.StringComparison.Ordinal));
-        _djEntries = cur.OrderBy(x => x.DjName, System.StringComparer.Ordinal).ToArray();
+        _djService.RemoveByName(djName ?? string.Empty);
         if (HasStaffSession)
         {
             var entry = new VenuePlus.State.DjEntry { DjName = djName ?? string.Empty, TwitchLink = string.Empty, CreatedAt = System.DateTimeOffset.UtcNow };
-            try { return await _remote.PublishRemoveDjAsync(entry, _staffToken!); } catch { return false; }
+            try { var ok = await _remote.PublishRemoveDjAsync(entry, _staffToken!); if (ok) { var _np = GetNotificationPreferences(); if (_np.ShowDjRemoved) { try { _notifier?.ShowInfo("DJ removed: " + (djName ?? string.Empty)); } catch { } } } return ok; } catch { return false; }
         }
         return true;
     }
 
     public async System.Threading.Tasks.Task<bool> AddShiftAsync(string title, System.DateTimeOffset startAt, System.DateTimeOffset endAt, string? assignedUid = null, string? job = null)
     {
-        var canEdit = IsOwnerCurrentClub || (HasStaffSession && StaffCanEditShiftPlan);
+        var canEdit = CanEditShiftPlanInternal();
         if (!canEdit) return false;
         var entry = new VenuePlus.State.ShiftEntry { Id = Guid.Empty, Title = title ?? string.Empty, AssignedUid = string.IsNullOrWhiteSpace(assignedUid) ? null : assignedUid, Job = string.IsNullOrWhiteSpace(job) ? null : job, StartAt = startAt, EndAt = endAt };
         if (HasStaffSession)
         {
-            try { return await _remote.PublishAddShiftAsync(entry, _staffToken!); } catch { return false; }
+            try { var ok = await _remote.PublishAddShiftAsync(entry, _staffToken!); if (ok) { TryNotifyShiftCreated(entry); } return ok; } catch { return false; }
         }
         return false;
     }
 
     public async System.Threading.Tasks.Task<bool> UpdateShiftAsync(Guid id, string title, System.DateTimeOffset startAt, System.DateTimeOffset endAt, string? assignedUid = null, string? job = null)
     {
-        var canEdit = IsOwnerCurrentClub || (HasStaffSession && StaffCanEditShiftPlan);
+        var canEdit = CanEditShiftPlanInternal();
         if (!canEdit) return false;
         var entry = new VenuePlus.State.ShiftEntry { Id = id, Title = title ?? string.Empty, AssignedUid = string.IsNullOrWhiteSpace(assignedUid) ? null : assignedUid, Job = string.IsNullOrWhiteSpace(job) ? null : job, StartAt = startAt, EndAt = endAt };
         if (HasStaffSession)
         {
-            try { return await _remote.PublishUpdateShiftAsync(entry, _staffToken!); } catch { return false; }
+            try { var ok = await _remote.PublishUpdateShiftAsync(entry, _staffToken!); if (ok) { TryNotifyShiftUpdated(entry); } return ok; } catch { return false; }
         }
         return false;
     }
 
     public async System.Threading.Tasks.Task<bool> RemoveShiftAsync(Guid id)
     {
-        var canEdit = IsOwnerCurrentClub || (HasStaffSession && StaffCanEditShiftPlan);
+        var canEdit = CanEditShiftPlanInternal();
         if (!canEdit) return false;
         if (HasStaffSession)
         {
-            try { return await _remote.PublishRemoveShiftAsync(id, _staffToken!); } catch { return false; }
+            try { var ok = await _remote.PublishRemoveShiftAsync(id, _staffToken!); if (ok) { TryNotifyShiftRemoved(); } return ok; } catch { return false; }
         }
         return false;
     }
@@ -500,18 +323,15 @@ public sealed class VenuePlusApp : IDisposable
         }
     }
 
-    public bool ShowVipOverlay => _pluginConfigService.Current.ShowVipOverlay;
     public bool ShowVipNameplateHook => _pluginConfigService.Current.ShowVipNameplateHook;
     public ushort VipStarColorKey => _pluginConfigService.Current.VipStarColorKey;
+    public string VipStarChar => _pluginConfigService.Current.VipStarChar ?? "★";
+    public VenuePlus.Configuration.VipStarPosition VipStarPosition => _pluginConfigService.Current.VipStarPosition;
+    public bool VipTextEnabled => _pluginConfigService.Current.VipTextEnabled;
+    public string VipLabelText => _pluginConfigService.Current.VipLabelText ?? string.Empty;
+    public VenuePlus.Configuration.VipLabelOrder VipLabelOrder => _pluginConfigService.Current.VipLabelOrder;
     public bool KeepWhisperMessage => _pluginConfigService.Current.KeepWhisperMessage;
     public VenuePlus.Configuration.WhisperPreset[] GetWhisperPresets() => _pluginConfigService.Current.WhisperPresets?.ToArray() ?? System.Array.Empty<VenuePlus.Configuration.WhisperPreset>();
-
-    public System.Threading.Tasks.Task SetShowVipOverlayAsync(bool enable)
-    {
-        _pluginConfigService.Current.ShowVipOverlay = enable;
-        _pluginConfigService.Save();
-        return System.Threading.Tasks.Task.CompletedTask;
-    }
 
     public System.Threading.Tasks.Task SetShowVipNameplateHookAsync(bool enable)
     {
@@ -522,6 +342,41 @@ public sealed class VenuePlusApp : IDisposable
     public System.Threading.Tasks.Task SetVipStarColorKeyAsync(ushort colorKey)
     {
         _pluginConfigService.Current.VipStarColorKey = colorKey;
+        _pluginConfigService.Save();
+        return System.Threading.Tasks.Task.CompletedTask;
+    }
+
+    public System.Threading.Tasks.Task SetVipStarCharAsync(string ch)
+    {
+        _pluginConfigService.Current.VipStarChar = ch ?? string.Empty;
+        _pluginConfigService.Save();
+        return System.Threading.Tasks.Task.CompletedTask;
+    }
+
+    public System.Threading.Tasks.Task SetVipStarPositionAsync(VenuePlus.Configuration.VipStarPosition pos)
+    {
+        _pluginConfigService.Current.VipStarPosition = pos;
+        _pluginConfigService.Save();
+        return System.Threading.Tasks.Task.CompletedTask;
+    }
+
+    public System.Threading.Tasks.Task SetVipTextEnabledAsync(bool enable)
+    {
+        _pluginConfigService.Current.VipTextEnabled = enable;
+        _pluginConfigService.Save();
+        return System.Threading.Tasks.Task.CompletedTask;
+    }
+
+    public System.Threading.Tasks.Task SetVipLabelTextAsync(string text)
+    {
+        _pluginConfigService.Current.VipLabelText = text ?? string.Empty;
+        _pluginConfigService.Save();
+        return System.Threading.Tasks.Task.CompletedTask;
+    }
+
+    public System.Threading.Tasks.Task SetVipLabelOrderAsync(VenuePlus.Configuration.VipLabelOrder order)
+    {
+        _pluginConfigService.Current.VipLabelOrder = order;
         _pluginConfigService.Save();
         return System.Threading.Tasks.Task.CompletedTask;
     }
@@ -621,10 +476,9 @@ public sealed class VenuePlusApp : IDisposable
         return baseName;
     }
 
-    public bool IsOwnerCurrentClub => (string.Equals(_selfJob, "Owner", System.StringComparison.Ordinal)) || (_myCreatedClubs != null && System.Array.IndexOf(_myCreatedClubs, CurrentClubId) >= 0);
-    private string? _currentClubLogoBase64;
-    public string? CurrentClubLogoBase64 => _currentClubLogoBase64;
-    private readonly System.Collections.Generic.Dictionary<string, string?> _clubLogosByClub = new(System.StringComparer.Ordinal);
+    public bool IsOwnerCurrentClub => string.Equals(_selfJob, "Owner", System.StringComparison.Ordinal);
+    public string? CurrentClubLogoBase64 => _clubService.CurrentLogoBase64;
+    
 
     
 
@@ -635,122 +489,40 @@ public sealed class VenuePlusApp : IDisposable
             ? username
             : ((!string.IsNullOrWhiteSpace(_currentCharName) && !string.IsNullOrWhiteSpace(_currentCharWorld)) ? (_currentCharName + "@" + _currentCharWorld) : string.Empty);
         if (string.IsNullOrWhiteSpace(usernameFinal)) return false;
-        var token = await _remote.StaffLoginAsync(usernameFinal, password);
-        if (string.IsNullOrWhiteSpace(token)) return false;
+        var result = await _accessService.StaffLoginAsync(usernameFinal, password, GetCurrentCharacterKey(), CurrentClubId);
+        if (result is null || string.IsNullOrWhiteSpace(result.Token)) return false;
         _isPowerStaff = true;
-        _staffToken = token;
-        _staffUsername = usernameFinal;
-        var keyAutoPre = GetCurrentCharacterKey();
-        Configuration.CharacterProfile? profAutoPre = null;
-        if (!string.IsNullOrWhiteSpace(keyAutoPre)) _pluginConfigService.Current.ProfilesByCharacter.TryGetValue(keyAutoPre, out profAutoPre);
-        var clubPrefPre = (!string.IsNullOrWhiteSpace(keyAutoPre) && profAutoPre != null) ? profAutoPre.RemoteClubId : _pluginConfigService.Current.RemoteClubId;
-        SetClubId(clubPrefPre);
+        _staffToken = result.Token;
+        _staffUsername = result.Username;
+        SetClubId(result.PreferredClubId);
         if (!RemoteConnected) await ConnectRemoteAsync();
         if (_remote.RemoteUseWebSocket && !string.IsNullOrWhiteSpace(CurrentClubId))
         {
             try { await _remote.SwitchClubAsync(CurrentClubId!); } catch { }
             try { await _remote.RequestShiftSnapshotAsync(_staffToken); } catch { }
         }
-        if (_remote.RemoteUseWebSocket && !string.IsNullOrWhiteSpace(token))
+        _selfUid = result.SelfUid ?? _selfUid;
+        _myClubs = result.MyClubs ?? _myClubs;
+        _myCreatedClubs = result.MyCreatedClubs ?? _myCreatedClubs;
+        _jobRightsCache = result.JobRightsCache ?? _jobRightsCache;
+        _usersDetailsCache = result.UsersDetailsCache ?? _usersDetailsCache;
+        if (!string.IsNullOrWhiteSpace(result.CurrentClubLogoBase64))
         {
-            try
-            {
-                var prof = await _remote.GetSelfProfileAsync(token);
-                if (prof.HasValue && string.Equals(prof.Value.Username, _staffUsername, System.StringComparison.Ordinal))
-                {
-                    _selfUid = string.IsNullOrWhiteSpace(prof.Value.Uid) ? null : prof.Value.Uid;
-                }
-            }
-            catch { }
-            try { _myClubs = await _remote.ListUserClubsAsync(_staffToken!); } catch { }
-            try { _myCreatedClubs = await _remote.ListCreatedClubsAsync(_staffToken!); } catch { }
+            _clubService.SetCurrentClubLogo(CurrentClubId, result.CurrentClubLogoBase64);
+            try { ClubLogoChanged?.Invoke(result.CurrentClubLogoBase64); } catch { }
         }
-        var keyAuto = GetCurrentCharacterKey();
-        Configuration.CharacterProfile? profAuto = null;
-        if (!string.IsNullOrWhiteSpace(keyAuto)) _pluginConfigService.Current.ProfilesByCharacter.TryGetValue(keyAuto, out profAuto);
-        var clubPref = (!string.IsNullOrWhiteSpace(keyAuto) && profAuto != null) ? profAuto.RemoteClubId : _pluginConfigService.Current.RemoteClubId;
-        if (!string.IsNullOrWhiteSpace(clubPref)) SetClubId(clubPref);
-        _accessLoading = true;
-        var ct = _cts.Token;
-        
-        await System.Threading.Tasks.Task.Run(async () =>
-        {
-            if (ct.IsCancellationRequested) { _accessLoading = false; return; }
-            try 
-            { 
-                if (!_remote.RemoteUseWebSocket)
-                {
-                    var rights = await _remote.GetSelfRightsAsync(_staffToken!);
-                    if (rights.HasValue)
-                    {
-                        _selfJob = rights.Value.Job;
-                        _selfRights = rights.Value.Rights ?? new System.Collections.Generic.Dictionary<string, bool>();
-                    }
-                }
-                if (!_remote.RemoteUseWebSocket)
-                {
-                    var prof = await _remote.GetSelfProfileAsync(_staffToken!);
-                    if (prof.HasValue)
-                    {
-                        if (string.Equals(prof.Value.Username, _staffUsername, System.StringComparison.Ordinal))
-                            _selfUid = string.IsNullOrWhiteSpace(prof.Value.Uid) ? null : prof.Value.Uid;
-                    }
-                }
-                if (_remote.RemoteUseWebSocket)
-                {
-                    try { _jobRightsCache = await _remote.ListJobRightsAsync(_staffToken!) ?? _jobRightsCache; } catch { }
-                    try { _usersDetailsCache = await _remote.ListUsersDetailedAsync(_staffToken!); } catch { }
-                    try { _myClubs = await _remote.ListUserClubsAsync(_staffToken!); } catch { }
-                    try { _myCreatedClubs = await _remote.ListCreatedClubsAsync(_staffToken!); } catch { }
-                    EnsureSelfRights();
-                }
-                if (!ct.IsCancellationRequested) _myClubs = await _remote.ListUserClubsAsync(_staffToken!);
-                if (!ct.IsCancellationRequested) _myCreatedClubs = await _remote.ListCreatedClubsAsync(_staffToken!);
-                if (!ct.IsCancellationRequested)
-                {
-                    var logo = await _remote.GetClubLogoAsync(_staffToken!);
-                    _currentClubLogoBase64 = logo;
-                    try { ClubLogoChanged?.Invoke(logo); } catch { }
-                    if (!string.IsNullOrWhiteSpace(CurrentClubId)) _clubLogosByClub[CurrentClubId] = logo;
-                }
-                var firstClub = (_myClubs != null && _myClubs.Length > 0) ? _myClubs[0] : ((_myCreatedClubs != null && _myCreatedClubs.Length > 0) ? _myCreatedClubs[0] : null);
-                if (!string.IsNullOrWhiteSpace(firstClub)) SetClubId(firstClub!);
-            } 
-            catch { }
-            finally { _accessLoading = false; }
-        });
+        if (!string.IsNullOrWhiteSpace(result.FirstClubCandidate)) SetClubId(result.FirstClubCandidate);
+        _selfJob = result.SelfJob ?? _selfJob;
+        if (result.SelfRights != null) _selfRights = result.SelfRights;
+        EnsureSelfRights();
+        _accessLoading = false;
         var keySave = GetCurrentCharacterKey();
         Configuration.CharacterProfile? profSave = null;
         if (!string.IsNullOrWhiteSpace(keySave)) _pluginConfigService.Current.ProfilesByCharacter.TryGetValue(keySave, out profSave);
         var rememberThis = profSave?.RememberStaffLogin ?? _pluginConfigService.Current.RememberStaffLogin;
         if (rememberThis)
         {
-            EnsureSecretsKey();
-            var savedUser2 = profSave?.SavedStaffUsername ?? _pluginConfigService.Current.SavedStaffUsername;
-            var savedEnc2 = profSave?.SavedStaffPasswordEnc ?? _pluginConfigService.Current.SavedStaffPasswordEnc;
-            var existingPlain = (!string.IsNullOrWhiteSpace(savedEnc2) && !string.IsNullOrWhiteSpace(_pluginConfigService.Current.SecretsKey))
-                ? Helpers.SecureStoreUtil.UnprotectToStringWithKey(savedEnc2!, _pluginConfigService.Current.SecretsKey!)
-                : null;
-            if (!string.Equals(savedUser2, usernameFinal, StringComparison.Ordinal) || !string.Equals(existingPlain, password, StringComparison.Ordinal))
-            {
-                var enc = Helpers.SecureStoreUtil.ProtectStringWithKey(password, _pluginConfigService.Current.SecretsKey!);
-                if (!string.IsNullOrWhiteSpace(keySave))
-                {
-                    if (profSave == null)
-                    {
-                        profSave = new Configuration.CharacterProfile();
-                        _pluginConfigService.Current.ProfilesByCharacter[keySave] = profSave;
-                    }
-                    profSave.SavedStaffUsername = usernameFinal;
-                    profSave.SavedStaffPasswordEnc = enc;
-                }
-                else
-                {
-                    _pluginConfigService.Current.SavedStaffUsername = usernameFinal;
-                    _pluginConfigService.Current.SavedStaffPasswordEnc = enc;
-                }
-                _pluginConfigService.Save();
-            }
+            _accessService.PersistSavedStaffCredentials(GetCurrentCharacterKey(), usernameFinal, password);
         }
         return true;
     }
@@ -758,56 +530,18 @@ public sealed class VenuePlusApp : IDisposable
     public async System.Threading.Tasks.Task<bool> StaffSetOwnPasswordAsync(string newPassword)
     {
         if (!_isPowerStaff || string.IsNullOrWhiteSpace(_staffToken)) return false;
-        return await _remote.StaffSetPasswordAsync(newPassword, _staffToken!);
+        return await _accessService.StaffSetOwnPasswordAsync(newPassword, _staffToken!);
     }
 
     public void StaffLogout()
     {
-        var staff = _staffToken;
-        if (!string.IsNullOrWhiteSpace(staff)) { _ = _remote.LogoutSessionAsync(staff); }
-        var keyAuto = GetCurrentCharacterKey();
-        if (!string.IsNullOrWhiteSpace(keyAuto))
-        {
-            if (!_pluginConfigService.Current.ProfilesByCharacter.TryGetValue(keyAuto, out var profAuto))
-            {
-                profAuto = new Configuration.CharacterProfile();
-                _pluginConfigService.Current.ProfilesByCharacter[keyAuto] = profAuto;
-            }
-            profAuto.AutoLoginEnabled = false;
-            profAuto.RememberStaffLogin = false;
-            profAuto.SavedStaffUsername = null;
-            profAuto.SavedStaffPasswordEnc = null;
-        }
-        _pluginConfigService.Current.AutoLoginEnabled = false;
-        _pluginConfigService.Current.RememberStaffLogin = false;
-        _pluginConfigService.Current.SavedStaffUsername = null;
-        _pluginConfigService.Current.SavedStaffPasswordEnc = null;
-        _pluginConfigService.Save();
+        _accessService.LogoutStaffAndReset(GetCurrentCharacterKey(), _staffToken);
         ClearAccessState();
     }
 
     public void LogoutAll()
     {
-        var staff = _staffToken;
-        if (!string.IsNullOrWhiteSpace(staff)) { _ = _remote.LogoutSessionAsync(staff); }
-        var keyAuto = GetCurrentCharacterKey();
-        if (!string.IsNullOrWhiteSpace(keyAuto))
-        {
-            if (!_pluginConfigService.Current.ProfilesByCharacter.TryGetValue(keyAuto, out var profAuto))
-            {
-                profAuto = new Configuration.CharacterProfile();
-                _pluginConfigService.Current.ProfilesByCharacter[keyAuto] = profAuto;
-            }
-            profAuto.AutoLoginEnabled = false;
-            profAuto.RememberStaffLogin = false;
-            profAuto.SavedStaffUsername = null;
-            profAuto.SavedStaffPasswordEnc = null;
-        }
-        _pluginConfigService.Current.AutoLoginEnabled = false;
-        _pluginConfigService.Current.RememberStaffLogin = false;
-        _pluginConfigService.Current.SavedStaffUsername = null;
-        _pluginConfigService.Current.SavedStaffPasswordEnc = null;
-        _pluginConfigService.Save();
+        _accessService.LogoutAllAndReset(GetCurrentCharacterKey(), _staffToken);
         ClearAccessState();
     }
 
@@ -830,7 +564,8 @@ public sealed class VenuePlusApp : IDisposable
         _accessLoading = false;
         _autoLoginAttempted = false;
         _selfUid = null;
-        _djEntries = Array.Empty<VenuePlus.State.DjEntry>();
+        _djService.Clear();
+        _shiftService.Clear();
         
     }
 
@@ -841,53 +576,22 @@ public sealed class VenuePlusApp : IDisposable
 
     public System.Threading.Tasks.Task<bool> SetRememberStaffLoginAsync(bool remember)
     {
-        var keyRem = GetCurrentCharacterKey();
-        if (!string.IsNullOrWhiteSpace(keyRem))
+        var needsPassword = _accessService.SetRememberStaffLogin(GetCurrentCharacterKey(), remember, _isPowerStaff);
+        if (needsPassword)
         {
-            if (!_pluginConfigService.Current.ProfilesByCharacter.TryGetValue(keyRem, out var profRem))
+            try { RememberStaffNeedsPasswordEvt?.Invoke(); } catch { }
+            var _np = GetNotificationPreferences();
+            if (_np.ShowPasswordRequired)
             {
-                profRem = new Configuration.CharacterProfile();
-                _pluginConfigService.Current.ProfilesByCharacter[keyRem] = profRem;
-            }
-            profRem.RememberStaffLogin = remember;
-            if (!remember)
-            {
-                profRem.SavedStaffUsername = null;
-                profRem.SavedStaffPasswordEnc = null;
+                try { _notifier?.ShowWarning("Password required to continue"); } catch { }
             }
         }
-        _pluginConfigService.Current.RememberStaffLogin = remember;
-        if (!remember)
-        {
-            _pluginConfigService.Current.SavedStaffUsername = null;
-            _pluginConfigService.Current.SavedStaffPasswordEnc = null;
-        }
-        else
-        {
-            EnsureSecretsKey();
-            if (_isPowerStaff && string.IsNullOrWhiteSpace(_pluginConfigService.Current.SavedStaffPasswordEnc))
-            {
-                try { RememberStaffNeedsPasswordEvt?.Invoke(); } catch { }
-            }
-        }
-        _pluginConfigService.Save();
         return System.Threading.Tasks.Task.FromResult(true);
     }
 
     public System.Threading.Tasks.Task<bool> SetAutoLoginEnabledAsync(bool enabled)
     {
-        var keyAuto = GetCurrentCharacterKey();
-        if (!string.IsNullOrWhiteSpace(keyAuto))
-        {
-            if (!_pluginConfigService.Current.ProfilesByCharacter.TryGetValue(keyAuto, out var profAuto))
-            {
-                profAuto = new Configuration.CharacterProfile();
-                _pluginConfigService.Current.ProfilesByCharacter[keyAuto] = profAuto;
-            }
-            profAuto.AutoLoginEnabled = enabled;
-        }
-        _pluginConfigService.Current.AutoLoginEnabled = enabled;
-        _pluginConfigService.Save();
+        _accessService.SetAutoLoginEnabled(GetCurrentCharacterKey(), enabled);
         return System.Threading.Tasks.Task.FromResult(true);
     }
 
@@ -902,45 +606,29 @@ public sealed class VenuePlusApp : IDisposable
             if (_autoLoginAttempted) { return; }
             _accessLoading = true;
             var connected = RemoteConnected || await ConnectRemoteAsync();
-            if (!connected) { AutoLoginResultEvt?.Invoke(false, false); return; }
-            if (HasStaffSession) { AutoLoginResultEvt?.Invoke(IsOwnerCurrentClub, true); return; }
+            if (!connected) { AutoLoginResultEvt?.Invoke(false, false); var _np = GetNotificationPreferences(); if (_np.ShowLoginFailed) { try { _notifier?.ShowInfo("Staff login failed"); } catch { } } return; }
+            if (HasStaffSession) { AutoLoginResultEvt?.Invoke(IsOwnerCurrentClub, true); var _np = GetNotificationPreferences(); if (_np.ShowLoginSuccess) { try { _notifier?.ShowInfo("Logged in to staff session"); } catch { } } return; }
             var staffOk = false;
             var keyAuto = GetCurrentCharacterKey();
-            Configuration.CharacterProfile? profAuto = null;
-            if (!string.IsNullOrWhiteSpace(keyAuto)) _pluginConfigService.Current.ProfilesByCharacter.TryGetValue(keyAuto, out profAuto);
-            var autoEnabled = profAuto?.AutoLoginEnabled ?? _pluginConfigService.Current.AutoLoginEnabled;
-            var rememberEnabled = profAuto?.RememberStaffLogin ?? _pluginConfigService.Current.RememberStaffLogin;
-            var savedUserAuto = profAuto?.SavedStaffUsername ?? _pluginConfigService.Current.SavedStaffUsername;
-            var savedEncAuto = profAuto?.SavedStaffPasswordEnc ?? _pluginConfigService.Current.SavedStaffPasswordEnc;
-            if (profAuto != null && string.IsNullOrWhiteSpace(savedUserAuto) && !string.IsNullOrWhiteSpace(_pluginConfigService.Current.SavedStaffUsername))
+            var info = _accessService.GetAutoLoginInfo(keyAuto);
+            if (info.Enabled && info.Remembered && !string.IsNullOrWhiteSpace(info.SavedUsername) && !string.IsNullOrWhiteSpace(info.DecryptedPassword))
             {
-                profAuto.SavedStaffUsername = _pluginConfigService.Current.SavedStaffUsername;
-                profAuto.SavedStaffPasswordEnc = _pluginConfigService.Current.SavedStaffPasswordEnc;
-                if (!profAuto.RememberStaffLogin && _pluginConfigService.Current.RememberStaffLogin) profAuto.RememberStaffLogin = true;
-                _pluginConfigService.Save();
-                savedUserAuto = profAuto.SavedStaffUsername;
-                savedEncAuto = profAuto.SavedStaffPasswordEnc;
-                rememberEnabled = profAuto.RememberStaffLogin;
-            }
-            if (autoEnabled && rememberEnabled && !string.IsNullOrWhiteSpace(savedUserAuto) && !string.IsNullOrWhiteSpace(savedEncAuto) && !string.IsNullOrWhiteSpace(_pluginConfigService.Current.SecretsKey))
-            {
-                var pass = Helpers.SecureStoreUtil.UnprotectToStringWithKey(savedEncAuto!, _pluginConfigService.Current.SecretsKey!);
-                if (!string.IsNullOrWhiteSpace(pass))
-                {
-                    try
-                    {
-                        var clubPref = (!string.IsNullOrWhiteSpace(keyAuto) && profAuto != null) ? profAuto.RemoteClubId : _pluginConfigService.Current.RemoteClubId;
-                        _log?.Debug($"[AutoLogin] attempt club={clubPref ?? "default"}");
-                    }
-                    catch { }
-                    var uname = (!string.IsNullOrWhiteSpace(_currentCharName) && !string.IsNullOrWhiteSpace(_currentCharWorld))
-                        ? (_currentCharName + "@" + _currentCharWorld)
-                        : savedUserAuto!;
-                    staffOk = await StaffLoginAsync(uname, pass);
-                    // Admin session acquisition is handled inside StaffLogin background task to avoid duplication
-                }
+                try { _log?.Debug($"[AutoLogin] attempt club={info.PreferredClubId ?? "default"}"); } catch { }
+                var uname = (!string.IsNullOrWhiteSpace(_currentCharName) && !string.IsNullOrWhiteSpace(_currentCharWorld))
+                    ? (_currentCharName + "@" + _currentCharWorld)
+                    : info.SavedUsername!;
+                staffOk = await StaffLoginAsync(uname, info.DecryptedPassword!);
             }
             AutoLoginResultEvt?.Invoke(false, staffOk);
+            var _np5 = GetNotificationPreferences();
+            if (staffOk)
+            {
+                if (_np5.ShowLoginSuccess) { try { _notifier?.ShowInfo("Logged in"); } catch { } }
+            }
+            else
+            {
+                if (_np5.ShowLoginFailed) { try { _notifier?.ShowInfo("Login failed"); } catch { } }
+            }
             try { _log?.Debug($"[AutoLogin] result adminOk=false staffOk={staffOk}"); } catch { }
             _autoLoginAttempted = staffOk;
         }
@@ -948,16 +636,79 @@ public sealed class VenuePlusApp : IDisposable
         finally { _accessLoading = false; try { _autoLoginGate.Release(); } catch { } }
     }
 
-    private void EnsureSecretsKey()
+
+
+
+
+
+    private void BuildSelfRightsFrom(JobRightsInfo r)
     {
-        if (string.IsNullOrWhiteSpace(_pluginConfigService.Current.SecretsKey))
+        _selfRights = new System.Collections.Generic.Dictionary<string, bool>
         {
-            var key = System.Security.Cryptography.RandomNumberGenerator.GetBytes(32);
-            _pluginConfigService.Current.SecretsKey = Convert.ToBase64String(key);
-        }
+            ["addVip"] = r.AddVip,
+            ["removeVip"] = r.RemoveVip,
+            ["manageUsers"] = r.ManageUsers,
+            ["manageJobs"] = r.ManageJobs,
+            ["editVipDuration"] = r.EditVipDuration,
+            ["addDj"] = r.AddDj,
+            ["removeDj"] = r.RemoveDj,
+            ["editShiftPlan"] = r.EditShiftPlan
+        };
     }
 
     
+
+    private void RemoveClubFromLists(string clubId)
+    {
+        if (!string.IsNullOrWhiteSpace(clubId))
+        {
+            if (_myClubs != null && _myClubs.Length > 0)
+            {
+                var list = new System.Collections.Generic.List<string>(_myClubs.Length);
+                foreach (var c in _myClubs) { if (!string.Equals(c, clubId, System.StringComparison.Ordinal)) list.Add(c); }
+                _myClubs = list.ToArray();
+            }
+            if (_myCreatedClubs != null && _myCreatedClubs.Length > 0)
+            {
+                var list2 = new System.Collections.Generic.List<string>(_myCreatedClubs.Length);
+                foreach (var c in _myCreatedClubs) { if (!string.Equals(c, clubId, System.StringComparison.Ordinal)) list2.Add(c); }
+                _myCreatedClubs = list2.ToArray();
+            }
+        }
+    }
+
+
+    private bool CanEditShiftPlanInternal()
+    {
+        return IsOwnerCurrentClub || (HasStaffSession && StaffCanEditShiftPlan);
+    }
+
+    private void TryNotifyShiftCreated(VenuePlus.State.ShiftEntry entry)
+    {
+        var _np = GetNotificationPreferences();
+        if (_np.ShowShiftCreated)
+        {
+            try { _notifier?.ShowSuccess("Shift created: " + (entry.Title ?? string.Empty)); } catch { }
+        }
+    }
+
+    private void TryNotifyShiftUpdated(VenuePlus.State.ShiftEntry entry)
+    {
+        var _np = GetNotificationPreferences();
+        if (_np.ShowShiftUpdated)
+        {
+            try { _notifier?.ShowSuccess("Shift updated: " + (entry.Title ?? string.Empty)); } catch { }
+        }
+    }
+
+    private void TryNotifyShiftRemoved()
+    {
+        var _np = GetNotificationPreferences();
+        if (_np.ShowShiftRemoved)
+        {
+            try { _notifier?.ShowInfo("Shift removed"); } catch { }
+        }
+    }
 
     public async System.Threading.Tasks.Task<bool> ConnectRemoteAsync()
     {
@@ -1034,23 +785,11 @@ public sealed class VenuePlusApp : IDisposable
     public void EnsureSelfRights()
     {
         if (!HasStaffSession) return;
-        // WebSocket-only: derive rights from cached job rights whenever available.
         if (!string.IsNullOrWhiteSpace(_selfJob) && _jobRightsCache != null && _jobRightsCache.TryGetValue(_selfJob, out var r))
         {
-            _selfRights = new System.Collections.Generic.Dictionary<string, bool>
-            {
-                ["addVip"] = r.AddVip,
-                ["removeVip"] = r.RemoveVip,
-                ["manageUsers"] = r.ManageUsers,
-                ["manageJobs"] = r.ManageJobs,
-                ["editVipDuration"] = r.EditVipDuration,
-                ["addDj"] = r.AddDj,
-                ["removeDj"] = r.RemoveDj,
-                ["editShiftPlan"] = r.EditShiftPlan
-            };
+            BuildSelfRightsFrom(r);
             return;
         }
-        // If cache not yet filled, wait for WS broadcasts (jobs.rights/user.update) — no HTTP fallback.
     }
 
     public string? CurrentClubId
@@ -1134,7 +873,12 @@ public sealed class VenuePlusApp : IDisposable
             }
             if (isTargetOwner && owners <= 1 && !string.IsNullOrWhiteSpace(_staffUsername) && string.Equals(username, _staffUsername, System.StringComparison.Ordinal)) return false;
         }
-        return await _remote.UpdateUserJobAsync(username, job, staffSess);
+        var ok = await _remote.UpdateUserJobAsync(username, job, staffSess);
+        if (ok && !string.IsNullOrWhiteSpace(_staffUsername) && string.Equals(username, _staffUsername, System.StringComparison.Ordinal))
+        {
+            _selfJob = job ?? string.Empty;
+        }
+        return ok;
     }
 
     public async System.Threading.Tasks.Task<bool> DeleteStaffUserAsync(string username)
@@ -1212,63 +956,75 @@ public sealed class VenuePlusApp : IDisposable
         }
     }
 
-    private void OnSnapshotReceived(System.Collections.Generic.IReadOnlyCollection<VipEntry> entries)
+    public void OnSnapshotReceived(System.Collections.Generic.IReadOnlyCollection<VipEntry> entries)
     {
         _vipService.ReplaceAllForActiveClub(entries);
     }
 
-    private void OnEntryAdded(VipEntry entry)
+    public void OnEntryAdded(VipEntry entry)
     {
         _vipService.SetFromRemote(entry);
+        var name = entry?.CharacterName ?? string.Empty;
+        var world = entry?.HomeWorld ?? string.Empty;
+        var dur = entry?.Duration.ToString() ?? string.Empty;
+        var _np = GetNotificationPreferences();
+        if (_np.ShowVipAdded)
+        {
+            try { _notifier?.ShowInfo("VIP added: " + name + " (" + world + ") — Duration: " + dur); } catch { }
+        }
     }
 
-    private void OnEntryRemoved(VipEntry entry)
+    public void OnEntryRemoved(VipEntry entry)
     {
         _vipService.Remove(entry.CharacterName, entry.HomeWorld);
+        var name = entry?.CharacterName ?? string.Empty;
+        var world = entry?.HomeWorld ?? string.Empty;
+        var _np2 = GetNotificationPreferences();
+        if (_np2.ShowVipRemoved)
+        {
+            try { _notifier?.ShowInfo("VIP removed: " + name + " (" + world + ")"); } catch { }
+        }
     }
 
-    private void OnDjSnapshotReceived(VenuePlus.State.DjEntry[]? entries)
+    public void OnDjSnapshotReceived(VenuePlus.State.DjEntry[]? entries)
     {
-        _djEntries = (entries ?? Array.Empty<VenuePlus.State.DjEntry>()).OrderBy(e => e.DjName, System.StringComparer.Ordinal).ToArray();
+        _djService.ReplaceAll(entries);
     }
 
-    private void OnDjEntryAdded(VenuePlus.State.DjEntry entry)
+    public void OnDjEntryAdded(VenuePlus.State.DjEntry entry)
     {
-        var list = new System.Collections.Generic.List<VenuePlus.State.DjEntry>(_djEntries);
-        var idx = list.FindIndex(x => string.Equals(x.DjName, entry.DjName, System.StringComparison.Ordinal));
-        if (idx >= 0) list[idx] = entry; else list.Add(entry);
-        _djEntries = list.OrderBy(x => x.DjName, System.StringComparer.Ordinal).ToArray();
+        _djService.SetOrAdd(entry);
+        var djName = entry?.DjName ?? string.Empty;
+        var _np3 = GetNotificationPreferences();
+        if (_np3.ShowDjAdded)
+        {
+            try { _notifier?.ShowInfo("DJ added: " + djName); } catch { }
+        }
     }
 
-    private void OnDjEntryRemoved(VenuePlus.State.DjEntry entry)
+    public void OnDjEntryRemoved(VenuePlus.State.DjEntry entry)
     {
-        _djEntries = _djEntries.Where(x => !string.Equals(x.DjName, entry.DjName, System.StringComparison.Ordinal)).ToArray();
+        _djService.RemoveByName(entry.DjName);
     }
 
-    private void OnShiftSnapshotReceived(VenuePlus.State.ShiftEntry[]? entries)
+    public void OnShiftSnapshotReceived(VenuePlus.State.ShiftEntry[]? entries)
     {
-        _shiftEntries = (entries ?? Array.Empty<VenuePlus.State.ShiftEntry>()).OrderBy(e => e.StartAt).ToArray();
+        _shiftService.ReplaceAll(entries);
     }
 
-    private void OnShiftEntryAdded(VenuePlus.State.ShiftEntry entry)
+    public void OnShiftEntryAdded(VenuePlus.State.ShiftEntry entry)
     {
-        var list = new System.Collections.Generic.List<VenuePlus.State.ShiftEntry>(_shiftEntries);
-        list.RemoveAll(x => x.Id == entry.Id);
-        list.Add(entry);
-        _shiftEntries = list.OrderBy(x => x.StartAt).ToArray();
+        _shiftService.AddOrUpdate(entry);
     }
 
-    private void OnShiftEntryUpdated(VenuePlus.State.ShiftEntry entry)
+    public void OnShiftEntryUpdated(VenuePlus.State.ShiftEntry entry)
     {
-        var list = new System.Collections.Generic.List<VenuePlus.State.ShiftEntry>(_shiftEntries);
-        var idx = list.FindIndex(x => x.Id == entry.Id);
-        if (idx >= 0) list[idx] = entry;
-        _shiftEntries = list.OrderBy(x => x.StartAt).ToArray();
+        _shiftService.AddOrUpdate(entry);
     }
 
-    private void OnShiftEntryRemoved(Guid id)
+    public void OnShiftEntryRemoved(Guid id)
     {
-        _shiftEntries = _shiftEntries.Where(x => x.Id != id).OrderBy(x => x.StartAt).ToArray();
+        _shiftService.Remove(id);
     }
 
     public void Dispose()
@@ -1279,6 +1035,7 @@ public sealed class VenuePlusApp : IDisposable
         try { _cts.Cancel(); } catch { }
         try { _autoLoginMonitorCts?.Cancel(); } catch { }
         try { _autoPurge.Dispose(); } catch { }
+        try { _eventService.Dispose(); } catch { }
         try { _remote.Dispose(); } catch { }
     }
 
@@ -1354,20 +1111,7 @@ public sealed class VenuePlusApp : IDisposable
             {
                 await TryAutoLoginAsync();
             }
-            var key = GetCurrentCharacterKey();
-            if (!string.IsNullOrWhiteSpace(key) && _pluginConfigService.Current.ProfilesByCharacter.TryGetValue(key, out var prof))
-            {
-                if (string.IsNullOrWhiteSpace(prof.SavedStaffUsername) && !string.IsNullOrWhiteSpace(_pluginConfigService.Current.SavedStaffUsername))
-                {
-                    prof.SavedStaffUsername = _pluginConfigService.Current.SavedStaffUsername;
-                    prof.SavedStaffPasswordEnc = _pluginConfigService.Current.SavedStaffPasswordEnc;
-                    if (!prof.RememberStaffLogin && _pluginConfigService.Current.RememberStaffLogin)
-                    {
-                        prof.RememberStaffLogin = true;
-                    }
-                    _pluginConfigService.Save();
-                }
-            }
+            _accessService.EnsureProfileHasSavedCredentials(GetCurrentCharacterKey());
         });
     }
 
@@ -1427,9 +1171,8 @@ public sealed class VenuePlusApp : IDisposable
                         if (!_remote.RemoteUseWebSocket)
                         {
                             var logo = await _remote.GetClubLogoAsync(_staffToken!);
-                            _currentClubLogoBase64 = logo;
+                            _clubService.SetCurrentClubLogo(clubId, logo);
                             try { ClubLogoChanged?.Invoke(logo); } catch { }
-                            _clubLogosByClub[clubId] = logo;
                         }
                     }
                 }
@@ -1514,21 +1257,10 @@ public sealed class VenuePlusApp : IDisposable
         if (string.IsNullOrWhiteSpace(clubId)) return false;
         var ok = await _remote.DeleteClubAsync(clubId, _staffToken!);
         if (!ok) return false;
-        if (_myCreatedClubs != null && _myCreatedClubs.Length > 0)
-        {
-            var listCreated = new System.Collections.Generic.List<string>(_myCreatedClubs.Length);
-            foreach (var c in _myCreatedClubs) { if (!string.Equals(c, clubId, System.StringComparison.Ordinal)) listCreated.Add(c); }
-            _myCreatedClubs = listCreated.ToArray();
-        }
-        if (_myClubs != null && _myClubs.Length > 0)
-        {
-            var listClubs = new System.Collections.Generic.List<string>(_myClubs.Length);
-            foreach (var c in _myClubs) { if (!string.Equals(c, clubId, System.StringComparison.Ordinal)) listClubs.Add(c); }
-            _myClubs = listClubs.ToArray();
-        }
+        RemoveClubFromLists(clubId);
         if (!string.IsNullOrWhiteSpace(clubId))
         {
-            _clubLogosByClub.Remove(clubId);
+            _clubService.RemoveClub(clubId);
         }
         try { if (!string.IsNullOrWhiteSpace(_staffToken)) _myCreatedClubs = await _remote.ListCreatedClubsAsync(_staffToken!); } catch { }
         try { if (!string.IsNullOrWhiteSpace(_staffToken)) _myClubs = await _remote.ListUserClubsAsync(_staffToken!); } catch { }
@@ -1576,9 +1308,8 @@ public sealed class VenuePlusApp : IDisposable
         var ok = await _remote.UpdateClubLogoAsync(logoBase64 ?? string.Empty, _staffToken!);
         if (ok)
         {
-            _currentClubLogoBase64 = logoBase64;
+            _clubService.SetCurrentClubLogo(CurrentClubId, logoBase64);
             try { ClubLogoChanged?.Invoke(logoBase64); } catch { }
-            if (!string.IsNullOrWhiteSpace(CurrentClubId)) _clubLogosByClub[CurrentClubId] = logoBase64;
         }
         return ok;
     }
@@ -1599,25 +1330,267 @@ public sealed class VenuePlusApp : IDisposable
         var ok = await _remote.DeleteClubLogoAsync(_staffToken!);
         if (ok)
         {
-            _currentClubLogoBase64 = null;
+            _clubService.SetCurrentClubLogo(CurrentClubId, null);
             try { ClubLogoChanged?.Invoke(null); } catch { }
-            if (!string.IsNullOrWhiteSpace(CurrentClubId)) _clubLogosByClub[CurrentClubId] = null;
         }
         return ok;
     }
 
     public string? GetClubLogoForClub(string clubId)
     {
-        if (string.IsNullOrWhiteSpace(clubId)) return null;
-        return _clubLogosByClub.TryGetValue(clubId, out var v) ? v : null;
+        return _clubService.GetLogoForClub(clubId);
     }
 
     public async System.Threading.Tasks.Task<string?> FetchClubLogoForClubAsync(string clubId)
     {
         if (!_isPowerStaff || string.IsNullOrWhiteSpace(_staffToken)) return null;
         var logo = await _remote.GetClubLogoForAsync(_staffToken!, clubId);
-        if (!string.IsNullOrWhiteSpace(logo)) _clubLogosByClub[clubId] = logo!;
-        else _clubLogosByClub[clubId] = null;
+        _clubService.SetClubLogoForClub(clubId, string.IsNullOrWhiteSpace(logo) ? null : logo);
         return logo;
+    }
+    
+
+    public VenuePlus.Configuration.NotificationPreferences GetNotificationPreferences()
+    {
+        return _pluginConfigService.Current.Notifications;
+    }
+
+    public void SavePluginConfig()
+    {
+        _pluginConfigService.Save();
+    }
+
+    public void SetNotifier(VenuePlus.Services.NotificationService notifier)
+    {
+        _notifier = notifier;
+    }
+
+
+    public void OnJobsListReceived(string[] arr)
+    {
+        var incoming = arr ?? Array.Empty<string>();
+        var fp = string.Join("|", incoming);
+        if (!string.Equals(_jobsFingerprint, fp, System.StringComparison.Ordinal))
+        {
+            _jobsFingerprint = fp;
+            _jobsCache = incoming;
+            JobsChanged?.Invoke(incoming);
+        }
+    }
+
+    public void OnJobRightsReceived(System.Collections.Generic.Dictionary<string, JobRightsInfo> dict)
+    {
+        _jobRightsCache = dict;
+        JobRightsChanged?.Invoke(dict);
+    }
+
+    public void OnUsersListReceived(string[] arr)
+    {
+        _usersCache = arr;
+    }
+
+    public void OnUsersDetailsReceived(VenuePlus.State.StaffUser[] det)
+    {
+        _usersDetailsCache = det;
+        var uname = _staffUsername ?? string.Empty;
+        if (!string.IsNullOrWhiteSpace(uname) && det != null)
+        {
+            for (int i = 0; i < det.Length; i++)
+            {
+                if (string.Equals(det[i].Username, uname, System.StringComparison.Ordinal))
+                {
+                    _selfJob = det[i].Job ?? string.Empty;
+                    var uidCandidate = det[i].Uid;
+                    _selfUid = string.IsNullOrWhiteSpace(uidCandidate) ? _selfUid : uidCandidate;
+                    EnsureSelfRights();
+                    break;
+                }
+            }
+        }
+        var incoming = det ?? Array.Empty<VenuePlus.State.StaffUser>();
+        var ordered = incoming.OrderBy(u => u.Username, System.StringComparer.Ordinal).Select(u => (u.Username ?? string.Empty) + "#" + (u.Job ?? string.Empty) + "#" + (u.Uid ?? string.Empty)).ToArray();
+        var fp = string.Join("|", ordered);
+        if (!string.Equals(_usersDetailsFingerprint, fp, System.StringComparison.Ordinal))
+        {
+            _usersDetailsFingerprint = fp;
+            UsersDetailsChanged?.Invoke(incoming);
+        }
+    }
+
+    public void OnUserJobUpdated(string username, string job)
+    {
+        var isSelf = !string.IsNullOrWhiteSpace(_staffUsername) && string.Equals(_staffUsername, username, System.StringComparison.Ordinal);
+        if (isSelf)
+        {
+            string jobKey = job ?? string.Empty;
+            _selfJob = jobKey;
+            if (_jobRightsCache != null && !string.IsNullOrWhiteSpace(jobKey) && _jobRightsCache.TryGetValue(jobKey, out var r))
+            {
+                BuildSelfRightsFrom(r);
+            }
+            var _np = GetNotificationPreferences();
+            if (_np.ShowRoleChangedSelf)
+            {
+                try { _notifier?.ShowSuccess("Your role is now: " + jobKey); } catch { }
+            }
+        }
+        UserJobUpdatedEvt?.Invoke(username ?? string.Empty, job ?? string.Empty);
+    }
+
+    public void OnOwnerAccessChanged(string owner, string clubIdEvt)
+    {
+        var isSelf = !string.IsNullOrWhiteSpace(_staffUsername) && string.Equals(_staffUsername, owner, System.StringComparison.Ordinal);
+        var clubIdMsg = clubIdEvt ?? string.Empty;
+        var ownerName = owner ?? string.Empty;
+        if (string.IsNullOrWhiteSpace(clubIdMsg) || string.IsNullOrWhiteSpace(ownerName)) return;
+        var previousOwner = _clubService.GetOwnerForClub(clubIdMsg);
+        if (string.Equals(previousOwner, ownerName, System.StringComparison.Ordinal)) return;
+        _clubService.SetOwnerForClub(clubIdMsg, ownerName);
+        if (isSelf)
+        {
+            var alreadyOwned = _myCreatedClubs != null && System.Array.IndexOf(_myCreatedClubs, clubIdMsg) >= 0;
+            if (!alreadyOwned)
+            {
+                var list = (_myCreatedClubs ?? Array.Empty<string>()).ToList();
+                list.Add(clubIdMsg);
+                _myCreatedClubs = list.OrderBy(x => x, StringComparer.Ordinal).ToArray();
+                var _np = GetNotificationPreferences();
+                if (_np.ShowOwnershipGranted)
+                {
+                    try { _notifier?.ShowSuccess("Ownership granted for club: " + clubIdMsg); } catch { }
+                }
+            }
+        }
+        else
+        {
+            var wasOwned = _myCreatedClubs != null && System.Array.IndexOf(_myCreatedClubs, clubIdMsg) >= 0;
+            if (wasOwned)
+            {
+                var curCreated = _myCreatedClubs ?? System.Array.Empty<string>();
+                var list2 = new System.Collections.Generic.List<string>(curCreated.Length);
+                foreach (var c in curCreated) { if (!string.Equals(c, clubIdMsg, System.StringComparison.Ordinal)) list2.Add(c); }
+                _myCreatedClubs = list2.ToArray();
+                var _np2 = GetNotificationPreferences();
+                if (_np2.ShowOwnershipTransferred)
+                {
+                    try { _notifier?.ShowInfo("Main Ownership transferred to: " + owner); } catch { }
+                }
+            }
+        }
+    }
+
+    public void OnMembershipRemoved(string username, string clubIdEvt)
+    {
+        var removedClub = clubIdEvt ?? string.Empty;
+        var isSelf = !string.IsNullOrWhiteSpace(_staffUsername) && string.Equals(_staffUsername, username, System.StringComparison.Ordinal);
+        var wasPresent = (_myClubs != null && System.Array.IndexOf(_myClubs, removedClub) >= 0) || (_myCreatedClubs != null && System.Array.IndexOf(_myCreatedClubs, removedClub) >= 0);
+        if (isSelf)
+        {
+            if (!string.IsNullOrWhiteSpace(removedClub))
+            {
+                RemoveClubFromLists(removedClub);
+                var _np3 = GetNotificationPreferences();
+                if (_np3.ShowMembershipRemoved)
+                {
+                    try { _notifier?.ShowInfo("Removed from venue: " + removedClub); } catch { }
+                }
+            }
+            if (!string.IsNullOrWhiteSpace(CurrentClubId) && string.Equals(CurrentClubId, removedClub, System.StringComparison.Ordinal))
+            {
+                var next = (_myClubs != null && _myClubs.Length > 0) ? _myClubs[0] : null;
+                SetClubId(next);
+            }
+        }
+        var ct = _cts.Token;
+        System.Threading.Tasks.Task.Run(async () =>
+        {
+            try
+            {
+                if (!ct.IsCancellationRequested && !string.IsNullOrWhiteSpace(_staffToken))
+                {
+                    _myClubs = await _remote.ListUserClubsAsync(_staffToken!);
+                    _myCreatedClubs = await _remote.ListCreatedClubsAsync(_staffToken!);
+                    var cur = CurrentClubId;
+                    var inClubs = (!string.IsNullOrWhiteSpace(cur) && _myClubs != null && System.Array.IndexOf(_myClubs, cur) >= 0) || (!string.IsNullOrWhiteSpace(cur) && _myCreatedClubs != null && System.Array.IndexOf(_myCreatedClubs, cur) >= 0);
+                    if (isSelf && !inClubs)
+                    {
+                        var next = (_myClubs != null && _myClubs.Length > 0) ? _myClubs[0] : null;
+                        SetClubId(next);
+                    }
+                }
+            }
+            catch { }
+        });
+    }
+
+    public void OnMembershipAdded(string username, string clubId)
+    {
+        if (!string.IsNullOrWhiteSpace(_staffUsername) && string.Equals(_staffUsername, username, System.StringComparison.Ordinal))
+        {
+            if (!string.IsNullOrWhiteSpace(clubId))
+            {
+                if (_myClubs == null) _myClubs = new[] { clubId };
+                else if (System.Array.IndexOf(_myClubs, clubId) < 0)
+                {
+                    var list = new System.Collections.Generic.List<string>(_myClubs);
+                    list.Add(clubId);
+                    list.Sort(System.StringComparer.Ordinal);
+                    _myClubs = list.ToArray();
+                }
+                SetClubId(clubId);
+                var _np4 = GetNotificationPreferences();
+                if (_np4.ShowMembershipJoined)
+                {
+                    try { _notifier?.ShowInfo($"Joined venue: {clubId}"); } catch { }
+                }
+            }
+            var ct = _cts.Token;
+            System.Threading.Tasks.Task.Run(async () => { try { if (!ct.IsCancellationRequested && !string.IsNullOrWhiteSpace(_staffToken)) _myClubs = await _remote.ListUserClubsAsync(_staffToken!); } catch { } });
+        }
+    }
+
+    public void OnClubLogoReceived(string? base64)
+    {
+        _clubService.SetCurrentClubLogo(CurrentClubId, base64);
+        try { ClubLogoChanged?.Invoke(base64); } catch { }
+    }
+
+    public void OnConnectionChanged(bool connected)
+    {
+        if (!connected)
+        {
+            OnRemoteDisconnected();
+        }
+        else
+        {
+            if (HasStaffSession)
+            {
+                System.Threading.Tasks.Task.Run(async () =>
+                {
+                    try
+                    {
+                        var clubId = CurrentClubId;
+                        if (!string.IsNullOrWhiteSpace(clubId)) { try { await _remote.SwitchClubAsync(clubId!); } catch { } }
+                        try { _jobRightsCache = await _remote.ListJobRightsAsync(_staffToken!) ?? _jobRightsCache; } catch { }
+                        try { _usersDetailsCache = await _remote.ListUsersDetailedAsync(_staffToken!); } catch { }
+                        try { _myClubs = await _remote.ListUserClubsAsync(_staffToken!); } catch { }
+                        try { _myCreatedClubs = await _remote.ListCreatedClubsAsync(_staffToken!); } catch { }
+                        try
+                        {
+                            var logo = await _remote.GetClubLogoAsync(_staffToken!);
+                            _clubService.SetCurrentClubLogo(CurrentClubId, logo);
+                            try { ClubLogoChanged?.Invoke(logo); } catch { }
+                        }
+                        catch { }
+                    }
+                    finally { _accessLoading = false; }
+                });
+            }
+            else if (AutoLoginEnabled && !_autoLoginAttempted)
+            {
+                try { _log?.Debug($"[AutoLogin] connected event: enabled={AutoLoginEnabled} hasSession={HasStaffSession} attempted={_autoLoginAttempted}"); } catch { }
+                System.Threading.Tasks.Task.Run(async () => { await TryAutoLoginAsync(); });
+            }
+        }
     }
 }

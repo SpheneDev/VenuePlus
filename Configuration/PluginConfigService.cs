@@ -63,6 +63,10 @@ public sealed class PluginConfigService
         {
             cfg.ProfilesByCharacter = new System.Collections.Generic.Dictionary<string, CharacterProfile>(StringComparer.Ordinal);
         }
+        if (cfg.Notifications == null)
+        {
+            cfg.Notifications = new NotificationPreferences();
+        }
         return cfg;
     }
 }

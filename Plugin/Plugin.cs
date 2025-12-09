@@ -44,10 +44,10 @@ public sealed class Plugin : IDalamudPlugin
     private readonly IObjectTable _objectTable;
     private readonly Dalamud.Plugin.Services.ITextureProvider _textureProvider;
     private readonly ITargetManager _targetManager;
-    private readonly VenuePlus.UI.Components.VipTargetOverlay _vipTargetOverlay;
     private readonly NameplateVipService _nameplateVipService;
+    private readonly NotificationService _notificationService;
 
-    public Plugin(IDalamudPluginInterface pluginInterface, IContextMenu contextMenu, ICommandManager commandManager, IPluginLog pluginLog, IClientState clientState, IObjectTable objectTable, Dalamud.Plugin.Services.ITextureProvider textureProvider, ITargetManager targetManager, INamePlateGui namePlateGui)
+    public Plugin(IDalamudPluginInterface pluginInterface, IContextMenu contextMenu, ICommandManager commandManager, IPluginLog pluginLog, IClientState clientState, IObjectTable objectTable, Dalamud.Plugin.Services.ITextureProvider textureProvider, ITargetManager targetManager, INamePlateGui namePlateGui, IToastGui toastGui, IChatGui chatGui, IFramework framework, INotificationManager notificationManager)
     {
         _pluginInterface = pluginInterface;
         _log = pluginLog;
@@ -63,11 +63,13 @@ public sealed class Plugin : IDalamudPlugin
         _commandManager = commandManager;
 
         _window = new VenuePlusWindow(_app, _textureProvider);
-        _vipTargetOverlay = new VenuePlus.UI.Components.VipTargetOverlay(_targetManager);
         _whisperWindow = new WhisperWindow(_app, _targetManager, _commandManager, _log);
         _whisperEditorWindow = new WhisperPresetEditorWindow(_app, _whisperWindow, _log);
         _whisperWindow.SetEditor(_whisperEditorWindow);
         _nameplateVipService = new NameplateVipService(namePlateGui, _app);
+        _log.Debug("Creating NotificationService");
+        _notificationService = new NotificationService(_app, _log, chatGui, notificationManager);
+        _app.SetNotifier(_notificationService);
         _settingsWindow = new SettingsWindow(_app, _textureProvider);
         _vipListWindow = new VipListWindow(_app);
         _venuesListWindow = new VenuesListWindow(_app, _textureProvider);
@@ -158,6 +160,7 @@ public sealed class Plugin : IDalamudPlugin
         try { _qolToolsWindow.IsOpen = false; } catch { }
         try { _app.OpenQolToolsRequested -= _openQolToolsHandler; } catch { }
         try { _nameplateVipService.Dispose(); } catch { }
+        try { _notificationService.Dispose(); } catch { }
         try { _window.Dispose(); } catch { }
         try { _app.DisconnectRemoteAsync().GetAwaiter().GetResult(); } catch { }
         _app.Dispose();
@@ -167,7 +170,6 @@ public sealed class Plugin : IDalamudPlugin
     {
         _app.UpdateCurrentCharacterCache();
         _windowSystem.Draw();
-        _vipTargetOverlay.Draw(_app);
     }
 
     private void UiBuilderOnOpenConfigUi()

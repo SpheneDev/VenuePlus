@@ -65,6 +65,7 @@ public sealed class JobsPanelComponent
             _addRemoveVip = false;
             _addManageUsers = false;
             _addManageJobs = false;
+            _addEditShiftPlan = false;
             _addRank = 1;
             _addWindowOpen = true;
         }

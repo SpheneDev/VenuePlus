@@ -42,6 +42,7 @@ public sealed class RemoteSyncService : IDisposable
     public event Action<string, string>? UserJobUpdated;
     public event Action<string, string>? MembershipRemoved;
     public event Action<string, string>? MembershipAdded;
+    public event Action<string, string>? OwnerAccessChanged;
     public event Action<string?>? ClubLogoReceived;
     public event Action<VenuePlus.State.DjEntry[]>? DjSnapshotReceived;
     public event Action<VenuePlus.State.DjEntry>? DjEntryAdded;
@@ -1127,6 +1128,12 @@ public sealed class RemoteSyncService : IDisposable
                         var username = root.GetProperty("username").GetString() ?? string.Empty;
                         var job = root.GetProperty("job").GetString() ?? string.Empty;
                         UserJobUpdated?.Invoke(username, job);
+                    }
+                    else if (type == "access.owner.changed")
+                    {
+                        var owner = root.TryGetProperty("owner", out var o) ? (o.GetString() ?? string.Empty) : string.Empty;
+                        var clubIdMsg = root.TryGetProperty("clubId", out var cEl) ? (cEl.GetString() ?? string.Empty) : string.Empty;
+                        OwnerAccessChanged?.Invoke(owner, clubIdMsg);
                     }
                     else if (type == "membership.removed")
                     {
