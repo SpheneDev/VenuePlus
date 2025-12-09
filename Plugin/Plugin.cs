@@ -212,23 +212,16 @@ public sealed class Plugin : IDalamudPlugin
             return;
         }
 
+        var worldNameSafe = target.TargetHomeWorld.Value.Name.ToString();
+        if (string.IsNullOrWhiteSpace(worldNameSafe)) { return; }
+        if (string.Equals(worldNameSafe, "Dev", StringComparison.OrdinalIgnoreCase)) { return; }
+
         _app.EnsureSelfRights();
         var name = target.TargetName;
-        var world = target.TargetHomeWorld.Value.Name.ToString();
+        var world = worldNameSafe;
         var exists = _app.GetActive().Any(e => string.Equals(e.CharacterName, name, System.StringComparison.Ordinal)
                                             && string.Equals(e.HomeWorld, world, System.StringComparison.Ordinal));
         var canInitial = _app.IsOwnerCurrentClub || (_app.HasStaffSession && _app.StaffCanAddVip);
-        if (exists)
-        {
-            var vipLabel = new SeStringBuilder().AddText("VIP").Build();
-            args.AddMenuItem(new MenuItem
-            {
-                PrefixChar = '★',
-                PrefixColor = 541,
-                Name = vipLabel,
-                OnClicked = _ => { }
-            });
-        }
         var canEditDur = _app.IsOwnerCurrentClub || (_app.HasStaffSession && _app.StaffCanEditVipDuration);
         if ((exists && !canEditDur) || (!exists && !canInitial))
         {
@@ -242,21 +235,21 @@ public sealed class Plugin : IDalamudPlugin
         _log.Debug($"Context menu opened for target={target.TargetName}");
         args.AddMenuItem(new MenuItem
         {
-            PrefixChar = 'C',
+            PrefixChar = 'V',
             PrefixColor = 541,
             Name = itemText4,
             OnClicked = _ => AddFromTarget(target, VipDuration.FourWeeks)
         });
         args.AddMenuItem(new MenuItem
         {
-            PrefixChar = 'C',
+            PrefixChar = 'V',
             PrefixColor = 541,
             Name = itemText12,
             OnClicked = _ => AddFromTarget(target, VipDuration.TwelveWeeks)
         });
         args.AddMenuItem(new MenuItem
         {
-            PrefixChar = 'C',
+            PrefixChar = 'V',
             PrefixColor = 541,
             Name = itemTextLife,
             OnClicked = _ => AddFromTarget(target, VipDuration.Lifetime)
@@ -269,6 +262,7 @@ public sealed class Plugin : IDalamudPlugin
         {
             var characterName = target.TargetName;
             var homeWorld = target.TargetHomeWorld.Value.Name.ToString();
+            if (string.Equals(homeWorld, "Dev", StringComparison.OrdinalIgnoreCase)) return;
             _log.Debug($"Add VIP from context name={characterName} world={homeWorld} duration={duration}");
             _app.AddVip(characterName, homeWorld, duration);
         }
