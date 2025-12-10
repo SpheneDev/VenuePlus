@@ -19,6 +19,7 @@ public sealed class WhisperWindow : Window
     private WhisperPresetEditorWindow? _editor;
     private string _message = string.Empty;
     private string _status = string.Empty;
+    private System.DateTimeOffset _statusUntil;
     private bool _persistMessage;
     private int _presetIndex;
     private Vector2 _lastPos;
@@ -147,12 +148,13 @@ public sealed class WhisperWindow : Window
         ImGui.Separator();
         var canSend = target != null && !string.IsNullOrWhiteSpace(_message);
         var styleBottom = ImGui.GetStyle();
-        var half = (ImGui.GetContentRegionAvail().X - styleBottom.ItemSpacing.X) * 0.5f;
+        var sendW = ImGui.CalcTextSize("Send").X + styleBottom.FramePadding.X * 2f;
+        var clearW = ImGui.CalcTextSize("Clear").X + styleBottom.FramePadding.X * 2f;
         if (!canSend) ImGui.BeginDisabled();
-        var clicked = ImGui.Button("Send", new Vector2(half, 0));
+        var clicked = ImGui.Button("Send", new Vector2(sendW, 0));
         if (!canSend) ImGui.EndDisabled();
         ImGui.SameLine();
-        if (ImGui.Button("Clear", new Vector2(half, 0)))
+        if (ImGui.Button("Clear", new Vector2(clearW, 0)))
         {
             _message = string.Empty;
         }
@@ -168,14 +170,20 @@ public sealed class WhisperWindow : Window
             VenuePlus.Helpers.Chat.SendMessage(final);
             var ok = true;
             _status = ok ? "Sent" : "Failed";
+            _statusUntil = System.DateTimeOffset.UtcNow.AddSeconds(2);
             _log.Debug($"Whisper send status ok={ok} to={name}@{world}");
             if (ok && !_persistMessage) _message = string.Empty;
         }
 
-        if (!string.IsNullOrEmpty(_status))
+        var showStatus = !string.IsNullOrEmpty(_status) && System.DateTimeOffset.UtcNow <= _statusUntil;
+        if (showStatus)
         {
-            ImGui.SameLine();
+            ImGui.Spacing();
             ImGui.TextUnformatted(_status);
+        }
+        else
+        {
+            _status = string.Empty;
         }
     }
 }
