@@ -30,6 +30,9 @@ public sealed class Plugin : IDalamudPlugin
     private readonly WhisperWindow _whisperWindow;
     private readonly WhisperPresetEditorWindow _whisperEditorWindow;
     private readonly QolToolsWindow _qolToolsWindow;
+    private readonly MacroHotbarManagerWindow _macroHotbarManagerWindow;
+    private readonly MacroHotbarWindow _macroHotbarWindow;
+    private readonly System.Collections.Generic.Dictionary<int, MacroHotbarWindow> _macroHotbarWindowsByIndex = new();
     private readonly ChangelogService _changelogService;
     private readonly string _currentVersion;
     private readonly Action _openSettingsHandler;
@@ -45,6 +48,8 @@ public sealed class Plugin : IDalamudPlugin
     private readonly Dalamud.Plugin.Services.ITextureProvider _textureProvider;
     private readonly ITargetManager _targetManager;
     private readonly NameplateVipService _nameplateVipService;
+    private readonly VenuePlus.Services.MacroScheduler _macroScheduler;
+    private readonly IFramework _framework;
     private readonly NotificationService _notificationService;
 
     public Plugin(IDalamudPluginInterface pluginInterface, IContextMenu contextMenu, ICommandManager commandManager, IPluginLog pluginLog, IClientState clientState, IObjectTable objectTable, Dalamud.Plugin.Services.ITextureProvider textureProvider, ITargetManager targetManager, INamePlateGui namePlateGui, IToastGui toastGui, IChatGui chatGui, IFramework framework, INotificationManager notificationManager)
@@ -55,6 +60,7 @@ public sealed class Plugin : IDalamudPlugin
         _objectTable = objectTable;
         _textureProvider = textureProvider;
         _targetManager = targetManager;
+        _framework = framework;
         var dataPath = Path.Combine(pluginInterface.ConfigDirectory.FullName, "venueplus.data.json");
         var settingsPath = Path.Combine(pluginInterface.ConfigDirectory.FullName, "venueplus.settings.json");
         _app = new VenuePlusApp(dataPath, settingsPath, _log, _clientState, _objectTable);
@@ -63,7 +69,8 @@ public sealed class Plugin : IDalamudPlugin
         _commandManager = commandManager;
 
         _window = new VenuePlusWindow(_app, _textureProvider);
-        _whisperWindow = new WhisperWindow(_app, _targetManager, _commandManager, _log);
+        _macroScheduler = new VenuePlus.Services.MacroScheduler(_log);
+        _whisperWindow = new WhisperWindow(_app, _targetManager, _commandManager, _log, _macroScheduler);
         _whisperEditorWindow = new WhisperPresetEditorWindow(_app, _whisperWindow, _log);
         _whisperWindow.SetEditor(_whisperEditorWindow);
         _nameplateVipService = new NameplateVipService(namePlateGui, _app);
@@ -87,6 +94,10 @@ public sealed class Plugin : IDalamudPlugin
         _windowSystem.AddWindow(_whisperEditorWindow);
         _qolToolsWindow = new QolToolsWindow(_app);
         _windowSystem.AddWindow(_qolToolsWindow);
+        _macroHotbarManagerWindow = new MacroHotbarManagerWindow(_app);
+        _windowSystem.AddWindow(_macroHotbarManagerWindow);
+        _macroHotbarWindow = new MacroHotbarWindow(_app, _whisperWindow, _macroScheduler, _textureProvider);
+        _windowSystem.AddWindow(_macroHotbarWindow);
 
         _openSettingsHandler = () => { _settingsWindow.IsOpen = true; };
         _openVipListHandler = () => { _vipListWindow.IsOpen = true; };
@@ -97,8 +108,21 @@ public sealed class Plugin : IDalamudPlugin
         _app.OpenVenuesListRequested += () => { _venuesListWindow.IsOpen = true; };
         _openQolToolsHandler = () => { _qolToolsWindow.IsOpen = true; };
         _app.OpenQolToolsRequested += _openQolToolsHandler;
+        _app.OpenMacroHotbarManagerRequested += () => { _macroHotbarManagerWindow.IsOpen = true; };
+        _app.OpenMacroHotbarRequested += () => { _macroHotbarWindow.IsOpen = true; };
+        _app.OpenMacroHotbarIndexRequested += OnOpenMacroHotbarIndexRequested;
+        _app.CloseMacroHotbarIndexRequested += OnCloseMacroHotbarIndexRequested;
+        _app.QueryMacroHotbarPositionRequested += OnQueryMacroHotbarPositionRequested;
+        _app.SetMacroHotbarPositionRequested += OnSetMacroHotbarPositionRequested;
+        _app.ResetMacroHotbarPositionRequested += OnResetMacroHotbarPositionRequested;
+
+        foreach (var idx in _app.GetOpenMacroHotbarIndices())
+        {
+            EnsureHotbarWindow(idx).IsOpen = true;
+        }
 
         _pluginInterface.UiBuilder.Draw += UiBuilderOnDraw;
+        _framework.Update += OnFrameworkUpdate;
         _pluginInterface.UiBuilder.OpenConfigUi += UiBuilderOnOpenConfigUi;
         _pluginInterface.UiBuilder.OpenMainUi += UiBuilderOnOpenMainUi;
 
@@ -140,6 +164,7 @@ public sealed class Plugin : IDalamudPlugin
         _commandManager.RemoveHandler("/v+");
         _commandManager.RemoveHandler("/vpwhisper");
         try { _pluginInterface.UiBuilder.Draw -= UiBuilderOnDraw; } catch { }
+        try { _framework.Update -= OnFrameworkUpdate; } catch { }
         try { _pluginInterface.UiBuilder.OpenConfigUi -= UiBuilderOnOpenConfigUi; } catch { }
         try { _pluginInterface.UiBuilder.OpenMainUi -= UiBuilderOnOpenMainUi; } catch { }
         try { _window.IsOpen = false; } catch { }
@@ -160,6 +185,13 @@ public sealed class Plugin : IDalamudPlugin
         try { _app.OpenWhisperRequested -= _openWhisperHandler; } catch { }
         try { _qolToolsWindow.IsOpen = false; } catch { }
         try { _app.OpenQolToolsRequested -= _openQolToolsHandler; } catch { }
+        try { _app.OpenMacroHotbarRequested -= () => { _macroHotbarWindow.IsOpen = true; }; } catch { }
+        try { _app.OpenMacroHotbarManagerRequested -= () => { _macroHotbarManagerWindow.IsOpen = true; }; } catch { }
+        try { _app.OpenMacroHotbarIndexRequested -= OnOpenMacroHotbarIndexRequested; } catch { }
+        try { _app.CloseMacroHotbarIndexRequested -= OnCloseMacroHotbarIndexRequested; } catch { }
+        try { _app.QueryMacroHotbarPositionRequested -= OnQueryMacroHotbarPositionRequested; } catch { }
+        try { _app.SetMacroHotbarPositionRequested -= OnSetMacroHotbarPositionRequested; } catch { }
+        try { _app.ResetMacroHotbarPositionRequested -= OnResetMacroHotbarPositionRequested; } catch { }
         try { _nameplateVipService.Dispose(); } catch { }
         try { _notificationService.Dispose(); } catch { }
         try { _window.Dispose(); } catch { }
@@ -171,6 +203,79 @@ public sealed class Plugin : IDalamudPlugin
     {
         _app.UpdateCurrentCharacterCache();
         _windowSystem.Draw();
+    }
+
+    private MacroHotbarWindow EnsureHotbarWindow(int index)
+    {
+        if (_macroHotbarWindowsByIndex.TryGetValue(index, out var win)) return win;
+        var id = _app.GetMacroHotbarId(index);
+        var title = $"Macro Hotbar - {_app.GetMacroHotbarName(index)}###mhb_{id}";
+        var created = new MacroHotbarWindow(_app, _whisperWindow, _macroScheduler, _textureProvider, index, title);
+        _macroHotbarWindowsByIndex[index] = created;
+        _windowSystem.AddWindow(created);
+        return created;
+    }
+
+    private void OnOpenMacroHotbarIndexRequested(int index)
+    {
+        try
+        {
+            var win = EnsureHotbarWindow(index);
+            win.IsOpen = true;
+        }
+        catch { }
+    }
+
+    private void OnCloseMacroHotbarIndexRequested(int index)
+    {
+        try
+        {
+            if (_macroHotbarWindowsByIndex.TryGetValue(index, out var win))
+            {
+                win.IsOpen = false;
+            }
+        }
+        catch { }
+    }
+
+    private System.Numerics.Vector2? OnQueryMacroHotbarPositionRequested(int index)
+    {
+        try
+        {
+            if (_macroHotbarWindowsByIndex.TryGetValue(index, out var win))
+            {
+                return win.Position ?? win.GetCurrentWindowPosition();
+            }
+        }
+        catch { }
+        return null;
+    }
+
+    private void OnSetMacroHotbarPositionRequested(int index, System.Numerics.Vector2 pos)
+    {
+        try
+        {
+            var win = EnsureHotbarWindow(index);
+            win.SetExternalPosition(pos);
+        }
+        catch { }
+    }
+
+    private void OnResetMacroHotbarPositionRequested(int index)
+    {
+        try
+        {
+            if (_macroHotbarWindowsByIndex.TryGetValue(index, out var win))
+            {
+                win.ResetExternalPosition();
+            }
+        }
+        catch { }
+    }
+
+    private void OnFrameworkUpdate(IFramework f)
+    {
+        _macroScheduler.Update();
     }
 
     private void UiBuilderOnOpenConfigUi()

@@ -5,6 +5,7 @@ using System.Linq;
 using VenuePlus.State;
 using VenuePlus.Helpers;
 using VenuePlus.Configuration;
+using System.Numerics;
 using Dalamud.Plugin.Services;
 
 namespace VenuePlus.Plugin;
@@ -68,6 +69,7 @@ public sealed class VenuePlusApp : IDisposable, IEventListener
     public event Action? OpenChangelogRequested;
     public event Action? OpenQolToolsRequested;
     public event Action? OpenWhisperRequested;
+    public event Action? OpenMacroHotbarRequested;
 
     public VenuePlusApp(string? vipDataPath = null, string? pluginConfigPath = null, IPluginLog? log = null, IClientState? clientState = null, IObjectTable? objectTable = null)
     {
@@ -141,6 +143,49 @@ public sealed class VenuePlusApp : IDisposable, IEventListener
     public void OpenQolToolsWindow()
     {
         try { OpenQolToolsRequested?.Invoke(); } catch { }
+    }
+
+    public event System.Action? OpenMacroHotbarManagerRequested;
+    public void OpenMacroHotbarManagerWindow()
+    {
+        try { OpenMacroHotbarManagerRequested?.Invoke(); } catch { }
+    }
+
+    public void OpenMacroHotbarWindow()
+    {
+        try { OpenMacroHotbarRequested?.Invoke(); } catch { }
+    }
+
+    public event System.Action<int>? OpenMacroHotbarIndexRequested;
+    public event System.Action<int>? CloseMacroHotbarIndexRequested;
+    public event System.Func<int, Vector2?>? QueryMacroHotbarPositionRequested;
+    public event System.Action<int, Vector2>? SetMacroHotbarPositionRequested;
+    public event System.Action<int>? ResetMacroHotbarPositionRequested;
+
+    public void OpenMacroHotbarWindowAt(int index)
+    {
+        try { OpenMacroHotbarIndexRequested?.Invoke(index); } catch { }
+    }
+
+    public void CloseMacroHotbarWindowAt(int index)
+    {
+        try { CloseMacroHotbarIndexRequested?.Invoke(index); } catch { }
+    }
+
+    public Vector2? GetMacroHotbarWindowPositionAt(int index)
+    {
+        try { return QueryMacroHotbarPositionRequested?.Invoke(index); } catch { }
+        return null;
+    }
+
+    public void SetMacroHotbarPositionAt(int index, Vector2 position)
+    {
+        try { SetMacroHotbarPositionRequested?.Invoke(index, position); } catch { }
+    }
+
+    public void ResetMacroHotbarPositionAt(int index)
+    {
+        try { ResetMacroHotbarPositionRequested?.Invoke(index); } catch { }
     }
 
     public string? GetLastInstalledVersion()
@@ -334,6 +379,1082 @@ public sealed class VenuePlusApp : IDisposable, IEventListener
     public VenuePlus.Configuration.VipLabelOrder VipLabelOrder => _pluginConfigService.Current.VipLabelOrder;
     public bool KeepWhisperMessage => _pluginConfigService.Current.KeepWhisperMessage;
     public VenuePlus.Configuration.WhisperPreset[] GetWhisperPresets() => _pluginConfigService.Current.WhisperPresets?.ToArray() ?? System.Array.Empty<VenuePlus.Configuration.WhisperPreset>();
+
+    private void EnsureMacroHotbars()
+    {
+        var cfg = _pluginConfigService.Current;
+        if (cfg.MacroHotbars == null) cfg.MacroHotbars = new System.Collections.Generic.List<VenuePlus.Configuration.MacroHotbar>();
+        if (cfg.CurrentMacroHotbarIndex < 0 || (cfg.MacroHotbars.Count > 0 && cfg.CurrentMacroHotbarIndex >= cfg.MacroHotbars.Count))
+            cfg.CurrentMacroHotbarIndex = 0;
+    }
+
+    public VenuePlus.Configuration.MacroHotbarSlot[] GetMacroHotbarSlots()
+    {
+        EnsureMacroHotbars();
+        var cfg = _pluginConfigService.Current;
+        if (cfg.MacroHotbars.Count == 0) return System.Array.Empty<VenuePlus.Configuration.MacroHotbarSlot>();
+        var bar = cfg.MacroHotbars[cfg.CurrentMacroHotbarIndex];
+        return bar.Slots?.ToArray() ?? System.Array.Empty<VenuePlus.Configuration.MacroHotbarSlot>();
+    }
+
+    public VenuePlus.Configuration.MacroHotbarSlot[] GetMacroHotbarSlotsFor(int barIndex)
+    {
+        EnsureMacroHotbars();
+        var cfg = _pluginConfigService.Current;
+        if (barIndex < 0 || barIndex >= cfg.MacroHotbars.Count) return System.Array.Empty<VenuePlus.Configuration.MacroHotbarSlot>();
+        var bar = cfg.MacroHotbars[barIndex];
+        return bar.Slots?.ToArray() ?? System.Array.Empty<VenuePlus.Configuration.MacroHotbarSlot>();
+    }
+
+    public System.Threading.Tasks.Task SetMacroHotbarAssignmentAsync(int slot, string? presetName)
+    {
+        return SetMacroHotbarSlotAsync(slot, presetName, null);
+    }
+
+    public System.Threading.Tasks.Task SetMacroHotbarSlotAsync(int slot, string? presetName, VenuePlus.Configuration.ChatChannel? channel, string? iconKey = null, bool? useGameIcon = null, int? gameIconId = null)
+    {
+        EnsureMacroHotbars();
+        var cfg = _pluginConfigService.Current;
+        var bar = cfg.MacroHotbars[cfg.CurrentMacroHotbarIndex];
+        var list = bar.Slots ?? new System.Collections.Generic.List<VenuePlus.Configuration.MacroHotbarSlot>();
+        try { _log?.Debug($"SetMacroHotbarSlot: bar={cfg.CurrentMacroHotbarIndex} slot={slot} beforeCount={list.Count} preset={(presetName ?? "<null>")} channel={(channel.HasValue ? channel.Value.ToString() : "<nochange>")} iconKey={(iconKey ?? "<null>")} useGameIcon={(useGameIcon.HasValue ? useGameIcon.Value.ToString() : "<nochange>")} gameIconId={(gameIconId.HasValue ? gameIconId.Value.ToString() : "<nochange>")}"); } catch { }
+        while (list.Count <= slot) list.Add(new VenuePlus.Configuration.MacroHotbarSlot());
+        var item = list[slot] ?? new VenuePlus.Configuration.MacroHotbarSlot();
+        if (presetName != null) item.PresetName = presetName.Trim();
+        if (channel.HasValue) item.Channel = channel.Value;
+        if (iconKey != null) item.IconKey = iconKey.Trim();
+        if (useGameIcon.HasValue) item.UseGameIcon = useGameIcon.Value;
+        if (gameIconId.HasValue) item.GameIconId = System.Math.Max(0, gameIconId.Value);
+        list[slot] = item;
+        bar.Slots = list;
+        _pluginConfigService.Save();
+        try { _log?.Debug($"SetMacroHotbarSlot: bar={cfg.CurrentMacroHotbarIndex} slot={slot} afterCount={list.Count} preset={(item.PresetName ?? "" )} channel={item.Channel} iconKey={(item.IconKey ?? "" )} useGameIcon={item.UseGameIcon} gameIconId={item.GameIconId}"); } catch { }
+        return System.Threading.Tasks.Task.CompletedTask;
+    }
+
+    public System.Threading.Tasks.Task SetMacroHotbarSlotAsyncAtBar(int barIndex, int slot, string? presetName, VenuePlus.Configuration.ChatChannel? channel, string? iconKey = null, bool? useGameIcon = null, int? gameIconId = null)
+    {
+        EnsureMacroHotbars();
+        var cfg = _pluginConfigService.Current;
+        if (barIndex < 0 || barIndex >= cfg.MacroHotbars.Count) return System.Threading.Tasks.Task.CompletedTask;
+        var bar = cfg.MacroHotbars[barIndex];
+        var list = bar.Slots ?? new System.Collections.Generic.List<VenuePlus.Configuration.MacroHotbarSlot>();
+        try { _log?.Debug($"SetMacroHotbarSlotAt: bar={barIndex} slot={slot} beforeCount={list.Count} preset={(presetName ?? "<null>")} channel={(channel.HasValue ? channel.Value.ToString() : "<nochange>")} iconKey={(iconKey ?? "<null>")} useGameIcon={(useGameIcon.HasValue ? useGameIcon.Value.ToString() : "<nochange>")} gameIconId={(gameIconId.HasValue ? gameIconId.Value.ToString() : "<nochange>")}"); } catch { }
+        while (list.Count <= slot) list.Add(new VenuePlus.Configuration.MacroHotbarSlot());
+        var item = list[slot] ?? new VenuePlus.Configuration.MacroHotbarSlot();
+        if (presetName != null) item.PresetName = presetName.Trim();
+        if (channel.HasValue) item.Channel = channel.Value;
+        if (iconKey != null) item.IconKey = iconKey.Trim();
+        if (useGameIcon.HasValue) item.UseGameIcon = useGameIcon.Value;
+        if (gameIconId.HasValue) item.GameIconId = System.Math.Max(0, gameIconId.Value);
+        list[slot] = item;
+        bar.Slots = list;
+        _pluginConfigService.Save();
+        try { _log?.Debug($"SetMacroHotbarSlotAt: bar={barIndex} slot={slot} afterCount={list.Count} preset={(item.PresetName ?? "" )} channel={item.Channel} iconKey={(item.IconKey ?? "" )} useGameIcon={item.UseGameIcon} gameIconId={item.GameIconId}"); } catch { }
+        return System.Threading.Tasks.Task.CompletedTask;
+    }
+
+    public System.Threading.Tasks.Task SetMacroHotbarSlotNoBackgroundAsync(int slot, bool noBackground)
+    {
+        EnsureMacroHotbars();
+        var cfg = _pluginConfigService.Current;
+        var bar = cfg.MacroHotbars[cfg.CurrentMacroHotbarIndex];
+        var list = bar.Slots ?? new System.Collections.Generic.List<VenuePlus.Configuration.MacroHotbarSlot>();
+        while (list.Count <= slot) list.Add(new VenuePlus.Configuration.MacroHotbarSlot());
+        var item = list[slot] ?? new VenuePlus.Configuration.MacroHotbarSlot();
+        item.NoBackground = noBackground;
+        list[slot] = item;
+        bar.Slots = list;
+        _pluginConfigService.Save();
+        return System.Threading.Tasks.Task.CompletedTask;
+    }
+
+    public System.Threading.Tasks.Task SetMacroHotbarSlotNoBackgroundAtAsync(int barIndex, int slot, bool noBackground)
+    {
+        EnsureMacroHotbars();
+        var cfg = _pluginConfigService.Current;
+        if (barIndex < 0 || barIndex >= cfg.MacroHotbars.Count) return System.Threading.Tasks.Task.CompletedTask;
+        var bar = cfg.MacroHotbars[barIndex];
+        var list = bar.Slots ?? new System.Collections.Generic.List<VenuePlus.Configuration.MacroHotbarSlot>();
+        while (list.Count <= slot) list.Add(new VenuePlus.Configuration.MacroHotbarSlot());
+        var item = list[slot] ?? new VenuePlus.Configuration.MacroHotbarSlot();
+        item.NoBackground = noBackground;
+        list[slot] = item;
+        bar.Slots = list;
+        _pluginConfigService.Save();
+        return System.Threading.Tasks.Task.CompletedTask;
+    }
+
+    public System.Threading.Tasks.Task SetMacroHotbarSlotTooltipAsync(int slot, string? text)
+    {
+        EnsureMacroHotbars();
+        var cfg = _pluginConfigService.Current;
+        var bar = cfg.MacroHotbars[cfg.CurrentMacroHotbarIndex];
+        var list = bar.Slots ?? new System.Collections.Generic.List<VenuePlus.Configuration.MacroHotbarSlot>();
+        while (list.Count <= slot) list.Add(new VenuePlus.Configuration.MacroHotbarSlot());
+        var item = list[slot] ?? new VenuePlus.Configuration.MacroHotbarSlot();
+        item.ToolTipText = string.IsNullOrWhiteSpace(text) ? null : text.Trim();
+        list[slot] = item;
+        bar.Slots = list;
+        _pluginConfigService.Save();
+        return System.Threading.Tasks.Task.CompletedTask;
+    }
+
+    public System.Threading.Tasks.Task SetMacroHotbarSlotTooltipAtAsync(int barIndex, int slot, string? text)
+    {
+        EnsureMacroHotbars();
+        var cfg = _pluginConfigService.Current;
+        if (barIndex < 0 || barIndex >= cfg.MacroHotbars.Count) return System.Threading.Tasks.Task.CompletedTask;
+        var bar = cfg.MacroHotbars[barIndex];
+        var list = bar.Slots ?? new System.Collections.Generic.List<VenuePlus.Configuration.MacroHotbarSlot>();
+        while (list.Count <= slot) list.Add(new VenuePlus.Configuration.MacroHotbarSlot());
+        var item = list[slot] ?? new VenuePlus.Configuration.MacroHotbarSlot();
+        item.ToolTipText = string.IsNullOrWhiteSpace(text) ? null : text.Trim();
+        list[slot] = item;
+        bar.Slots = list;
+        _pluginConfigService.Save();
+        return System.Threading.Tasks.Task.CompletedTask;
+    }
+
+    public System.Threading.Tasks.Task SetMacroHotbarSlotIconScaleAsync(int slot, float scale)
+    {
+        EnsureMacroHotbars();
+        var cfg = _pluginConfigService.Current;
+        var bar = cfg.MacroHotbars[cfg.CurrentMacroHotbarIndex];
+        var list = bar.Slots ?? new System.Collections.Generic.List<VenuePlus.Configuration.MacroHotbarSlot>();
+        while (list.Count <= slot) list.Add(new VenuePlus.Configuration.MacroHotbarSlot());
+        var item = list[slot] ?? new VenuePlus.Configuration.MacroHotbarSlot();
+        item.IconScale = System.Math.Clamp(scale, 0.3f, 2.0f);
+        list[slot] = item;
+        bar.Slots = list;
+        _pluginConfigService.Save();
+        return System.Threading.Tasks.Task.CompletedTask;
+    }
+
+    public System.Threading.Tasks.Task SetMacroHotbarSlotIconScaleAtAsync(int barIndex, int slot, float scale)
+    {
+        EnsureMacroHotbars();
+        var cfg = _pluginConfigService.Current;
+        if (barIndex < 0 || barIndex >= cfg.MacroHotbars.Count) return System.Threading.Tasks.Task.CompletedTask;
+        var bar = cfg.MacroHotbars[barIndex];
+        var list = bar.Slots ?? new System.Collections.Generic.List<VenuePlus.Configuration.MacroHotbarSlot>();
+        while (list.Count <= slot) list.Add(new VenuePlus.Configuration.MacroHotbarSlot());
+        var item = list[slot] ?? new VenuePlus.Configuration.MacroHotbarSlot();
+        item.IconScale = System.Math.Clamp(scale, 0.3f, 2.0f);
+        list[slot] = item;
+        bar.Slots = list;
+        _pluginConfigService.Save();
+        return System.Threading.Tasks.Task.CompletedTask;
+    }
+
+    public System.Threading.Tasks.Task SetMacroHotbarSlotIconOffsetAsync(int slot, float offsetX, float offsetY)
+    {
+        EnsureMacroHotbars();
+        var cfg = _pluginConfigService.Current;
+        var bar = cfg.MacroHotbars[cfg.CurrentMacroHotbarIndex];
+        var list = bar.Slots ?? new System.Collections.Generic.List<VenuePlus.Configuration.MacroHotbarSlot>();
+        while (list.Count <= slot) list.Add(new VenuePlus.Configuration.MacroHotbarSlot());
+        var item = list[slot] ?? new VenuePlus.Configuration.MacroHotbarSlot();
+        item.IconOffsetX = offsetX;
+        item.IconOffsetY = offsetY;
+        list[slot] = item;
+        bar.Slots = list;
+        _pluginConfigService.Save();
+        return System.Threading.Tasks.Task.CompletedTask;
+    }
+
+    public System.Threading.Tasks.Task SetMacroHotbarSlotIconOffsetAtAsync(int barIndex, int slot, float offsetX, float offsetY)
+    {
+        EnsureMacroHotbars();
+        var cfg = _pluginConfigService.Current;
+        if (barIndex < 0 || barIndex >= cfg.MacroHotbars.Count) return System.Threading.Tasks.Task.CompletedTask;
+        var bar = cfg.MacroHotbars[barIndex];
+        var list = bar.Slots ?? new System.Collections.Generic.List<VenuePlus.Configuration.MacroHotbarSlot>();
+        while (list.Count <= slot) list.Add(new VenuePlus.Configuration.MacroHotbarSlot());
+        var item = list[slot] ?? new VenuePlus.Configuration.MacroHotbarSlot();
+        item.IconOffsetX = offsetX;
+        item.IconOffsetY = offsetY;
+        list[slot] = item;
+        bar.Slots = list;
+        _pluginConfigService.Save();
+        return System.Threading.Tasks.Task.CompletedTask;
+    }
+
+    public System.Threading.Tasks.Task SetMacroHotbarSlotIconZoomOffsetAsync(int slot, float zoomX, float zoomY)
+    {
+        EnsureMacroHotbars();
+        var cfg = _pluginConfigService.Current;
+        var bar = cfg.MacroHotbars[cfg.CurrentMacroHotbarIndex];
+        var list = bar.Slots ?? new System.Collections.Generic.List<VenuePlus.Configuration.MacroHotbarSlot>();
+        while (list.Count <= slot) list.Add(new VenuePlus.Configuration.MacroHotbarSlot());
+        var item = list[slot] ?? new VenuePlus.Configuration.MacroHotbarSlot();
+        item.IconZoomOffsetX = System.Math.Clamp(zoomX, -1.0f, 1.0f);
+        item.IconZoomOffsetY = System.Math.Clamp(zoomY, -1.0f, 1.0f);
+        list[slot] = item;
+        bar.Slots = list;
+        _pluginConfigService.Save();
+        return System.Threading.Tasks.Task.CompletedTask;
+    }
+
+    public System.Threading.Tasks.Task SetMacroHotbarSlotIconZoomOffsetAtAsync(int barIndex, int slot, float zoomX, float zoomY)
+    {
+        EnsureMacroHotbars();
+        var cfg = _pluginConfigService.Current;
+        if (barIndex < 0 || barIndex >= cfg.MacroHotbars.Count) return System.Threading.Tasks.Task.CompletedTask;
+        var bar = cfg.MacroHotbars[barIndex];
+        var list = bar.Slots ?? new System.Collections.Generic.List<VenuePlus.Configuration.MacroHotbarSlot>();
+        while (list.Count <= slot) list.Add(new VenuePlus.Configuration.MacroHotbarSlot());
+        var item = list[slot] ?? new VenuePlus.Configuration.MacroHotbarSlot();
+        item.IconZoomOffsetX = System.Math.Clamp(zoomX, -1.0f, 1.0f);
+        item.IconZoomOffsetY = System.Math.Clamp(zoomY, -1.0f, 1.0f);
+        list[slot] = item;
+        bar.Slots = list;
+        _pluginConfigService.Save();
+        return System.Threading.Tasks.Task.CompletedTask;
+    }
+
+    public System.Threading.Tasks.Task SetMacroHotbarSlotShowFrameAsync(int slot, bool show)
+    {
+        EnsureMacroHotbars();
+        var cfg = _pluginConfigService.Current;
+        var bar = cfg.MacroHotbars[cfg.CurrentMacroHotbarIndex];
+        var list = bar.Slots ?? new System.Collections.Generic.List<VenuePlus.Configuration.MacroHotbarSlot>();
+        while (list.Count <= slot) list.Add(new VenuePlus.Configuration.MacroHotbarSlot());
+        var item = list[slot] ?? new VenuePlus.Configuration.MacroHotbarSlot();
+        item.ShowFrame = show;
+        list[slot] = item;
+        bar.Slots = list;
+        _pluginConfigService.Save();
+        return System.Threading.Tasks.Task.CompletedTask;
+    }
+
+    public System.Threading.Tasks.Task SetMacroHotbarSlotShowFrameAtAsync(int barIndex, int slot, bool show)
+    {
+        EnsureMacroHotbars();
+        var cfg = _pluginConfigService.Current;
+        if (barIndex < 0 || barIndex >= cfg.MacroHotbars.Count) return System.Threading.Tasks.Task.CompletedTask;
+        var bar = cfg.MacroHotbars[barIndex];
+        var list = bar.Slots ?? new System.Collections.Generic.List<VenuePlus.Configuration.MacroHotbarSlot>();
+        while (list.Count <= slot) list.Add(new VenuePlus.Configuration.MacroHotbarSlot());
+        var item = list[slot] ?? new VenuePlus.Configuration.MacroHotbarSlot();
+        item.ShowFrame = show;
+        list[slot] = item;
+        bar.Slots = list;
+        _pluginConfigService.Save();
+        return System.Threading.Tasks.Task.CompletedTask;
+    }
+
+    public System.Threading.Tasks.Task SetMacroHotbarSlotFrameColorAsync(int slot, uint? color)
+    {
+        EnsureMacroHotbars();
+        var cfg = _pluginConfigService.Current;
+        var bar = cfg.MacroHotbars[cfg.CurrentMacroHotbarIndex];
+        var list = bar.Slots ?? new System.Collections.Generic.List<VenuePlus.Configuration.MacroHotbarSlot>();
+        while (list.Count <= slot) list.Add(new VenuePlus.Configuration.MacroHotbarSlot());
+        var item = list[slot] ?? new VenuePlus.Configuration.MacroHotbarSlot();
+        item.FrameColor = color;
+        list[slot] = item;
+        bar.Slots = list;
+        _pluginConfigService.Save();
+        return System.Threading.Tasks.Task.CompletedTask;
+    }
+
+    public System.Threading.Tasks.Task SetMacroHotbarSlotFrameColorAtAsync(int barIndex, int slot, uint? color)
+    {
+        EnsureMacroHotbars();
+        var cfg = _pluginConfigService.Current;
+        if (barIndex < 0 || barIndex >= cfg.MacroHotbars.Count) return System.Threading.Tasks.Task.CompletedTask;
+        var bar = cfg.MacroHotbars[barIndex];
+        var list = bar.Slots ?? new System.Collections.Generic.List<VenuePlus.Configuration.MacroHotbarSlot>();
+        while (list.Count <= slot) list.Add(new VenuePlus.Configuration.MacroHotbarSlot());
+        var item = list[slot] ?? new VenuePlus.Configuration.MacroHotbarSlot();
+        item.FrameColor = color;
+        list[slot] = item;
+        bar.Slots = list;
+        _pluginConfigService.Save();
+        return System.Threading.Tasks.Task.CompletedTask;
+    }
+
+    public System.Threading.Tasks.Task SetMacroHotbarSlotIconColorAsync(int slot, uint? color)
+    {
+        EnsureMacroHotbars();
+        var cfg = _pluginConfigService.Current;
+        var bar = cfg.MacroHotbars[cfg.CurrentMacroHotbarIndex];
+        var list = bar.Slots ?? new System.Collections.Generic.List<VenuePlus.Configuration.MacroHotbarSlot>();
+        while (list.Count <= slot) list.Add(new VenuePlus.Configuration.MacroHotbarSlot());
+        var item = list[slot] ?? new VenuePlus.Configuration.MacroHotbarSlot();
+        item.IconColor = color;
+        list[slot] = item;
+        bar.Slots = list;
+        _pluginConfigService.Save();
+        return System.Threading.Tasks.Task.CompletedTask;
+    }
+
+    public System.Threading.Tasks.Task SetMacroHotbarSlotIconColorAtAsync(int barIndex, int slot, uint? color)
+    {
+        EnsureMacroHotbars();
+        var cfg = _pluginConfigService.Current;
+        if (barIndex < 0 || barIndex >= cfg.MacroHotbars.Count) return System.Threading.Tasks.Task.CompletedTask;
+        var bar = cfg.MacroHotbars[barIndex];
+        var list = bar.Slots ?? new System.Collections.Generic.List<VenuePlus.Configuration.MacroHotbarSlot>();
+        while (list.Count <= slot) list.Add(new VenuePlus.Configuration.MacroHotbarSlot());
+        var item = list[slot] ?? new VenuePlus.Configuration.MacroHotbarSlot();
+        item.IconColor = color;
+        list[slot] = item;
+        bar.Slots = list;
+        _pluginConfigService.Save();
+        return System.Threading.Tasks.Task.CompletedTask;
+    }
+
+    public System.Threading.Tasks.Task SetMacroHotbarSlotHoverBackgroundColorAsync(int slot, uint? color)
+    {
+        EnsureMacroHotbars();
+        var cfg = _pluginConfigService.Current;
+        var bar = cfg.MacroHotbars[cfg.CurrentMacroHotbarIndex];
+        var list = bar.Slots ?? new System.Collections.Generic.List<VenuePlus.Configuration.MacroHotbarSlot>();
+        while (list.Count <= slot) list.Add(new VenuePlus.Configuration.MacroHotbarSlot());
+        var item = list[slot] ?? new VenuePlus.Configuration.MacroHotbarSlot();
+        item.HoverBackgroundColor = color;
+        list[slot] = item;
+        bar.Slots = list;
+        _pluginConfigService.Save();
+        return System.Threading.Tasks.Task.CompletedTask;
+    }
+
+    public System.Threading.Tasks.Task SetMacroHotbarSlotHoverBackgroundColorAtAsync(int barIndex, int slot, uint? color)
+    {
+        EnsureMacroHotbars();
+        var cfg = _pluginConfigService.Current;
+        if (barIndex < 0 || barIndex >= cfg.MacroHotbars.Count) return System.Threading.Tasks.Task.CompletedTask;
+        var bar = cfg.MacroHotbars[barIndex];
+        var list = bar.Slots ?? new System.Collections.Generic.List<VenuePlus.Configuration.MacroHotbarSlot>();
+        while (list.Count <= slot) list.Add(new VenuePlus.Configuration.MacroHotbarSlot());
+        var item = list[slot] ?? new VenuePlus.Configuration.MacroHotbarSlot();
+        item.HoverBackgroundColor = color;
+        list[slot] = item;
+        bar.Slots = list;
+        _pluginConfigService.Save();
+        return System.Threading.Tasks.Task.CompletedTask;
+    }
+
+    public uint? GetMacroHotbarFrameColorDefault()
+    {
+        EnsureMacroHotbars();
+        var cfg = _pluginConfigService.Current;
+        return cfg.MacroHotbars[cfg.CurrentMacroHotbarIndex].FrameColorDefault;
+    }
+
+    public uint? GetMacroHotbarFrameColorDefaultAt(int barIndex)
+    {
+        EnsureMacroHotbars();
+        var cfg = _pluginConfigService.Current;
+        if (barIndex < 0 || barIndex >= cfg.MacroHotbars.Count) return null;
+        return cfg.MacroHotbars[barIndex].FrameColorDefault;
+    }
+
+    public System.Threading.Tasks.Task SetMacroHotbarFrameColorDefaultAsync(uint? color)
+    {
+        EnsureMacroHotbars();
+        var cfg = _pluginConfigService.Current;
+        cfg.MacroHotbars[cfg.CurrentMacroHotbarIndex].FrameColorDefault = color;
+        _pluginConfigService.Save();
+        return System.Threading.Tasks.Task.CompletedTask;
+    }
+
+    public System.Threading.Tasks.Task SetMacroHotbarFrameColorDefaultAtAsync(int barIndex, uint? color)
+    {
+        EnsureMacroHotbars();
+        var cfg = _pluginConfigService.Current;
+        if (barIndex < 0 || barIndex >= cfg.MacroHotbars.Count) return System.Threading.Tasks.Task.CompletedTask;
+        cfg.MacroHotbars[barIndex].FrameColorDefault = color;
+        _pluginConfigService.Save();
+        return System.Threading.Tasks.Task.CompletedTask;
+    }
+
+    public uint? GetMacroHotbarIconColorDefault()
+    {
+        EnsureMacroHotbars();
+        var cfg = _pluginConfigService.Current;
+        return cfg.MacroHotbars[cfg.CurrentMacroHotbarIndex].IconColorDefault;
+    }
+
+    public uint? GetMacroHotbarIconColorDefaultAt(int barIndex)
+    {
+        EnsureMacroHotbars();
+        var cfg = _pluginConfigService.Current;
+        if (barIndex < 0 || barIndex >= cfg.MacroHotbars.Count) return null;
+        return cfg.MacroHotbars[barIndex].IconColorDefault;
+    }
+
+    public System.Threading.Tasks.Task SetMacroHotbarIconColorDefaultAsync(uint? color)
+    {
+        EnsureMacroHotbars();
+        var cfg = _pluginConfigService.Current;
+        cfg.MacroHotbars[cfg.CurrentMacroHotbarIndex].IconColorDefault = color;
+        _pluginConfigService.Save();
+        return System.Threading.Tasks.Task.CompletedTask;
+    }
+
+    public System.Threading.Tasks.Task SetMacroHotbarIconColorDefaultAtAsync(int barIndex, uint? color)
+    {
+        EnsureMacroHotbars();
+        var cfg = _pluginConfigService.Current;
+        if (barIndex < 0 || barIndex >= cfg.MacroHotbars.Count) return System.Threading.Tasks.Task.CompletedTask;
+        cfg.MacroHotbars[barIndex].IconColorDefault = color;
+        _pluginConfigService.Save();
+        return System.Threading.Tasks.Task.CompletedTask;
+    }
+
+    public uint? GetMacroHotbarHoverBackgroundColorDefault()
+    {
+        EnsureMacroHotbars();
+        var cfg = _pluginConfigService.Current;
+        return cfg.MacroHotbars[cfg.CurrentMacroHotbarIndex].HoverBackgroundColorDefault;
+    }
+
+    public uint? GetMacroHotbarHoverBackgroundColorDefaultAt(int barIndex)
+    {
+        EnsureMacroHotbars();
+        var cfg = _pluginConfigService.Current;
+        if (barIndex < 0 || barIndex >= cfg.MacroHotbars.Count) return null;
+        return cfg.MacroHotbars[barIndex].HoverBackgroundColorDefault;
+    }
+
+    public System.Threading.Tasks.Task SetMacroHotbarHoverBackgroundColorDefaultAsync(uint? color)
+    {
+        EnsureMacroHotbars();
+        var cfg = _pluginConfigService.Current;
+        cfg.MacroHotbars[cfg.CurrentMacroHotbarIndex].HoverBackgroundColorDefault = color;
+        _pluginConfigService.Save();
+        return System.Threading.Tasks.Task.CompletedTask;
+    }
+
+    public System.Threading.Tasks.Task SetMacroHotbarHoverBackgroundColorDefaultAtAsync(int barIndex, uint? color)
+    {
+        EnsureMacroHotbars();
+        var cfg = _pluginConfigService.Current;
+        if (barIndex < 0 || barIndex >= cfg.MacroHotbars.Count) return System.Threading.Tasks.Task.CompletedTask;
+        cfg.MacroHotbars[barIndex].HoverBackgroundColorDefault = color;
+        _pluginConfigService.Save();
+        return System.Threading.Tasks.Task.CompletedTask;
+    }
+
+    public uint? GetMacroHotbarBackgroundColor()
+    {
+        EnsureMacroHotbars();
+        var cfg = _pluginConfigService.Current;
+        return cfg.MacroHotbars[cfg.CurrentMacroHotbarIndex].BackgroundColor;
+    }
+
+    public uint? GetMacroHotbarBackgroundColorAt(int barIndex)
+    {
+        EnsureMacroHotbars();
+        var cfg = _pluginConfigService.Current;
+        if (barIndex < 0 || barIndex >= cfg.MacroHotbars.Count) return null;
+        return cfg.MacroHotbars[barIndex].BackgroundColor;
+    }
+
+    public System.Threading.Tasks.Task SetMacroHotbarBackgroundColorAsync(uint? color)
+    {
+        EnsureMacroHotbars();
+        var cfg = _pluginConfigService.Current;
+        cfg.MacroHotbars[cfg.CurrentMacroHotbarIndex].BackgroundColor = color;
+        _pluginConfigService.Save();
+        return System.Threading.Tasks.Task.CompletedTask;
+    }
+
+    public System.Threading.Tasks.Task SetMacroHotbarBackgroundColorAtAsync(int barIndex, uint? color)
+    {
+        EnsureMacroHotbars();
+        var cfg = _pluginConfigService.Current;
+        if (barIndex < 0 || barIndex >= cfg.MacroHotbars.Count) return System.Threading.Tasks.Task.CompletedTask;
+        cfg.MacroHotbars[barIndex].BackgroundColor = color;
+        _pluginConfigService.Save();
+        return System.Threading.Tasks.Task.CompletedTask;
+    }
+
+    public bool GetMacroHotbarShowFrameDefault()
+    {
+        EnsureMacroHotbars();
+        var cfg = _pluginConfigService.Current;
+        return cfg.MacroHotbars[cfg.CurrentMacroHotbarIndex].ShowFrameDefault;
+    }
+
+    public bool GetMacroHotbarShowFrameDefaultAt(int barIndex)
+    {
+        EnsureMacroHotbars();
+        var cfg = _pluginConfigService.Current;
+        if (barIndex < 0 || barIndex >= cfg.MacroHotbars.Count) return false;
+        return cfg.MacroHotbars[barIndex].ShowFrameDefault;
+    }
+
+    public System.Threading.Tasks.Task SetMacroHotbarShowFrameDefaultAsync(bool show)
+    {
+        EnsureMacroHotbars();
+        var cfg = _pluginConfigService.Current;
+        cfg.MacroHotbars[cfg.CurrentMacroHotbarIndex].ShowFrameDefault = show;
+        _pluginConfigService.Save();
+        return System.Threading.Tasks.Task.CompletedTask;
+    }
+
+    public System.Threading.Tasks.Task SetMacroHotbarShowFrameDefaultAtAsync(int barIndex, bool show)
+    {
+        EnsureMacroHotbars();
+        var cfg = _pluginConfigService.Current;
+        if (barIndex < 0 || barIndex >= cfg.MacroHotbars.Count) return System.Threading.Tasks.Task.CompletedTask;
+        cfg.MacroHotbars[barIndex].ShowFrameDefault = show;
+        _pluginConfigService.Save();
+        return System.Threading.Tasks.Task.CompletedTask;
+    }
+
+    public float GetMacroHotbarIconScaleDefault()
+    {
+        EnsureMacroHotbars();
+        var cfg = _pluginConfigService.Current;
+        return cfg.MacroHotbars[cfg.CurrentMacroHotbarIndex].IconScaleDefault;
+    }
+
+    public float GetMacroHotbarIconScaleDefaultAt(int barIndex)
+    {
+        EnsureMacroHotbars();
+        var cfg = _pluginConfigService.Current;
+        if (barIndex < 0 || barIndex >= cfg.MacroHotbars.Count) return 1.0f;
+        return cfg.MacroHotbars[barIndex].IconScaleDefault;
+    }
+
+    public System.Threading.Tasks.Task SetMacroHotbarIconScaleDefaultAsync(float scale)
+    {
+        EnsureMacroHotbars();
+        var cfg = _pluginConfigService.Current;
+        cfg.MacroHotbars[cfg.CurrentMacroHotbarIndex].IconScaleDefault = System.Math.Clamp(scale, 0.3f, 2.0f);
+        _pluginConfigService.Save();
+        return System.Threading.Tasks.Task.CompletedTask;
+    }
+
+    public System.Threading.Tasks.Task SetMacroHotbarIconScaleDefaultAtAsync(int barIndex, float scale)
+    {
+        EnsureMacroHotbars();
+        var cfg = _pluginConfigService.Current;
+        if (barIndex < 0 || barIndex >= cfg.MacroHotbars.Count) return System.Threading.Tasks.Task.CompletedTask;
+        cfg.MacroHotbars[barIndex].IconScaleDefault = System.Math.Clamp(scale, 0.3f, 2.0f);
+        _pluginConfigService.Save();
+        return System.Threading.Tasks.Task.CompletedTask;
+    }
+
+    public float GetMacroHotbarItemSpacingX()
+    {
+        EnsureMacroHotbars();
+        var cfg = _pluginConfigService.Current;
+        return cfg.MacroHotbars[cfg.CurrentMacroHotbarIndex].ItemSpacingX;
+    }
+
+    public float GetMacroHotbarItemSpacingXAt(int barIndex)
+    {
+        EnsureMacroHotbars();
+        var cfg = _pluginConfigService.Current;
+        if (barIndex < 0 || barIndex >= cfg.MacroHotbars.Count) return 6f;
+        return cfg.MacroHotbars[barIndex].ItemSpacingX;
+    }
+
+    public System.Threading.Tasks.Task SetMacroHotbarItemSpacingXAsync(float spacing)
+    {
+        EnsureMacroHotbars();
+        var cfg = _pluginConfigService.Current;
+        cfg.MacroHotbars[cfg.CurrentMacroHotbarIndex].ItemSpacingX = System.Math.Clamp(spacing, 0f, 24f);
+        _pluginConfigService.Save();
+        return System.Threading.Tasks.Task.CompletedTask;
+    }
+
+    public System.Threading.Tasks.Task SetMacroHotbarItemSpacingXAtAsync(int barIndex, float spacing)
+    {
+        EnsureMacroHotbars();
+        var cfg = _pluginConfigService.Current;
+        if (barIndex < 0 || barIndex >= cfg.MacroHotbars.Count) return System.Threading.Tasks.Task.CompletedTask;
+        cfg.MacroHotbars[barIndex].ItemSpacingX = System.Math.Clamp(spacing, 0f, 24f);
+        _pluginConfigService.Save();
+        return System.Threading.Tasks.Task.CompletedTask;
+    }
+
+    public float GetMacroHotbarItemSpacingY()
+    {
+        EnsureMacroHotbars();
+        var cfg = _pluginConfigService.Current;
+        return cfg.MacroHotbars[cfg.CurrentMacroHotbarIndex].ItemSpacingY;
+    }
+
+    public float GetMacroHotbarItemSpacingYAt(int barIndex)
+    {
+        EnsureMacroHotbars();
+        var cfg = _pluginConfigService.Current;
+        if (barIndex < 0 || barIndex >= cfg.MacroHotbars.Count) return 6f;
+        return cfg.MacroHotbars[barIndex].ItemSpacingY;
+    }
+
+    public System.Threading.Tasks.Task SetMacroHotbarItemSpacingYAsync(float spacing)
+    {
+        EnsureMacroHotbars();
+        var cfg = _pluginConfigService.Current;
+        cfg.MacroHotbars[cfg.CurrentMacroHotbarIndex].ItemSpacingY = System.Math.Clamp(spacing, 0f, 24f);
+        _pluginConfigService.Save();
+        return System.Threading.Tasks.Task.CompletedTask;
+    }
+
+    public System.Threading.Tasks.Task SetMacroHotbarItemSpacingYAtAsync(int barIndex, float spacing)
+    {
+        EnsureMacroHotbars();
+        var cfg = _pluginConfigService.Current;
+        if (barIndex < 0 || barIndex >= cfg.MacroHotbars.Count) return System.Threading.Tasks.Task.CompletedTask;
+        cfg.MacroHotbars[barIndex].ItemSpacingY = System.Math.Clamp(spacing, 0f, 24f);
+        _pluginConfigService.Save();
+        return System.Threading.Tasks.Task.CompletedTask;
+    }
+
+    public System.Threading.Tasks.Task ApplyMacroHotbarDefaultsToAllSlotsAtAsync(int barIndex)
+    {
+        EnsureMacroHotbars();
+        var cfg = _pluginConfigService.Current;
+        if (barIndex < 0 || barIndex >= cfg.MacroHotbars.Count) return System.Threading.Tasks.Task.CompletedTask;
+        var bar = cfg.MacroHotbars[barIndex];
+        var list = bar.Slots ?? new System.Collections.Generic.List<VenuePlus.Configuration.MacroHotbarSlot>();
+        for (int s = 0; s < list.Count; s++)
+        {
+            var item = list[s] ?? new VenuePlus.Configuration.MacroHotbarSlot();
+            item.IconScale = bar.IconScaleDefault;
+            item.ShowFrame = bar.ShowFrameDefault;
+            if (bar.FrameColorDefault.HasValue) item.FrameColor = bar.FrameColorDefault.Value; else item.FrameColor = null;
+            if (bar.IconColorDefault.HasValue) item.IconColor = bar.IconColorDefault.Value; else item.IconColor = null;
+            if (bar.HoverBackgroundColorDefault.HasValue) item.HoverBackgroundColor = bar.HoverBackgroundColorDefault.Value; else item.HoverBackgroundColor = null;
+            list[s] = item;
+        }
+        bar.Slots = list;
+        _pluginConfigService.Save();
+        return System.Threading.Tasks.Task.CompletedTask;
+    }
+
+    public System.Threading.Tasks.Task AddMacroHotbarSlotAsync()
+    {
+        EnsureMacroHotbars();
+        var cfg = _pluginConfigService.Current;
+        var bar = cfg.MacroHotbars[cfg.CurrentMacroHotbarIndex];
+        var list = bar.Slots ?? new System.Collections.Generic.List<VenuePlus.Configuration.MacroHotbarSlot>();
+        list.Add(new VenuePlus.Configuration.MacroHotbarSlot());
+        bar.Slots = list;
+        _pluginConfigService.Save();
+        return System.Threading.Tasks.Task.CompletedTask;
+    }
+
+    public System.Threading.Tasks.Task AddMacroHotbarSlotAtAsync(int barIndex)
+    {
+        EnsureMacroHotbars();
+        var cfg = _pluginConfigService.Current;
+        if (barIndex < 0 || barIndex >= cfg.MacroHotbars.Count) return System.Threading.Tasks.Task.CompletedTask;
+        var bar = cfg.MacroHotbars[barIndex];
+        var list = bar.Slots ?? new System.Collections.Generic.List<VenuePlus.Configuration.MacroHotbarSlot>();
+        list.Add(new VenuePlus.Configuration.MacroHotbarSlot());
+        bar.Slots = list;
+        _pluginConfigService.Save();
+        return System.Threading.Tasks.Task.CompletedTask;
+    }
+
+    public System.Threading.Tasks.Task RemoveLastMacroHotbarSlotAsync()
+    {
+        EnsureMacroHotbars();
+        var cfg = _pluginConfigService.Current;
+        var bar = cfg.MacroHotbars[cfg.CurrentMacroHotbarIndex];
+        var list = bar.Slots ?? new System.Collections.Generic.List<VenuePlus.Configuration.MacroHotbarSlot>();
+        if (list.Count > 1) list.RemoveAt(list.Count - 1);
+        bar.Slots = list;
+        _pluginConfigService.Save();
+        return System.Threading.Tasks.Task.CompletedTask;
+    }
+
+    public System.Threading.Tasks.Task RemoveMacroHotbarSlotAtAsync(int barIndex, int slotIndex)
+    {
+        EnsureMacroHotbars();
+        var cfg = _pluginConfigService.Current;
+        if (barIndex < 0 || barIndex >= cfg.MacroHotbars.Count) return System.Threading.Tasks.Task.CompletedTask;
+        var bar = cfg.MacroHotbars[barIndex];
+        var list = bar.Slots ?? new System.Collections.Generic.List<VenuePlus.Configuration.MacroHotbarSlot>();
+        try { _log?.Debug($"RemoveSlotAt: bar={barIndex} slot={slotIndex} count={list.Count}"); } catch { }
+        if (slotIndex >= 0 && slotIndex < list.Count && list.Count > 1)
+        {
+            list.RemoveAt(slotIndex);
+            bar.Slots = list;
+            _pluginConfigService.Save();
+            try { _log?.Debug($"RemoveSlotAt: bar={barIndex} done newCount={list.Count}"); } catch { }
+        }
+        return System.Threading.Tasks.Task.CompletedTask;
+    }
+
+    public System.Threading.Tasks.Task SwapMacroHotbarSlotsAsync(int a, int b)
+    {
+        EnsureMacroHotbars();
+        var cfg = _pluginConfigService.Current;
+        var bar = cfg.MacroHotbars[cfg.CurrentMacroHotbarIndex];
+        var list = bar.Slots ?? new System.Collections.Generic.List<VenuePlus.Configuration.MacroHotbarSlot>();
+        if (a >= 0 && a < list.Count && b >= 0 && b < list.Count && a != b)
+        {
+            var tmp = list[a];
+            list[a] = list[b];
+            list[b] = tmp;
+            bar.Slots = list;
+            _pluginConfigService.Save();
+        }
+        return System.Threading.Tasks.Task.CompletedTask;
+    }
+
+    public System.Threading.Tasks.Task SwapMacroHotbarSlotsAtAsync(int barIndex, int a, int b)
+    {
+        EnsureMacroHotbars();
+        var cfg = _pluginConfigService.Current;
+        if (barIndex < 0 || barIndex >= cfg.MacroHotbars.Count) return System.Threading.Tasks.Task.CompletedTask;
+        var bar = cfg.MacroHotbars[barIndex];
+        var list = bar.Slots ?? new System.Collections.Generic.List<VenuePlus.Configuration.MacroHotbarSlot>();
+        if (a >= 0 && a < list.Count && b >= 0 && b < list.Count && a != b)
+        {
+            var tmp = list[a];
+            list[a] = list[b];
+            list[b] = tmp;
+            bar.Slots = list;
+            _pluginConfigService.Save();
+        }
+        return System.Threading.Tasks.Task.CompletedTask;
+    }
+
+    public int GetMacroHotbarCount()
+    {
+        EnsureMacroHotbars();
+        return _pluginConfigService.Current.MacroHotbars.Count;
+    }
+
+    public int GetMacroHotbarCountUnsafe()
+    {
+        var cfg = _pluginConfigService.Current;
+        return cfg.MacroHotbars?.Count ?? 0;
+    }
+
+    public int GetCurrentMacroHotbarIndex()
+    {
+        EnsureMacroHotbars();
+        return _pluginConfigService.Current.CurrentMacroHotbarIndex;
+    }
+
+    public string GetMacroHotbarName(int index)
+    {
+        EnsureMacroHotbars();
+        var cfg = _pluginConfigService.Current;
+        return (index >= 0 && index < cfg.MacroHotbars.Count) ? (cfg.MacroHotbars[index].Name ?? "Bar") : "Bar";
+    }
+
+    public string GetMacroHotbarId(int index)
+    {
+        EnsureMacroHotbars();
+        var cfg = _pluginConfigService.Current;
+        if (index < 0 || index >= cfg.MacroHotbars.Count) return string.Empty;
+        var id = cfg.MacroHotbars[index].Id;
+        if (string.IsNullOrWhiteSpace(id))
+        {
+            id = System.Guid.NewGuid().ToString("N");
+            cfg.MacroHotbars[index].Id = id;
+            _pluginConfigService.Save();
+        }
+        return id;
+    }
+
+    public System.Threading.Tasks.Task SetCurrentMacroHotbarIndexAsync(int index)
+    {
+        EnsureMacroHotbars();
+        var cfg = _pluginConfigService.Current;
+        if (index >= 0 && index < cfg.MacroHotbars.Count)
+        {
+            cfg.CurrentMacroHotbarIndex = index;
+            _pluginConfigService.Save();
+        }
+        return System.Threading.Tasks.Task.CompletedTask;
+    }
+
+    public System.Threading.Tasks.Task AddMacroHotbarAsync(string? name = null)
+    {
+        var cfg = _pluginConfigService.Current;
+        if (cfg.MacroHotbars == null) cfg.MacroHotbars = new System.Collections.Generic.List<VenuePlus.Configuration.MacroHotbar>();
+        var nextIndex = cfg.MacroHotbars.Count + 1;
+        var bar = new VenuePlus.Configuration.MacroHotbar { Name = string.IsNullOrWhiteSpace(name) ? ($"Bar {nextIndex}") : name!.Trim() };
+        cfg.MacroHotbars.Add(bar);
+        var newIndex = cfg.MacroHotbars.Count - 1;
+        var list = cfg.OpenMacroHotbarIndices ?? new System.Collections.Generic.List<int>();
+        list.RemoveAll(i => i == newIndex);
+        list.Add(newIndex);
+        cfg.OpenMacroHotbarIndices = list;
+        cfg.CurrentMacroHotbarIndex = newIndex;
+        _pluginConfigService.Save();
+        try { OpenMacroHotbarIndexRequested?.Invoke(newIndex); } catch { }
+        return System.Threading.Tasks.Task.CompletedTask;
+    }
+
+    public System.Threading.Tasks.Task RemoveMacroHotbarAtAsync(int index)
+    {
+        EnsureMacroHotbars();
+        var cfg = _pluginConfigService.Current;
+        if (index >= 0 && index < cfg.MacroHotbars.Count)
+        {
+            var openBefore = (cfg.OpenMacroHotbarIndices ?? new System.Collections.Generic.List<int>()).ToArray();
+            try { CloseMacroHotbarIndexRequested?.Invoke(index); } catch { }
+            cfg.MacroHotbars.RemoveAt(index);
+            var open = cfg.OpenMacroHotbarIndices ?? new System.Collections.Generic.List<int>();
+            var updated = new System.Collections.Generic.List<int>(open.Count);
+            for (int i = 0; i < open.Count; i++)
+            {
+                var v = open[i];
+                if (v == index) continue;
+                if (v > index) v--;
+                updated.Add(v);
+            }
+            cfg.OpenMacroHotbarIndices = updated;
+            for (int i = 0; i < openBefore.Length; i++)
+            {
+                var v = openBefore[i];
+                if (v > index)
+                {
+                    try { CloseMacroHotbarIndexRequested?.Invoke(v); } catch { }
+                    try { OpenMacroHotbarIndexRequested?.Invoke(v - 1); } catch { }
+                }
+            }
+            if (cfg.CurrentMacroHotbarIndex >= cfg.MacroHotbars.Count) cfg.CurrentMacroHotbarIndex = System.Math.Max(0, cfg.MacroHotbars.Count - 1);
+            _pluginConfigService.Save();
+        }
+        return System.Threading.Tasks.Task.CompletedTask;
+    }
+
+    public System.Threading.Tasks.Task RenameMacroHotbarAsync(int index, string name)
+    {
+        EnsureMacroHotbars();
+        var cfg = _pluginConfigService.Current;
+        if (index >= 0 && index < cfg.MacroHotbars.Count)
+        {
+            cfg.MacroHotbars[index].Name = string.IsNullOrWhiteSpace(name) ? cfg.MacroHotbars[index].Name : name.Trim();
+            _pluginConfigService.Save();
+        }
+        return System.Threading.Tasks.Task.CompletedTask;
+    }
+
+    public bool IsMacroHotbarLocked
+    {
+        get
+        {
+            EnsureMacroHotbars();
+            var cfg = _pluginConfigService.Current;
+            return cfg.MacroHotbars[cfg.CurrentMacroHotbarIndex].Locked;
+        }
+    }
+
+    public System.Threading.Tasks.Task SetMacroHotbarLockedAsync(bool locked)
+    {
+        EnsureMacroHotbars();
+        var cfg = _pluginConfigService.Current;
+        cfg.MacroHotbars[cfg.CurrentMacroHotbarIndex].Locked = locked;
+        _pluginConfigService.Save();
+        return System.Threading.Tasks.Task.CompletedTask;
+    }
+
+    public bool IsMacroHotbarLockedAt(int index)
+    {
+        EnsureMacroHotbars();
+        var cfg = _pluginConfigService.Current;
+        if (index < 0 || index >= cfg.MacroHotbars.Count) return false;
+        return cfg.MacroHotbars[index].Locked;
+    }
+
+    public System.Threading.Tasks.Task SetMacroHotbarLockedAtAsync(int index, bool locked)
+    {
+        EnsureMacroHotbars();
+        var cfg = _pluginConfigService.Current;
+        if (index < 0 || index >= cfg.MacroHotbars.Count) return System.Threading.Tasks.Task.CompletedTask;
+        cfg.MacroHotbars[index].Locked = locked;
+        _pluginConfigService.Save();
+        return System.Threading.Tasks.Task.CompletedTask;
+    }
+
+    public int GetMacroHotbarColumns()
+    {
+        EnsureMacroHotbars();
+        var cfg = _pluginConfigService.Current;
+        return cfg.MacroHotbars[cfg.CurrentMacroHotbarIndex].Columns;
+    }
+
+    public System.Threading.Tasks.Task SetMacroHotbarColumnsAsync(int columns)
+    {
+        EnsureMacroHotbars();
+        var cfg = _pluginConfigService.Current;
+        cfg.MacroHotbars[cfg.CurrentMacroHotbarIndex].Columns = System.Math.Clamp(columns, 1, 12);
+        _pluginConfigService.Save();
+        return System.Threading.Tasks.Task.CompletedTask;
+    }
+
+    public int GetMacroHotbarColumnsAt(int index)
+    {
+        EnsureMacroHotbars();
+        var cfg = _pluginConfigService.Current;
+        if (index < 0 || index >= cfg.MacroHotbars.Count) return 1;
+        return cfg.MacroHotbars[index].Columns;
+    }
+
+    public System.Threading.Tasks.Task SetMacroHotbarColumnsAtAsync(int index, int columns)
+    {
+        EnsureMacroHotbars();
+        var cfg = _pluginConfigService.Current;
+        if (index < 0 || index >= cfg.MacroHotbars.Count) return System.Threading.Tasks.Task.CompletedTask;
+        cfg.MacroHotbars[index].Columns = System.Math.Clamp(columns, 1, 12);
+        _pluginConfigService.Save();
+        return System.Threading.Tasks.Task.CompletedTask;
+    }
+
+    public int GetMacroHotbarRows()
+    {
+        EnsureMacroHotbars();
+        var cfg = _pluginConfigService.Current;
+        return cfg.MacroHotbars[cfg.CurrentMacroHotbarIndex].Rows;
+    }
+
+    public System.Threading.Tasks.Task SetMacroHotbarRowsAsync(int rows)
+    {
+        EnsureMacroHotbars();
+        var cfg = _pluginConfigService.Current;
+        cfg.MacroHotbars[cfg.CurrentMacroHotbarIndex].Rows = System.Math.Clamp(rows, 1, 12);
+        _pluginConfigService.Save();
+        return System.Threading.Tasks.Task.CompletedTask;
+    }
+
+    public int GetMacroHotbarRowsAt(int index)
+    {
+        EnsureMacroHotbars();
+        var cfg = _pluginConfigService.Current;
+        if (index < 0 || index >= cfg.MacroHotbars.Count) return 1;
+        return cfg.MacroHotbars[index].Rows;
+    }
+
+    public System.Threading.Tasks.Task SetMacroHotbarRowsAtAsync(int index, int rows)
+    {
+        EnsureMacroHotbars();
+        var cfg = _pluginConfigService.Current;
+        if (index < 0 || index >= cfg.MacroHotbars.Count) return System.Threading.Tasks.Task.CompletedTask;
+        cfg.MacroHotbars[index].Rows = System.Math.Clamp(rows, 1, 12);
+        _pluginConfigService.Save();
+        return System.Threading.Tasks.Task.CompletedTask;
+    }
+
+    public float GetMacroHotbarButtonSide()
+    {
+        EnsureMacroHotbars();
+        var cfg = _pluginConfigService.Current;
+        return cfg.MacroHotbars[cfg.CurrentMacroHotbarIndex].ButtonSide;
+    }
+
+    public System.Threading.Tasks.Task SetMacroHotbarButtonSideAsync(float side)
+    {
+        EnsureMacroHotbars();
+        var cfg = _pluginConfigService.Current;
+        var clamped = side;
+        if (clamped < 16f) clamped = 16f;
+        if (clamped > 128f) clamped = 128f;
+        cfg.MacroHotbars[cfg.CurrentMacroHotbarIndex].ButtonSide = clamped;
+        _pluginConfigService.Save();
+        return System.Threading.Tasks.Task.CompletedTask;
+    }
+
+    public float GetMacroHotbarButtonSideAt(int index)
+    {
+        EnsureMacroHotbars();
+        var cfg = _pluginConfigService.Current;
+        if (index < 0 || index >= cfg.MacroHotbars.Count) return 70f;
+        return cfg.MacroHotbars[index].ButtonSide;
+    }
+
+    public System.Threading.Tasks.Task SetMacroHotbarButtonSideAtAsync(int index, float side)
+    {
+        EnsureMacroHotbars();
+        var cfg = _pluginConfigService.Current;
+        if (index < 0 || index >= cfg.MacroHotbars.Count) return System.Threading.Tasks.Task.CompletedTask;
+        var clamped = side;
+        if (clamped < 16f) clamped = 16f;
+        if (clamped > 128f) clamped = 128f;
+        cfg.MacroHotbars[index].ButtonSide = clamped;
+        _pluginConfigService.Save();
+        return System.Threading.Tasks.Task.CompletedTask;
+    }
+
+    public bool IsMacroHotbarNoBackground
+    {
+        get
+        {
+            EnsureMacroHotbars();
+            var cfg = _pluginConfigService.Current;
+            return cfg.MacroHotbars[cfg.CurrentMacroHotbarIndex].NoBackground;
+        }
+    }
+
+    public System.Threading.Tasks.Task SetMacroHotbarNoBackgroundAsync(bool noBackground)
+    {
+        EnsureMacroHotbars();
+        var cfg = _pluginConfigService.Current;
+        cfg.MacroHotbars[cfg.CurrentMacroHotbarIndex].NoBackground = noBackground;
+        _pluginConfigService.Save();
+        return System.Threading.Tasks.Task.CompletedTask;
+    }
+
+    public bool IsMacroHotbarNoBackgroundAt(int index)
+    {
+        EnsureMacroHotbars();
+        var cfg = _pluginConfigService.Current;
+        if (index < 0 || index >= cfg.MacroHotbars.Count) return false;
+        return cfg.MacroHotbars[index].NoBackground;
+    }
+
+    public System.Threading.Tasks.Task SetMacroHotbarNoBackgroundAtAsync(int index, bool noBackground)
+    {
+        EnsureMacroHotbars();
+        var cfg = _pluginConfigService.Current;
+        if (index < 0 || index >= cfg.MacroHotbars.Count) return System.Threading.Tasks.Task.CompletedTask;
+        cfg.MacroHotbars[index].NoBackground = noBackground;
+        _pluginConfigService.Save();
+        return System.Threading.Tasks.Task.CompletedTask;
+    }
+
+    
+
+    public int[] GetOpenMacroHotbarIndices()
+    {
+        EnsureMacroHotbars();
+        var cfg = _pluginConfigService.Current;
+        var count = cfg.MacroHotbars.Count;
+        var list = cfg.OpenMacroHotbarIndices ?? new System.Collections.Generic.List<int>();
+        var filtered = new System.Collections.Generic.List<int>();
+        for (int i = 0; i < list.Count; i++) if (list[i] >= 0 && list[i] < count) filtered.Add(list[i]);
+        cfg.OpenMacroHotbarIndices = filtered;
+        _pluginConfigService.Save();
+        return filtered.ToArray();
+    }
+
+    public int[] GetOpenMacroHotbarIndicesUnsafe()
+    {
+        var cfg = _pluginConfigService.Current;
+        var count = cfg.MacroHotbars?.Count ?? 0;
+        var list = cfg.OpenMacroHotbarIndices ?? new System.Collections.Generic.List<int>();
+        var filtered = new System.Collections.Generic.List<int>();
+        for (int i = 0; i < list.Count; i++) if (list[i] >= 0 && list[i] < count) filtered.Add(list[i]);
+        return filtered.ToArray();
+    }
+
+    public System.Threading.Tasks.Task SetMacroHotbarOpenStateAsync(int index, bool open)
+    {
+        EnsureMacroHotbars();
+        var cfg = _pluginConfigService.Current;
+        var list = cfg.OpenMacroHotbarIndices ?? new System.Collections.Generic.List<int>();
+        list.RemoveAll(i => i == index);
+        if (open) list.Add(index);
+        cfg.OpenMacroHotbarIndices = list;
+        _pluginConfigService.Save();
+        return System.Threading.Tasks.Task.CompletedTask;
+    }
 
     public System.Threading.Tasks.Task SetShowVipNameplateHookAsync(bool enable)
     {
@@ -1654,5 +2775,44 @@ public sealed class VenuePlusApp : IDisposable, IEventListener
             if (!string.Equals(cur, next, System.StringComparison.Ordinal)) SetClubId(next);
         }
         else { }
+    }
+
+    public System.Threading.Tasks.Task RemoveMacroHotbarSlotAtAsync(int index)
+    {
+        EnsureMacroHotbars();
+        var cfg = _pluginConfigService.Current;
+        var bar = cfg.MacroHotbars[cfg.CurrentMacroHotbarIndex];
+        var list = bar.Slots ?? new System.Collections.Generic.List<VenuePlus.Configuration.MacroHotbarSlot>();
+        try { _log?.Debug($"RemoveSlot: bar={cfg.CurrentMacroHotbarIndex} slot={index} count={list.Count}"); } catch { }
+        if (index >= 0 && index < list.Count && list.Count > 1)
+        {
+            list.RemoveAt(index);
+            bar.Slots = list;
+            _pluginConfigService.Save();
+            try { _log?.Debug($"RemoveSlot: bar={cfg.CurrentMacroHotbarIndex} done newCount={list.Count}"); } catch { }
+        }
+        return System.Threading.Tasks.Task.CompletedTask;
+    }
+
+    public void LogDebug(string text)
+    {
+        try { _log?.Debug(text); } catch { }
+    }
+
+    
+    public System.Threading.Tasks.Task RemoveAllMacroHotbarsAsync()
+    {
+        EnsureMacroHotbars();
+        var cfg = _pluginConfigService.Current;
+        var open = cfg.OpenMacroHotbarIndices ?? new System.Collections.Generic.List<int>();
+        foreach (var idx in open)
+        {
+            try { CloseMacroHotbarIndexRequested?.Invoke(idx); } catch { }
+        }
+        cfg.MacroHotbars = new System.Collections.Generic.List<VenuePlus.Configuration.MacroHotbar>();
+        cfg.OpenMacroHotbarIndices = new System.Collections.Generic.List<int>();
+        cfg.CurrentMacroHotbarIndex = 0;
+        _pluginConfigService.Save();
+        return System.Threading.Tasks.Task.CompletedTask;
     }
 }

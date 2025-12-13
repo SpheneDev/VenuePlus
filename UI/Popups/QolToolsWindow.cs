@@ -34,7 +34,9 @@ public sealed class QolToolsWindow : Window
         ImGui.TextUnformatted("Tools");
         ImGui.Separator();
 
-        DrawToolItem(FontAwesomeIcon.CommentDots, "Whisper Helper", "Send whispers to current target using presets.", () => _app.OpenWhisperWindow());
+        DrawToolItem(FontAwesomeIcon.CommentDots, "Macro Helper", "Compose and send macro-like chat sequences.", () => _app.OpenWhisperWindow());
+        ImGui.Spacing();
+        DrawToolItem(FontAwesomeIcon.List, "Macro Hotbar", "Manage available hotbars and startup visibility.", () => _app.OpenMacroHotbarManagerWindow());
         ImGui.Spacing();
         DrawToolItem(FontAwesomeIcon.Users, "VIP List", "External VIP list window with sorting and search.", () => _app.OpenVipListWindow());
     }

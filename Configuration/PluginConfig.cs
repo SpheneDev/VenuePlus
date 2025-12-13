@@ -21,6 +21,11 @@ public sealed class PluginConfig
     public bool KeepWhisperMessage { get; set; } = false;
     public System.Collections.Generic.List<WhisperPreset> WhisperPresets { get; set; } = new();
     public NotificationPreferences Notifications { get; set; } = new NotificationPreferences();
+    public System.Collections.Generic.List<MacroHotbar> MacroHotbars { get; set; } = new System.Collections.Generic.List<MacroHotbar>();
+    public int CurrentMacroHotbarIndex { get; set; } = 0;
+    public System.Collections.Generic.List<MacroHotbarSlot> MacroHotbarSlots { get; set; } = new System.Collections.Generic.List<MacroHotbarSlot>();
+    public bool MacroHotbarLocked { get; set; } = false;
+    public System.Collections.Generic.List<int> OpenMacroHotbarIndices { get; set; } = new System.Collections.Generic.List<int>();
 }
 
 public sealed class WhisperPreset
