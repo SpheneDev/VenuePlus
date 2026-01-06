@@ -13,7 +13,6 @@ public sealed class MacroHotbarWindow : Window
     private readonly WhisperWindow _macroHelper;
     private readonly VenuePlus.Services.MacroScheduler _scheduler;
     private readonly ITextureProvider _textureProvider;
-    private int _renameIndex = -1;
     private string _renameText = string.Empty;
     private int _iconPickerSlot = -1;
     private string _iconFilter = string.Empty;
@@ -406,132 +405,6 @@ public sealed class MacroHotbarWindow : Window
                     }
                     if (ImGui.BeginTabItem("Icon"))
                     {
-                        if (ImGui.BeginTable($"##icon_table_{i}", 2, ImGuiTableFlags.SizingStretchProp))
-                        {
-                            ImGui.TableSetupColumn("Type", ImGuiTableColumnFlags.WidthFixed, 180f);
-                            ImGui.TableSetupColumn("Browser", ImGuiTableColumnFlags.WidthStretch);
-                            ImGui.TableNextRow();
-                            ImGui.TableSetColumnIndex(0);
-                            var useGameSel = useGame;
-                            if (ImGui.RadioButton($"Game##icon_{i}", useGameSel)) { useGameSel = true; if (_barIndex >= 0) _ = _app.SetMacroHotbarSlotAsyncAtBar(_barIndex, i, null, null, null, true, (i < slots.Length) ? slots[i].GameIconId : 0); else _ = _app.SetMacroHotbarSlotAsync(i, null, null, null, true, (i < slots.Length) ? slots[i].GameIconId : 0); }
-                            ImGui.SameLine();
-                            if (ImGui.RadioButton($"FontAwesome##icon_{i}", !useGameSel)) { useGameSel = false; if (_barIndex >= 0) _ = _app.SetMacroHotbarSlotAsyncAtBar(_barIndex, i, null, null, (i < slots.Length) ? slots[i].IconKey : string.Empty, false, null); else _ = _app.SetMacroHotbarSlotAsync(i, null, null, (i < slots.Length) ? slots[i].IconKey : string.Empty, false, null); }
-                            if (useGameSel)
-                            {
-                                var gid = (i < slots.Length) ? slots[i].GameIconId : 0;
-                                ImGui.InputInt($"Icon ID##game_{i}", ref gid);
-                                var wrapPrev = TryGetGameIconWrap(gid);
-                                if (wrapPrev != null) ImGui.Image(wrapPrev.Handle, new Vector2(64f, 64f));
-                                if (ImGui.Button($"Set##game_{i}")) { if (_barIndex >= 0) _ = _app.SetMacroHotbarSlotAsyncAtBar(_barIndex, i, null, null, null, true, gid); else _ = _app.SetMacroHotbarSlotAsync(i, null, null, null, true, gid); }
-                                ImGui.SameLine();
-                                if (ImGui.Button($"Browse##game_{i}"))
-                                {
-                                    _iconPickerSlot = i;
-                                    _iconFilter = string.Empty;
-                                    _gameTabIndex = 0; _gamePage = 0;
-                                    ImGui.OpenPopup($"macro_game_icon_browser_{i}");
-                                }
-                            }
-                            else
-                            {
-                                ImGui.InputText($"##icon_{i}", ref iconStr, 64);
-                                if (ImGui.IsItemDeactivatedAfterEdit()) { if (_barIndex >= 0) _ = _app.SetMacroHotbarSlotAsyncAtBar(_barIndex, i, null, null, iconStr, false, null); else _ = _app.SetMacroHotbarSlotAsync(i, null, null, iconStr, false, null); }
-                                ImGui.SameLine();
-                                if (ImGui.Button($"Browse##icon_{i}"))
-                                {
-                                    _iconPickerSlot = i;
-                                    _iconFilter = string.Empty;
-                                    ImGui.OpenPopup($"macro_icon_browser_{i}");
-                                }
-                            }
-                            ImGui.TableSetColumnIndex(1);
-                            if (useGameSel)
-                            {
-                                var popGame = $"macro_game_icon_browser_{i}";
-                                if (ImGui.BeginPopup(popGame))
-                                {
-                                    ImGui.InputTextWithHint("##icon_filter_game", "Search by id", ref _iconFilter, 32);
-                                    ImGui.Separator();
-                                    if (ImGui.BeginTabBar($"##game_tabs_{i}"))
-                                    {
-                                        for (int t = 0; t < _gameTabs.Length; t++)
-                                        {
-                                            if (ImGui.BeginTabItem(_gameTabs[t].name))
-                                            {
-                                                _gameTabIndex = t;
-                                                var start = _gameTabs[t].start;
-                                                var end = _gameTabs[t].end;
-                                                var pageSize = 120;
-                                                var total = end - start;
-                                                var maxPage = System.Math.Max(0, (total + pageSize - 1) / pageSize - 1);
-                                                if (_gamePage > maxPage) _gamePage = maxPage;
-                                                var pStart = start + _gamePage * pageSize;
-                                                var pEnd = System.Math.Min(end, pStart + pageSize);
-                                                var colsB = 10;
-                                                var cellB = System.MathF.Max(36f, ImGui.GetFrameHeight() * 1.6f);
-                                                int shownB = 0;
-                                                for (int id = pStart; id < pEnd; id++)
-                                                {
-                                                    if (!string.IsNullOrWhiteSpace(_iconFilter) && id.ToString().IndexOf(_iconFilter, System.StringComparison.OrdinalIgnoreCase) < 0) continue;
-                                                    var wrapB = TryGetGameIconWrap(id);
-                                                    if (wrapB == null) continue;
-                                                    var clickedPick = ImGui.ImageButton(wrapB.Handle, new Vector2(cellB, cellB));
-                                                    if (ImGui.IsItemHovered()) { ImGui.BeginTooltip(); ImGui.TextUnformatted(id.ToString()); ImGui.EndTooltip(); }
-                                                    if (clickedPick) { if (_barIndex >= 0) _ = _app.SetMacroHotbarSlotAsyncAtBar(_barIndex, i, null, null, null, true, id); else _ = _app.SetMacroHotbarSlotAsync(i, null, null, null, true, id); ImGui.CloseCurrentPopup(); }
-                                                    shownB++;
-                                                    if ((shownB % colsB) != 0) ImGui.SameLine();
-                                                }
-                                                ImGui.Separator();
-                                                ImGui.BeginDisabled(_gamePage <= 0);
-                                                if (ImGui.Button("Prev")) { _gamePage = System.Math.Max(0, _gamePage - 1); }
-                                                ImGui.EndDisabled();
-                                                ImGui.SameLine();
-                                                ImGui.TextUnformatted($"Page {_gamePage + 1} / {maxPage + 1}");
-                                                ImGui.SameLine();
-                                                ImGui.BeginDisabled(_gamePage >= maxPage);
-                                                if (ImGui.Button("Next")) { _gamePage = System.Math.Min(maxPage, _gamePage + 1); }
-                                                ImGui.EndDisabled();
-                                                ImGui.EndTabItem();
-                                            }
-                                        }
-                                        ImGui.EndTabBar();
-                                    }
-                                    ImGui.EndPopup();
-                                }
-                            }
-                            else
-                            {
-                                var popupName = $"macro_icon_browser_{i}";
-                                if (ImGui.BeginPopup(popupName))
-                                {
-                                    ImGui.InputTextWithHint("##icon_filter", "Search icons", ref _iconFilter, 64);
-                                    ImGui.Separator();
-                                    var cols = 10;
-                                    var cell = System.MathF.Max(36f, ImGui.GetFrameHeight() * 1.6f);
-                                    int shown = 0;
-                                    for (int k = 0; k < _iconKeysCache.Length; k++)
-                                    {
-                                        var key = _iconKeysCache[k];
-                                        if (!string.IsNullOrWhiteSpace(_iconFilter) && key.IndexOf(_iconFilter, System.StringComparison.OrdinalIgnoreCase) < 0) continue;
-                                        var iconStrPick = VenuePlus.Helpers.IconDraw.ToIconStringFromKey(key);
-                                        ImGui.PushFont(UiBuilder.IconFont);
-                                        var clickedPick = ImGui.Button(iconStrPick + $"##pick_{i}_{k}", new Vector2(cell, cell));
-                                        ImGui.PopFont();
-                                        if (ImGui.IsItemHovered()) { ImGui.BeginTooltip(); ImGui.TextUnformatted(key); ImGui.EndTooltip(); }
-                                        if (clickedPick)
-                                        {
-                                            if (_barIndex >= 0) _ = _app.SetMacroHotbarSlotAsyncAtBar(_barIndex, i, null, null, key, false, null);
-                                            else _ = _app.SetMacroHotbarSlotAsync(i, null, null, key, false, null);
-                                            ImGui.CloseCurrentPopup();
-                                        }
-                                        shown++;
-                                        if ((shown % cols) != 0) ImGui.SameLine();
-                                    }
-                                    ImGui.EndPopup();
-                                }
-                            }
-                            ImGui.EndTable();
-                        }
                         var defScale = (_barIndex >= 0) ? _app.GetMacroHotbarIconScaleDefaultAt(curBar) : _app.GetMacroHotbarIconScaleDefault();
                         var defShowFrame = (_barIndex >= 0) ? _app.GetMacroHotbarShowFrameDefaultAt(curBar) : _app.GetMacroHotbarShowFrameDefault();
                         var noBgSlotSel = noBgSlot;
@@ -542,304 +415,558 @@ public sealed class MacroHotbarWindow : Window
                         var offYUi = (i < slots.Length) ? slots[i].IconOffsetY : 0f;
                         var showFrameSel = (slotRef != null) && slotRef.ShowFrame;
                         var tipSlot = (i < slots.Length) ? (slots[i].ToolTipText ?? string.Empty) : string.Empty;
+                        var useGameSel = useGame;
 
-                        if (ImGui.BeginTable($"##icon_settings_{i}", 3, ImGuiTableFlags.SizingStretchProp))
+                        if (ImGui.BeginTabBar($"##icon_tabs_{i}"))
                         {
-                            ImGui.TableSetupColumn("Label", ImGuiTableColumnFlags.WidthFixed, 160f);
-                            ImGui.TableSetupColumn("Control", ImGuiTableColumnFlags.WidthStretch);
-                            ImGui.TableSetupColumn("Actions", ImGuiTableColumnFlags.WidthFixed, 120f);
+                            if (ImGui.BeginTabItem("Source"))
+                            {
+                                ImGui.TextUnformatted("Icon Source");
+                                ImGui.Separator();
+                                if (ImGui.RadioButton($"Game##icon_src_game_{i}", useGameSel))
+                                {
+                                    useGameSel = true;
+                                    if (_barIndex >= 0) _ = _app.SetMacroHotbarSlotAsyncAtBar(_barIndex, i, null, null, null, true, (i < slots.Length) ? slots[i].GameIconId : 0);
+                                    else _ = _app.SetMacroHotbarSlotAsync(i, null, null, null, true, (i < slots.Length) ? slots[i].GameIconId : 0);
+                                }
+                                ImGui.SameLine();
+                                if (ImGui.RadioButton($"FontAwesome##icon_src_font_{i}", !useGameSel))
+                                {
+                                    useGameSel = false;
+                                    if (_barIndex >= 0) _ = _app.SetMacroHotbarSlotAsyncAtBar(_barIndex, i, null, null, (i < slots.Length) ? slots[i].IconKey : string.Empty, false, null);
+                                    else _ = _app.SetMacroHotbarSlotAsync(i, null, null, (i < slots.Length) ? slots[i].IconKey : string.Empty, false, null);
+                                }
 
-                            ImGui.TableNextRow();
-                            ImGui.TableSetColumnIndex(0);
-                            ImGui.TextUnformatted("Hide Button Background");
-                            ImGui.TableSetColumnIndex(1);
-                            if (ImGui.Checkbox($"##slot_nobg_{i}", ref noBgSlotSel))
-                            {
-                                if (_barIndex >= 0) _ = _app.SetMacroHotbarSlotNoBackgroundAtAsync(_barIndex, i, noBgSlotSel);
-                                else _ = _app.SetMacroHotbarSlotNoBackgroundAsync(i, noBgSlotSel);
-                            }
-                            ImGui.TableSetColumnIndex(2);
-                            if (ImGui.Button($"Reset##slot_nobg_reset_{i}"))
-                            {
-                                if (_barIndex >= 0) _ = _app.SetMacroHotbarSlotNoBackgroundAtAsync(_barIndex, i, false);
-                                else _ = _app.SetMacroHotbarSlotNoBackgroundAsync(i, false);
+                                if (useGameSel)
+                                {
+                                    var gid = (i < slots.Length) ? slots[i].GameIconId : 0;
+                                    ImGui.SetNextItemWidth(100f);
+                                    ImGui.InputInt($"ID##icon_gid_{i}", ref gid);
+                                    ImGui.SameLine();
+                                    if (ImGui.Button($"Apply##icon_gid_apply_{i}"))
+                                    {
+                                        if (_barIndex >= 0) _ = _app.SetMacroHotbarSlotAsyncAtBar(_barIndex, i, null, null, null, true, gid);
+                                        else _ = _app.SetMacroHotbarSlotAsync(i, null, null, null, true, gid);
+                                    }
+                                    var wrapPrev = TryGetGameIconWrap(gid);
+                                    if (wrapPrev != null)
+                                    {
+                                        ImGui.Image(wrapPrev.Handle, new Vector2(48f, 48f));
+                                    }
+                                    if (ImGui.Button($"Browse##icon_game_{i}"))
+                                    {
+                                        _iconPickerSlot = i;
+                                        _iconFilter = string.Empty;
+                                        _gameTabIndex = 0;
+                                        _gamePage = 0;
+                                        ImGui.OpenPopup($"macro_game_icon_browser_{i}");
+                                    }
+
+                                    var popGame = $"macro_game_icon_browser_{i}";
+                                    if (ImGui.BeginPopup(popGame))
+                                    {
+                                        ImGui.InputTextWithHint("##icon_filter_game", "Search by id", ref _iconFilter, 32);
+                                        ImGui.Separator();
+                                        if (ImGui.BeginTabBar($"##game_tabs_{i}"))
+                                        {
+                                            for (int t = 0; t < _gameTabs.Length; t++)
+                                            {
+                                                if (ImGui.BeginTabItem(_gameTabs[t].name))
+                                                {
+                                                    _gameTabIndex = t;
+                                                    var start = _gameTabs[t].start;
+                                                    var end = _gameTabs[t].end;
+                                                    var pageSize = 120;
+                                                    var total = end - start;
+                                                    var maxPage = System.Math.Max(0, (total + pageSize - 1) / pageSize - 1);
+                                                    if (_gamePage > maxPage) _gamePage = maxPage;
+                                                    var pStart = start + _gamePage * pageSize;
+                                                    var pEnd = System.Math.Min(end, pStart + pageSize);
+                                                    var colsB = 10;
+                                                    var cellB = System.MathF.Max(36f, ImGui.GetFrameHeight() * 1.6f);
+                                                    int shownB = 0;
+                                                    for (int id = pStart; id < pEnd; id++)
+                                                    {
+                                                        if (!string.IsNullOrWhiteSpace(_iconFilter) && id.ToString().IndexOf(_iconFilter, System.StringComparison.OrdinalIgnoreCase) < 0) continue;
+                                                        var wrapB = TryGetGameIconWrap(id);
+                                                        if (wrapB == null) continue;
+                                                        var clickedPick = ImGui.ImageButton(wrapB.Handle, new Vector2(cellB, cellB));
+                                                        if (ImGui.IsItemHovered())
+                                                        {
+                                                            ImGui.BeginTooltip();
+                                                            ImGui.TextUnformatted(id.ToString());
+                                                            ImGui.EndTooltip();
+                                                        }
+                                                        if (clickedPick)
+                                                        {
+                                                            if (_barIndex >= 0) _ = _app.SetMacroHotbarSlotAsyncAtBar(_barIndex, i, null, null, null, true, id);
+                                                            else _ = _app.SetMacroHotbarSlotAsync(i, null, null, null, true, id);
+                                                            ImGui.CloseCurrentPopup();
+                                                        }
+                                                        shownB++;
+                                                        if ((shownB % colsB) != 0) ImGui.SameLine();
+                                                    }
+                                                    ImGui.Separator();
+                                                    ImGui.BeginDisabled(_gamePage <= 0);
+                                                    if (ImGui.Button("Prev")) _gamePage = System.Math.Max(0, _gamePage - 1);
+                                                    ImGui.EndDisabled();
+                                                    ImGui.SameLine();
+                                                    ImGui.TextUnformatted($"Page {_gamePage + 1} / {maxPage + 1}");
+                                                    ImGui.SameLine();
+                                                    ImGui.BeginDisabled(_gamePage >= maxPage);
+                                                    if (ImGui.Button("Next")) _gamePage = System.Math.Min(maxPage, _gamePage + 1);
+                                                    ImGui.EndDisabled();
+                                                    ImGui.EndTabItem();
+                                                }
+                                            }
+                                            ImGui.EndTabBar();
+                                        }
+                                        ImGui.EndPopup();
+                                    }
+                                }
+                                else
+                                {
+                                    ImGui.SetNextItemWidth(-60f);
+                                    ImGui.InputText($"##icon_font_{i}", ref iconStr, 64);
+                                    if (ImGui.IsItemDeactivatedAfterEdit())
+                                    {
+                                        if (_barIndex >= 0) _ = _app.SetMacroHotbarSlotAsyncAtBar(_barIndex, i, null, null, iconStr, false, null);
+                                        else _ = _app.SetMacroHotbarSlotAsync(i, null, null, iconStr, false, null);
+                                    }
+                                    ImGui.SameLine();
+                                    if (ImGui.Button($"Browse##icon_font_{i}"))
+                                    {
+                                        _iconPickerSlot = i;
+                                        _iconFilter = string.Empty;
+                                        ImGui.OpenPopup($"macro_icon_browser_{i}");
+                                    }
+
+                                    ImGui.PushFont(UiBuilder.IconFont);
+                                    ImGui.TextUnformatted(string.IsNullOrEmpty(iconStr) ? "-" : iconStr);
+                                    ImGui.PopFont();
+
+                                    var popupName = $"macro_icon_browser_{i}";
+                                    if (ImGui.BeginPopup(popupName))
+                                    {
+                                        ImGui.InputTextWithHint("##icon_filter", "Search icons", ref _iconFilter, 64);
+                                        ImGui.Separator();
+                                        var cols = 10;
+                                        var cell = System.MathF.Max(36f, ImGui.GetFrameHeight() * 1.6f);
+                                        int shown = 0;
+                                        for (int k = 0; k < _iconKeysCache.Length; k++)
+                                        {
+                                            var key = _iconKeysCache[k];
+                                            if (!string.IsNullOrWhiteSpace(_iconFilter) && key.IndexOf(_iconFilter, System.StringComparison.OrdinalIgnoreCase) < 0) continue;
+                                            var iconStrPick = VenuePlus.Helpers.IconDraw.ToIconStringFromKey(key);
+                                            ImGui.PushFont(UiBuilder.IconFont);
+                                            var clickedPick = ImGui.Button(iconStrPick + $"##pick_{i}_{k}", new Vector2(cell, cell));
+                                            ImGui.PopFont();
+                                            if (ImGui.IsItemHovered())
+                                            {
+                                                ImGui.BeginTooltip();
+                                                ImGui.TextUnformatted(key);
+                                                ImGui.EndTooltip();
+                                            }
+                                            if (clickedPick)
+                                            {
+                                                if (_barIndex >= 0) _ = _app.SetMacroHotbarSlotAsyncAtBar(_barIndex, i, null, null, key, false, null);
+                                                else _ = _app.SetMacroHotbarSlotAsync(i, null, null, key, false, null);
+                                                ImGui.CloseCurrentPopup();
+                                            }
+                                            shown++;
+                                            if ((shown % cols) != 0) ImGui.SameLine();
+                                        }
+                                        ImGui.EndPopup();
+                                    }
+                                }
+
+                                ImGui.EndTabItem();
                             }
 
-                            ImGui.TableNextRow();
-                            ImGui.TableSetColumnIndex(0);
-                            ImGui.TextUnformatted("Icon Scale");
-                            ImGui.TableSetColumnIndex(1);
-                            ImGui.SetNextItemWidth(-1);
-                            if (ImGui.SliderFloat($"##slot_iconscale_{i}", ref iconScale, 0.3f, 2.0f))
+                            if (ImGui.BeginTabItem("Icon Options"))
                             {
-                                if (_barIndex >= 0) _ = _app.SetMacroHotbarSlotIconScaleAtAsync(_barIndex, i, iconScale);
-                                else _ = _app.SetMacroHotbarSlotIconScaleAsync(i, iconScale);
-                            }
-                            ImGui.TableSetColumnIndex(2);
-                            if (ImGui.Button($"Reset##slot_iconscale_reset_{i}"))
-                            {
-                                if (_barIndex >= 0) _ = _app.SetMacroHotbarSlotIconScaleAtAsync(_barIndex, i, defScale);
-                                else _ = _app.SetMacroHotbarSlotIconScaleAsync(i, defScale);
+                                if (ImGui.BeginTable($"##icon_settings_{i}", 3, ImGuiTableFlags.SizingFixedFit))
+                                {
+                                    ImGui.TableSetupColumn("Control", ImGuiTableColumnFlags.WidthFixed, 260f);
+                                    ImGui.TableSetupColumn("Label", ImGuiTableColumnFlags.WidthFixed, 160f);
+                                    ImGui.TableSetupColumn("Actions", ImGuiTableColumnFlags.WidthFixed, 140f);
+
+                                    ImGui.TableNextRow();
+                                    ImGui.TableSetColumnIndex(0);
+                                    ImGui.SetNextItemWidth(200f);
+                                    if (ImGui.Checkbox($"##slot_nobg_{i}", ref noBgSlotSel))
+                                    {
+                                        if (_barIndex >= 0) _ = _app.SetMacroHotbarSlotNoBackgroundAtAsync(_barIndex, i, noBgSlotSel);
+                                        else _ = _app.SetMacroHotbarSlotNoBackgroundAsync(i, noBgSlotSel);
+                                    }
+                                    ImGui.TableSetColumnIndex(1);
+                                    ImGui.TextUnformatted("Hide Button Background");
+                                    ImGui.TableSetColumnIndex(2);
+                                    if (ImGui.Button($"Reset##slot_nobg_reset_{i}"))
+                                    {
+                                        if (_barIndex >= 0) _ = _app.SetMacroHotbarSlotNoBackgroundAtAsync(_barIndex, i, false);
+                                        else _ = _app.SetMacroHotbarSlotNoBackgroundAsync(i, false);
+                                    }
+
+                                    ImGui.TableNextRow();
+                                    ImGui.TableSetColumnIndex(0);
+                                    ImGui.SetNextItemWidth(220f);
+                                    if (ImGui.SliderFloat($"##slot_iconscale_{i}", ref iconScale, 0.3f, 2.0f))
+                                    {
+                                        if (_barIndex >= 0) _ = _app.SetMacroHotbarSlotIconScaleAtAsync(_barIndex, i, iconScale);
+                                        else _ = _app.SetMacroHotbarSlotIconScaleAsync(i, iconScale);
+                                    }
+                                    ImGui.TableSetColumnIndex(1);
+                                    ImGui.TextUnformatted("Icon Scale");
+                                    ImGui.TableSetColumnIndex(2);
+                                    if (ImGui.Button($"Reset##slot_iconscale_reset_{i}"))
+                                    {
+                                        if (_barIndex >= 0) _ = _app.SetMacroHotbarSlotIconScaleAtAsync(_barIndex, i, defScale);
+                                        else _ = _app.SetMacroHotbarSlotIconScaleAsync(i, defScale);
+                                    }
+                                    ImGui.SameLine();
+                                    if (ImGui.Button($"Set Global##slot_iconscale_global_{i}"))
+                                    {
+                                        if (_barIndex >= 0) _ = _app.SetMacroHotbarIconScaleDefaultAtAsync(curBar, iconScale);
+                                        else _ = _app.SetMacroHotbarIconScaleDefaultAsync(iconScale);
+                                    }
+
+                                    ImGui.TableNextRow();
+                                    ImGui.TableSetColumnIndex(0);
+                                    ImGui.SetNextItemWidth(100f);
+                                    if (ImGui.SliderFloat($"##slot_iconoffx_{i}", ref offXUi, -maxOffX, maxOffX))
+                                    {
+                                        if (_barIndex >= 0) _ = _app.SetMacroHotbarSlotIconOffsetAtAsync(_barIndex, i, offXUi, offYUi);
+                                        else _ = _app.SetMacroHotbarSlotIconOffsetAsync(i, offXUi, offYUi);
+                                    }
+                                    ImGui.SameLine();
+                                    ImGui.TextUnformatted("X");
+                                    ImGui.SetNextItemWidth(100f);
+                                    if (ImGui.SliderFloat($"##slot_iconoffy_{i}", ref offYUi, -maxOffY, maxOffY))
+                                    {
+                                        if (_barIndex >= 0) _ = _app.SetMacroHotbarSlotIconOffsetAtAsync(_barIndex, i, offXUi, offYUi);
+                                        else _ = _app.SetMacroHotbarSlotIconOffsetAsync(i, offXUi, offYUi);
+                                    }
+                                    ImGui.SameLine();
+                                    ImGui.TextUnformatted("Y");
+                                    ImGui.TableSetColumnIndex(1);
+                                    ImGui.TextUnformatted("Icon Offset");
+                                    ImGui.TableSetColumnIndex(2);
+                                    if (ImGui.Button($"Reset##slot_iconoffset_reset_{i}"))
+                                    {
+                                        if (_barIndex >= 0) _ = _app.SetMacroHotbarSlotIconOffsetAtAsync(_barIndex, i, 0f, 0f);
+                                        else _ = _app.SetMacroHotbarSlotIconOffsetAsync(i, 0f, 0f);
+                                    }
+
+                                    ImGui.TableNextRow();
+                                    ImGui.TableSetColumnIndex(0);
+                                    ImGui.SetNextItemWidth(200f);
+                                    if (ImGui.Checkbox($"##slot_showframe_{i}", ref showFrameSel))
+                                    {
+                                        if (_barIndex >= 0) _ = _app.SetMacroHotbarSlotShowFrameAtAsync(_barIndex, i, showFrameSel);
+                                        else _ = _app.SetMacroHotbarSlotShowFrameAsync(i, showFrameSel);
+                                    }
+                                    ImGui.TableSetColumnIndex(1);
+                                    ImGui.TextUnformatted("Show Hover Frame");
+                                    ImGui.TableSetColumnIndex(2);
+                                    if (ImGui.Button($"Reset##slot_showframe_reset_{i}"))
+                                    {
+                                        if (_barIndex >= 0) _ = _app.SetMacroHotbarSlotShowFrameAtAsync(_barIndex, i, defShowFrame);
+                                        else _ = _app.SetMacroHotbarSlotShowFrameAsync(i, defShowFrame);
+                                    }
+                                    ImGui.SameLine();
+                                    if (ImGui.Button($"Set Global##slot_showframe_global_{i}"))
+                                    {
+                                        if (_barIndex >= 0) _ = _app.SetMacroHotbarShowFrameDefaultAtAsync(curBar, showFrameSel);
+                                        else _ = _app.SetMacroHotbarShowFrameDefaultAsync(showFrameSel);
+                                    }
+
+                                    ImGui.TableNextRow();
+                                    ImGui.TableSetColumnIndex(0);
+                                    ImGui.SetNextItemWidth(-1);
+                                    if (ImGui.InputTextWithHint($"##slot_tooltip_{i}", "Hover tooltip text", ref tipSlot, 128))
+                                    {
+                                        if (_barIndex >= 0) _ = _app.SetMacroHotbarSlotTooltipAtAsync(_barIndex, i, tipSlot);
+                                        else _ = _app.SetMacroHotbarSlotTooltipAsync(i, tipSlot);
+                                    }
+                                    ImGui.TableSetColumnIndex(1);
+                                    ImGui.TextUnformatted("Tooltip");
+                                    ImGui.TableSetColumnIndex(2);
+                                    if (ImGui.Button($"Reset##slot_tooltip_reset_{i}"))
+                                    {
+                                        var empty = string.Empty;
+                                        if (_barIndex >= 0) _ = _app.SetMacroHotbarSlotTooltipAtAsync(_barIndex, i, empty);
+                                        else _ = _app.SetMacroHotbarSlotTooltipAsync(i, empty);
+                                    }
+
+                                    ImGui.EndTable();
+                                }
+
+                                ImGui.Separator();
+                                ImGui.TextUnformatted("Colors");
+
+                                if (ImGui.BeginTable($"##icon_colors_{i}", 3, ImGuiTableFlags.SizingStretchProp))
+                                {
+                                    ImGui.TableSetupColumn("Control", ImGuiTableColumnFlags.WidthFixed, 200f);
+                                    ImGui.TableSetupColumn("Label", ImGuiTableColumnFlags.WidthStretch);
+                                    ImGui.TableSetupColumn("Actions", ImGuiTableColumnFlags.WidthFixed, 140f);
+
+                                    ImGui.TableNextRow();
+                                    ImGui.TableSetColumnIndex(0);
+                                    var frameColVec = ImGui.ColorConvertU32ToFloat4(frameColU32);
+                                    ImGui.SetNextItemWidth(200f);
+                                    if (ImGui.ColorEdit4($"##slot_framecolor_{i}", ref frameColVec, ImGuiColorEditFlags.NoInputs))
+                                    {
+                                        var colU32 = ImGui.ColorConvertFloat4ToU32(frameColVec);
+                                        if (_barIndex >= 0) _ = _app.SetMacroHotbarSlotFrameColorAtAsync(_barIndex, i, colU32);
+                                        else _ = _app.SetMacroHotbarSlotFrameColorAsync(i, colU32);
+                                    }
+                                    ImGui.TableSetColumnIndex(1);
+                                    ImGui.TextUnformatted("Hover Frame Color");
+                                    ImGui.TableSetColumnIndex(2);
+                                    if (ImGui.Button($"Reset##slot_framecolor_reset_{i}"))
+                                    {
+                                        if (_barIndex >= 0) _ = _app.SetMacroHotbarSlotFrameColorAtAsync(_barIndex, i, null);
+                                        else _ = _app.SetMacroHotbarSlotFrameColorAsync(i, null);
+                                    }
+                                    ImGui.SameLine();
+                                    if (ImGui.Button($"Set Global##slot_framecolor_global_{i}"))
+                                    {
+                                        var colU32 = ImGui.ColorConvertFloat4ToU32(frameColVec);
+                                        if (_barIndex >= 0) _ = _app.SetMacroHotbarFrameColorDefaultAtAsync(curBar, colU32);
+                                        else _ = _app.SetMacroHotbarFrameColorDefaultAsync(colU32);
+                                    }
+
+                                    ImGui.TableNextRow();
+                                    ImGui.TableSetColumnIndex(0);
+                                    var iconColVec = ImGui.ColorConvertU32ToFloat4(iconTintU32);
+                                    ImGui.SetNextItemWidth(200f);
+                                    if (ImGui.ColorEdit4($"##slot_iconcolor_{i}", ref iconColVec, ImGuiColorEditFlags.NoInputs))
+                                    {
+                                        var colU32I = ImGui.ColorConvertFloat4ToU32(iconColVec);
+                                        if (_barIndex >= 0) _ = _app.SetMacroHotbarSlotIconColorAtAsync(_barIndex, i, colU32I);
+                                        else _ = _app.SetMacroHotbarSlotIconColorAsync(i, colU32I);
+                                    }
+                                    ImGui.TableSetColumnIndex(1);
+                                    ImGui.TextUnformatted("Icon Color");
+                                    ImGui.TableSetColumnIndex(2);
+                                    if (ImGui.Button($"Reset##slot_iconcolor_reset_{i}"))
+                                    {
+                                        if (_barIndex >= 0) _ = _app.SetMacroHotbarSlotIconColorAtAsync(_barIndex, i, null);
+                                        else _ = _app.SetMacroHotbarSlotIconColorAsync(i, null);
+                                    }
+                                    ImGui.SameLine();
+                                    if (ImGui.Button($"Set Global##slot_iconcolor_global_{i}"))
+                                    {
+                                        var colU32I = ImGui.ColorConvertFloat4ToU32(iconColVec);
+                                        if (_barIndex >= 0) _ = _app.SetMacroHotbarIconColorDefaultAtAsync(curBar, colU32I);
+                                        else _ = _app.SetMacroHotbarIconColorDefaultAsync(colU32I);
+                                    }
+
+                                    ImGui.TableNextRow();
+                                    ImGui.TableSetColumnIndex(0);
+                                    var hoverBgVec = ImGui.ColorConvertU32ToFloat4(hoverBgColU32);
+                                    ImGui.SetNextItemWidth(200f);
+                                    if (ImGui.ColorEdit4($"##slot_hoverbgcolor_{i}", ref hoverBgVec, ImGuiColorEditFlags.NoInputs))
+                                    {
+                                        var colU32H = ImGui.ColorConvertFloat4ToU32(hoverBgVec);
+                                        if (_barIndex >= 0) _ = _app.SetMacroHotbarSlotHoverBackgroundColorAtAsync(_barIndex, i, colU32H);
+                                        else _ = _app.SetMacroHotbarSlotHoverBackgroundColorAsync(i, colU32H);
+                                    }
+                                    ImGui.TableSetColumnIndex(1);
+                                    ImGui.TextUnformatted("Hover Background Color");
+                                    ImGui.TableSetColumnIndex(2);
+                                    if (ImGui.Button($"Reset##slot_hoverbgcolor_reset_{i}"))
+                                    {
+                                        if (_barIndex >= 0) _ = _app.SetMacroHotbarSlotHoverBackgroundColorAtAsync(_barIndex, i, null);
+                                        else _ = _app.SetMacroHotbarSlotHoverBackgroundColorAsync(i, null);
+                                    }
+                                    ImGui.SameLine();
+                                    if (ImGui.Button($"Set Global##slot_hoverbgcolor_global_{i}"))
+                                    {
+                                        var colU32H = ImGui.ColorConvertFloat4ToU32(hoverBgVec);
+                                        if (_barIndex >= 0) _ = _app.SetMacroHotbarHoverBackgroundColorDefaultAtAsync(curBar, colU32H);
+                                        else _ = _app.SetMacroHotbarHoverBackgroundColorDefaultAsync(colU32H);
+                                    }
+
+                                    ImGui.EndTable();
+                                }
+
+                                ImGui.EndTabItem();
                             }
 
-                            ImGui.TableNextRow();
-                            ImGui.TableSetColumnIndex(0);
-                            ImGui.TextUnformatted("Icon Offset");
-                            ImGui.TableSetColumnIndex(1);
-                            ImGui.TextUnformatted("X:");
-                            ImGui.SameLine();
-                            ImGui.SetNextItemWidth(160f);
-                            if (ImGui.SliderFloat($"##slot_iconoffx_{i}", ref offXUi, -maxOffX, maxOffX))
-                            {
-                                if (_barIndex >= 0) _ = _app.SetMacroHotbarSlotIconOffsetAtAsync(_barIndex, i, offXUi, offYUi);
-                                else _ = _app.SetMacroHotbarSlotIconOffsetAsync(i, offXUi, offYUi);
-                            }
-                            ImGui.SameLine();
-                            ImGui.TextUnformatted("Y:");
-                            ImGui.SameLine();
-                            ImGui.SetNextItemWidth(160f);
-                            if (ImGui.SliderFloat($"##slot_iconoffy_{i}", ref offYUi, -maxOffY, maxOffY))
-                            {
-                                if (_barIndex >= 0) _ = _app.SetMacroHotbarSlotIconOffsetAtAsync(_barIndex, i, offXUi, offYUi);
-                                else _ = _app.SetMacroHotbarSlotIconOffsetAsync(i, offXUi, offYUi);
-                            }
-                            ImGui.TableSetColumnIndex(2);
-                            if (ImGui.Button($"Reset##slot_iconoffset_reset_{i}"))
-                            {
-                                if (_barIndex >= 0) _ = _app.SetMacroHotbarSlotIconOffsetAtAsync(_barIndex, i, 0f, 0f);
-                                else _ = _app.SetMacroHotbarSlotIconOffsetAsync(i, 0f, 0f);
-                            }
+                            ImGui.EndTabBar();
+                        }
 
-                            ImGui.TableNextRow();
-                            ImGui.TableSetColumnIndex(0);
-                            ImGui.TextUnformatted("Show Hover Frame");
-                            ImGui.TableSetColumnIndex(1);
-                            if (ImGui.Checkbox($"##slot_showframe_{i}", ref showFrameSel))
-                            {
-                                if (_barIndex >= 0) _ = _app.SetMacroHotbarSlotShowFrameAtAsync(_barIndex, i, showFrameSel);
-                                else _ = _app.SetMacroHotbarSlotShowFrameAsync(i, showFrameSel);
-                            }
-                            ImGui.TableSetColumnIndex(2);
-                            if (ImGui.Button($"Reset##slot_showframe_reset_{i}"))
-                            {
-                                if (_barIndex >= 0) _ = _app.SetMacroHotbarSlotShowFrameAtAsync(_barIndex, i, defShowFrame);
-                                else _ = _app.SetMacroHotbarSlotShowFrameAsync(i, defShowFrame);
-                            }
-
-                            ImGui.TableNextRow();
-                            ImGui.TableSetColumnIndex(0);
-                            ImGui.TextUnformatted("Hover Frame Color");
-                            ImGui.TableSetColumnIndex(1);
-                            var frameColVec = ImGui.ColorConvertU32ToFloat4(frameColU32);
-                            ImGui.SetNextItemWidth(-1);
-                            if (ImGui.ColorEdit4($"##slot_framecolor_{i}", ref frameColVec, ImGuiColorEditFlags.NoInputs))
-                            {
-                                var colU32 = ImGui.ColorConvertFloat4ToU32(frameColVec);
-                                if (_barIndex >= 0) _ = _app.SetMacroHotbarSlotFrameColorAtAsync(_barIndex, i, colU32);
-                                else _ = _app.SetMacroHotbarSlotFrameColorAsync(i, colU32);
-                            }
-                            ImGui.TableSetColumnIndex(2);
-                            if (ImGui.Button($"Reset##slot_framecolor_reset_{i}"))
-                            {
-                                if (_barIndex >= 0) _ = _app.SetMacroHotbarSlotFrameColorAtAsync(_barIndex, i, null);
-                                else _ = _app.SetMacroHotbarSlotFrameColorAsync(i, null);
-                            }
-
-                            ImGui.TableNextRow();
-                            ImGui.TableSetColumnIndex(0);
-                            ImGui.TextUnformatted("Icon Color");
-                            ImGui.TableSetColumnIndex(1);
-                            var iconColVec = ImGui.ColorConvertU32ToFloat4(iconTintU32);
-                            ImGui.SetNextItemWidth(-1);
-                            if (ImGui.ColorEdit4($"##slot_iconcolor_{i}", ref iconColVec, ImGuiColorEditFlags.NoInputs))
-                            {
-                                var colU32I = ImGui.ColorConvertFloat4ToU32(iconColVec);
-                                if (_barIndex >= 0) _ = _app.SetMacroHotbarSlotIconColorAtAsync(_barIndex, i, colU32I);
-                                else _ = _app.SetMacroHotbarSlotIconColorAsync(i, colU32I);
-                            }
-                            ImGui.TableSetColumnIndex(2);
-                            if (ImGui.Button($"Reset##slot_iconcolor_reset_{i}"))
-                            {
-                                if (_barIndex >= 0) _ = _app.SetMacroHotbarSlotIconColorAtAsync(_barIndex, i, null);
-                                else _ = _app.SetMacroHotbarSlotIconColorAsync(i, null);
-                            }
-
-                            ImGui.TableNextRow();
-                            ImGui.TableSetColumnIndex(0);
-                            ImGui.TextUnformatted("Tooltip");
-                            ImGui.TableSetColumnIndex(1);
-                            ImGui.SetNextItemWidth(-1);
-                            if (ImGui.InputTextWithHint($"##slot_tooltip_{i}", "Hover tooltip text", ref tipSlot, 128))
-                            {
-                                if (_barIndex >= 0) _ = _app.SetMacroHotbarSlotTooltipAtAsync(_barIndex, i, tipSlot);
-                                else _ = _app.SetMacroHotbarSlotTooltipAsync(i, tipSlot);
-                            }
-                            ImGui.TableSetColumnIndex(2);
-                            if (ImGui.Button($"Reset##slot_tooltip_reset_{i}"))
-                            {
-                                var empty = string.Empty;
-                                if (_barIndex >= 0) _ = _app.SetMacroHotbarSlotTooltipAtAsync(_barIndex, i, empty);
-                                else _ = _app.SetMacroHotbarSlotTooltipAsync(i, empty);
-                            }
-
-                            ImGui.TableNextRow();
-                            ImGui.TableSetColumnIndex(0);
-                            ImGui.TextUnformatted("Hover Background Color");
-                            ImGui.TableSetColumnIndex(1);
-                            var hoverBgVec = ImGui.ColorConvertU32ToFloat4(hoverBgColU32);
-                            ImGui.SetNextItemWidth(-1);
-                            if (ImGui.ColorEdit4($"##slot_hoverbgcolor_{i}", ref hoverBgVec, ImGuiColorEditFlags.NoInputs))
-                            {
-                                var colU32H = ImGui.ColorConvertFloat4ToU32(hoverBgVec);
-                                if (_barIndex >= 0) _ = _app.SetMacroHotbarSlotHoverBackgroundColorAtAsync(_barIndex, i, colU32H);
-                                else _ = _app.SetMacroHotbarSlotHoverBackgroundColorAsync(i, colU32H);
-                            }
-                            ImGui.TableSetColumnIndex(2);
-                            if (ImGui.Button($"Reset##slot_hoverbgcolor_reset_{i}"))
-                            {
-                                if (_barIndex >= 0) _ = _app.SetMacroHotbarSlotHoverBackgroundColorAtAsync(_barIndex, i, null);
-                                else _ = _app.SetMacroHotbarSlotHoverBackgroundColorAsync(i, null);
-                            }
-
-                            ImGui.EndTable();
-                        }
-                        ImGui.Separator();
-                        ImGui.TextUnformatted("Global (This Bar)");
-                        var globScale = (_barIndex >= 0) ? _app.GetMacroHotbarIconScaleDefaultAt(curBar) : _app.GetMacroHotbarIconScaleDefault();
-                        ImGui.TextUnformatted("Default Icon Scale:"); ImGui.SameLine(); ImGui.SetNextItemWidth(180f);
-                        if (ImGui.SliderFloat($"##bar_iconscale_{i}", ref globScale, 0.3f, 2.0f))
-                        {
-                            if (_barIndex >= 0) _ = _app.SetMacroHotbarIconScaleDefaultAtAsync(curBar, globScale);
-                            else _ = _app.SetMacroHotbarIconScaleDefaultAsync(globScale);
-                        }
-                        var globShow = (_barIndex >= 0) ? _app.GetMacroHotbarShowFrameDefaultAt(curBar) : _app.GetMacroHotbarShowFrameDefault();
-                        if (ImGui.Checkbox($"Default Show Hover Frame##bar_showframe_{i}", ref globShow))
-                        {
-                            if (_barIndex >= 0) _ = _app.SetMacroHotbarShowFrameDefaultAtAsync(curBar, globShow);
-                            else _ = _app.SetMacroHotbarShowFrameDefaultAsync(globShow);
-                        }
-                        var globFrameCol = (_barIndex >= 0) ? _app.GetMacroHotbarFrameColorDefaultAt(curBar) : _app.GetMacroHotbarFrameColorDefault();
-                        var globFrameVec = ImGui.ColorConvertU32ToFloat4(globFrameCol.HasValue ? globFrameCol.Value : 0xFFE20080u);
-                        ImGui.TextUnformatted("Default Hover Frame Color:"); ImGui.SameLine(); ImGui.SetNextItemWidth(180f);
-                        if (ImGui.ColorEdit4($"##bar_framecolor_{i}", ref globFrameVec, ImGuiColorEditFlags.NoInputs))
-                        {
-                            var colU32 = ImGui.ColorConvertFloat4ToU32(globFrameVec);
-                            if (_barIndex >= 0) _ = _app.SetMacroHotbarFrameColorDefaultAtAsync(curBar, colU32);
-                            else _ = _app.SetMacroHotbarFrameColorDefaultAsync(colU32);
-                        }
-                        ImGui.SameLine();
-                        if (ImGui.Button($"Reset##bar_framecolor_reset_{i}"))
-                        {
-                            if (_barIndex >= 0) _ = _app.SetMacroHotbarFrameColorDefaultAtAsync(curBar, null);
-                            else _ = _app.SetMacroHotbarFrameColorDefaultAsync(null);
-                        }
-                        var globIconCol = (_barIndex >= 0) ? _app.GetMacroHotbarIconColorDefaultAt(curBar) : _app.GetMacroHotbarIconColorDefault();
-                        var globIconVec = ImGui.ColorConvertU32ToFloat4(globIconCol.HasValue ? globIconCol.Value : 0xFFFFFFFFu);
-                        ImGui.TextUnformatted("Default Icon Color:"); ImGui.SameLine(); ImGui.SetNextItemWidth(180f);
-                        if (ImGui.ColorEdit4($"##bar_iconcolor_{i}", ref globIconVec, ImGuiColorEditFlags.NoInputs))
-                        {
-                            var colU32I = ImGui.ColorConvertFloat4ToU32(globIconVec);
-                            if (_barIndex >= 0) _ = _app.SetMacroHotbarIconColorDefaultAtAsync(curBar, colU32I);
-                            else _ = _app.SetMacroHotbarIconColorDefaultAsync(colU32I);
-                        }
-                        ImGui.SameLine();
-                        if (ImGui.Button($"Reset##bar_iconcolor_reset_{i}"))
-                        {
-                            if (_barIndex >= 0) _ = _app.SetMacroHotbarIconColorDefaultAtAsync(curBar, null);
-                            else _ = _app.SetMacroHotbarIconColorDefaultAsync(null);
-                        }
-                        var globHoverCol = (_barIndex >= 0) ? _app.GetMacroHotbarHoverBackgroundColorDefaultAt(curBar) : _app.GetMacroHotbarHoverBackgroundColorDefault();
-                        var fallbackHover = ImGui.ColorConvertFloat4ToU32(new Vector4(0.5f, 0.5f, 0.5f, 0.25f));
-                        var globHoverVec = ImGui.ColorConvertU32ToFloat4(globHoverCol.HasValue ? globHoverCol.Value : fallbackHover);
-                        ImGui.TextUnformatted("Default Hover Background Color:"); ImGui.SameLine(); ImGui.SetNextItemWidth(180f);
-                        if (ImGui.ColorEdit4($"##bar_hoverbgcolor_{i}", ref globHoverVec, ImGuiColorEditFlags.NoInputs))
-                        {
-                            var colU32H = ImGui.ColorConvertFloat4ToU32(globHoverVec);
-                            if (_barIndex >= 0) _ = _app.SetMacroHotbarHoverBackgroundColorDefaultAtAsync(curBar, colU32H);
-                            else _ = _app.SetMacroHotbarHoverBackgroundColorDefaultAsync(colU32H);
-                        }
-                        ImGui.SameLine();
-                        if (ImGui.Button($"Reset##bar_hoverbgcolor_reset_{i}"))
-                        {
-                            if (_barIndex >= 0) _ = _app.SetMacroHotbarHoverBackgroundColorDefaultAtAsync(curBar, null);
-                            else _ = _app.SetMacroHotbarHoverBackgroundColorDefaultAsync(null);
-                        }
-                        if (ImGui.Button($"Apply defaults to all slots##bar_apply_{i}"))
-                        {
-                            var idxApply = (_barIndex >= 0) ? _barIndex : _app.GetCurrentMacroHotbarIndex();
-                            _ = _app.ApplyMacroHotbarDefaultsToAllSlotsAtAsync(idxApply);
-                        }
                         ImGui.EndTabItem();
                     }
                     if (ImGui.BeginTabItem("Options"))
                     {
-                        ImGui.TextUnformatted("Channel");
                         var chSel = ch;
-                        if (ImGui.Selectable("Whisper", chSel == VenuePlus.Configuration.ChatChannel.Whisper)) { chSel = VenuePlus.Configuration.ChatChannel.Whisper; if (_barIndex >= 0) _ = _app.SetMacroHotbarSlotAsyncAtBar(_barIndex, i, null, chSel); else _ = _app.SetMacroHotbarSlotAsync(i, null, chSel); }
-                        if (ImGui.Selectable("Say", chSel == VenuePlus.Configuration.ChatChannel.Say)) { chSel = VenuePlus.Configuration.ChatChannel.Say; if (_barIndex >= 0) _ = _app.SetMacroHotbarSlotAsyncAtBar(_barIndex, i, null, chSel); else _ = _app.SetMacroHotbarSlotAsync(i, null, chSel); }
-                        if (ImGui.Selectable("Party", chSel == VenuePlus.Configuration.ChatChannel.Party)) { chSel = VenuePlus.Configuration.ChatChannel.Party; if (_barIndex >= 0) _ = _app.SetMacroHotbarSlotAsyncAtBar(_barIndex, i, null, chSel); else _ = _app.SetMacroHotbarSlotAsync(i, null, chSel); }
-                        if (ImGui.Selectable("Shout", chSel == VenuePlus.Configuration.ChatChannel.Shout)) { chSel = VenuePlus.Configuration.ChatChannel.Shout; if (_barIndex >= 0) _ = _app.SetMacroHotbarSlotAsyncAtBar(_barIndex, i, null, chSel); else _ = _app.SetMacroHotbarSlotAsync(i, null, chSel); }
-                        if (ImGui.Selectable("Yell", chSel == VenuePlus.Configuration.ChatChannel.Yell)) { chSel = VenuePlus.Configuration.ChatChannel.Yell; if (_barIndex >= 0) _ = _app.SetMacroHotbarSlotAsyncAtBar(_barIndex, i, null, chSel); else _ = _app.SetMacroHotbarSlotAsync(i, null, chSel); }
-                        if (ImGui.Selectable("FC", chSel == VenuePlus.Configuration.ChatChannel.FC)) { chSel = VenuePlus.Configuration.ChatChannel.FC; if (_barIndex >= 0) _ = _app.SetMacroHotbarSlotAsyncAtBar(_barIndex, i, null, chSel); else _ = _app.SetMacroHotbarSlotAsync(i, null, chSel); }
-                        if (ImGui.Selectable("Echo", chSel == VenuePlus.Configuration.ChatChannel.Echo)) { chSel = VenuePlus.Configuration.ChatChannel.Echo; if (_barIndex >= 0) _ = _app.SetMacroHotbarSlotAsyncAtBar(_barIndex, i, null, chSel); else _ = _app.SetMacroHotbarSlotAsync(i, null, chSel); }
-                        if (ImGui.Selectable("Emote", chSel == VenuePlus.Configuration.ChatChannel.Emote)) { chSel = VenuePlus.Configuration.ChatChannel.Emote; if (_barIndex >= 0) _ = _app.SetMacroHotbarSlotAsyncAtBar(_barIndex, i, null, chSel); else _ = _app.SetMacroHotbarSlotAsync(i, null, chSel); }
-                        
-                        
+                        if (ImGui.BeginTable($"##options_table_{i}", 2, ImGuiTableFlags.SizingStretchProp))
+                        {
+                            var entries = new (string label, VenuePlus.Configuration.ChatChannel value)[]
+                            {
+                                ("Whisper", VenuePlus.Configuration.ChatChannel.Whisper),
+                                ("Say", VenuePlus.Configuration.ChatChannel.Say),
+                                ("Party", VenuePlus.Configuration.ChatChannel.Party),
+                                ("Shout", VenuePlus.Configuration.ChatChannel.Shout),
+                                ("Yell", VenuePlus.Configuration.ChatChannel.Yell),
+                                ("FC", VenuePlus.Configuration.ChatChannel.FC),
+                                ("Echo", VenuePlus.Configuration.ChatChannel.Echo),
+                                ("Emote", VenuePlus.Configuration.ChatChannel.Emote),
+                            };
+                            for (int e = 0; e < entries.Length; e++)
+                            {
+                                if ((e % 2) == 0)
+                                {
+                                    ImGui.TableNextRow();
+                                }
+                                ImGui.TableSetColumnIndex(e % 2);
+                                var entry = entries[e];
+                                if (ImGui.Selectable(entry.label, chSel == entry.value))
+                                {
+                                    chSel = entry.value;
+                                    if (_barIndex >= 0) _ = _app.SetMacroHotbarSlotAsyncAtBar(_barIndex, i, null, chSel);
+                                    else _ = _app.SetMacroHotbarSlotAsync(i, null, chSel);
+                                }
+                            }
+                            ImGui.EndTable();
+                        }
                         ImGui.EndTabItem();
                     }
                     if (ImGui.BeginTabItem("Hotbar Settings"))
                     {
                         var lockedLocal2 = locked;
-                        if (ImGui.Checkbox("Locked", ref lockedLocal2)) { if (_barIndex >= 0) { _ = _app.SetMacroHotbarLockedAtAsync(curBar, lockedLocal2); } else { _ = _app.SetMacroHotbarLockedAsync(lockedLocal2); } locked = lockedLocal2; }
-                        ImGui.Separator();
                         var colsCtx2 = (_barIndex >= 0) ? _app.GetMacroHotbarColumnsAt(curBar) : _app.GetMacroHotbarColumns();
-                        ImGui.TextUnformatted("Cols:"); ImGui.SameLine(); ImGui.SetNextItemWidth(100f);
-                        if (ImGui.SliderInt("##macro_cols_ctx_slot", ref colsCtx2, 1, 12)) { if (_barIndex >= 0) { _ = _app.SetMacroHotbarColumnsAtAsync(curBar, colsCtx2); } else { _ = _app.SetMacroHotbarColumnsAsync(colsCtx2); } }
-                        ImGui.SameLine();
                         var rowsCtx2 = (_barIndex >= 0) ? _app.GetMacroHotbarRowsAt(curBar) : _app.GetMacroHotbarRows();
-                        ImGui.TextUnformatted("Rows:"); ImGui.SameLine(); ImGui.SetNextItemWidth(100f);
-                        if (ImGui.SliderInt("##macro_rows_ctx_slot", ref rowsCtx2, 1, 12)) { if (_barIndex >= 0) { _ = _app.SetMacroHotbarRowsAtAsync(curBar, rowsCtx2); } else { _ = _app.SetMacroHotbarRowsAsync(rowsCtx2); } }
-                        ImGui.SameLine();
                         var sideCtx2 = (_barIndex >= 0) ? _app.GetMacroHotbarButtonSideAt(curBar) : _app.GetMacroHotbarButtonSide();
-                        ImGui.TextUnformatted("Size:"); ImGui.SameLine(); ImGui.SetNextItemWidth(120f);
-                        if (ImGui.SliderFloat("##macro_side_ctx_slot", ref sideCtx2, 16f, 128f)) { if (_barIndex >= 0) { _ = _app.SetMacroHotbarButtonSideAtAsync(curBar, sideCtx2); } else { _ = _app.SetMacroHotbarButtonSideAsync(sideCtx2); } }
-                        ImGui.SameLine();
                         var spacingXCtx2 = (_barIndex >= 0) ? _app.GetMacroHotbarItemSpacingXAt(curBar) : _app.GetMacroHotbarItemSpacingX();
-                        ImGui.TextUnformatted("Spacing X:"); ImGui.SameLine(); ImGui.SetNextItemWidth(100f);
-                        if (ImGui.SliderFloat("##macro_spx_ctx_slot", ref spacingXCtx2, 0f, 24f)) { if (_barIndex >= 0) { _ = _app.SetMacroHotbarItemSpacingXAtAsync(curBar, spacingXCtx2); } else { _ = _app.SetMacroHotbarItemSpacingXAsync(spacingXCtx2); } }
-                        ImGui.SameLine();
                         var spacingYCtx2 = (_barIndex >= 0) ? _app.GetMacroHotbarItemSpacingYAt(curBar) : _app.GetMacroHotbarItemSpacingY();
-                        ImGui.TextUnformatted("Spacing Y:"); ImGui.SameLine(); ImGui.SetNextItemWidth(100f);
-                        if (ImGui.SliderFloat("##macro_spy_ctx_slot", ref spacingYCtx2, 0f, 24f)) { if (_barIndex >= 0) { _ = _app.SetMacroHotbarItemSpacingYAtAsync(curBar, spacingYCtx2); } else { _ = _app.SetMacroHotbarItemSpacingYAsync(spacingYCtx2); } }
                         var noBgLocal2 = noBg;
-                        if (ImGui.Checkbox("Hide Background", ref noBgLocal2)) { if (_barIndex >= 0) { _ = _app.SetMacroHotbarNoBackgroundAtAsync(curBar, noBgLocal2); } else { _ = _app.SetMacroHotbarNoBackgroundAsync(noBgLocal2); } }
                         var bgOpt2 = (_barIndex >= 0) ? _app.GetMacroHotbarBackgroundColorAt(curBar) : _app.GetMacroHotbarBackgroundColor();
                         var bgVec2 = bgOpt2.HasValue ? ImGui.ColorConvertU32ToFloat4(bgOpt2.Value) : new Vector4(0f, 0f, 0f, 0.25f);
-                        ImGui.TextUnformatted("Background Color:"); ImGui.SameLine(); ImGui.SetNextItemWidth(180f);
-                        if (ImGui.ColorEdit4("##bar_bgcolor", ref bgVec2, ImGuiColorEditFlags.NoInputs))
-                        {
-                            var colU32 = ImGui.ColorConvertFloat4ToU32(bgVec2);
-                            if (_barIndex >= 0) _ = _app.SetMacroHotbarBackgroundColorAtAsync(curBar, colU32);
-                            else _ = _app.SetMacroHotbarBackgroundColorAsync(colU32);
-                        }
-                        ImGui.SameLine();
-                        if (ImGui.Button("Reset##bar_bgcolor_reset"))
-                        {
-                            if (_barIndex >= 0) _ = _app.SetMacroHotbarBackgroundColorAtAsync(curBar, null);
-                            else _ = _app.SetMacroHotbarBackgroundColorAsync(null);
-                        }
                         var alpha2 = bgVec2.W;
-                        ImGui.TextUnformatted("Alpha:"); ImGui.SameLine(); ImGui.SetNextItemWidth(120f);
-                        if (ImGui.SliderFloat("##bar_bg_alpha", ref alpha2, 0f, 1f))
-                        {
-                            bgVec2.W = alpha2;
-                            var colU32A = ImGui.ColorConvertFloat4ToU32(bgVec2);
-                            if (_barIndex >= 0) _ = _app.SetMacroHotbarBackgroundColorAtAsync(curBar, colU32A);
-                            else _ = _app.SetMacroHotbarBackgroundColorAsync(colU32A);
-                        }
                         var showPersist2 = System.Array.IndexOf(_app.GetOpenMacroHotbarIndices(), curBar) >= 0;
-                        if (ImGui.Checkbox("Show this bar at startup", ref showPersist2)) { _ = _app.SetMacroHotbarOpenStateAsync(curBar, showPersist2); if (showPersist2) _app.OpenMacroHotbarWindowAt(curBar); else _app.CloseMacroHotbarWindowAt(curBar); }
-                        
+
+                        if (ImGui.BeginTable($"##hotbar_settings_{i}", 2, ImGuiTableFlags.SizingStretchProp))
+                        {
+                            ImGui.TableSetupColumn("Label", ImGuiTableColumnFlags.WidthFixed, 180f);
+                            ImGui.TableSetupColumn("Control", ImGuiTableColumnFlags.WidthStretch);
+
+                            ImGui.TableNextRow();
+                            ImGui.TableSetColumnIndex(0);
+                            ImGui.TextUnformatted("Locked");
+                            ImGui.TableSetColumnIndex(1);
+                            if (ImGui.Checkbox($"##macro_locked_{i}", ref lockedLocal2))
+                            {
+                                if (_barIndex >= 0) _ = _app.SetMacroHotbarLockedAtAsync(curBar, lockedLocal2);
+                                else _ = _app.SetMacroHotbarLockedAsync(lockedLocal2);
+                                locked = lockedLocal2;
+                            }
+
+                            ImGui.TableNextRow();
+                            ImGui.TableSetColumnIndex(0);
+                            ImGui.TextUnformatted("Grid");
+                            ImGui.TableSetColumnIndex(1);
+                            ImGui.SetNextItemWidth(80f);
+                            if (ImGui.SliderInt($"Cols##macro_cols_ctx_slot_{i}", ref colsCtx2, 1, 12))
+                            {
+                                if (_barIndex >= 0) _ = _app.SetMacroHotbarColumnsAtAsync(curBar, colsCtx2);
+                                else _ = _app.SetMacroHotbarColumnsAsync(colsCtx2);
+                            }
+                            ImGui.SameLine();
+                            ImGui.SetNextItemWidth(80f);
+                            if (ImGui.SliderInt($"Rows##macro_rows_ctx_slot_{i}", ref rowsCtx2, 1, 12))
+                            {
+                                if (_barIndex >= 0) _ = _app.SetMacroHotbarRowsAtAsync(curBar, rowsCtx2);
+                                else _ = _app.SetMacroHotbarRowsAsync(rowsCtx2);
+                            }
+
+                            ImGui.TableNextRow();
+                            ImGui.TableSetColumnIndex(0);
+                            ImGui.TextUnformatted("Button Size");
+                            ImGui.TableSetColumnIndex(1);
+                            ImGui.SetNextItemWidth(-1);
+                            if (ImGui.SliderFloat($"##macro_side_ctx_slot_{i}", ref sideCtx2, 16f, 128f))
+                            {
+                                if (_barIndex >= 0) _ = _app.SetMacroHotbarButtonSideAtAsync(curBar, sideCtx2);
+                                else _ = _app.SetMacroHotbarButtonSideAsync(sideCtx2);
+                            }
+
+                            ImGui.TableNextRow();
+                            ImGui.TableSetColumnIndex(0);
+                            ImGui.TextUnformatted("Spacing");
+                            ImGui.TableSetColumnIndex(1);
+                            ImGui.SetNextItemWidth(80f);
+                            if (ImGui.SliderFloat($"X##macro_spx_ctx_slot_{i}", ref spacingXCtx2, 0f, 24f))
+                            {
+                                if (_barIndex >= 0) _ = _app.SetMacroHotbarItemSpacingXAtAsync(curBar, spacingXCtx2);
+                                else _ = _app.SetMacroHotbarItemSpacingXAsync(spacingXCtx2);
+                            }
+                            ImGui.SameLine();
+                            ImGui.SetNextItemWidth(80f);
+                            if (ImGui.SliderFloat($"Y##macro_spy_ctx_slot_{i}", ref spacingYCtx2, 0f, 24f))
+                            {
+                                if (_barIndex >= 0) _ = _app.SetMacroHotbarItemSpacingYAtAsync(curBar, spacingYCtx2);
+                                else _ = _app.SetMacroHotbarItemSpacingYAsync(spacingYCtx2);
+                            }
+
+                            ImGui.TableNextRow();
+                            ImGui.TableSetColumnIndex(0);
+                            ImGui.TextUnformatted("Hide Background");
+                            ImGui.TableSetColumnIndex(1);
+                            if (ImGui.Checkbox($"##macro_nobg_ctx_slot_{i}", ref noBgLocal2))
+                            {
+                                if (_barIndex >= 0) _ = _app.SetMacroHotbarNoBackgroundAtAsync(curBar, noBgLocal2);
+                                else _ = _app.SetMacroHotbarNoBackgroundAsync(noBgLocal2);
+                            }
+
+                            ImGui.TableNextRow();
+                            ImGui.TableSetColumnIndex(0);
+                            ImGui.TextUnformatted("Background Color");
+                            ImGui.TableSetColumnIndex(1);
+                            ImGui.SetNextItemWidth(-60f);
+                            if (ImGui.ColorEdit4($"##bar_bgcolor_{i}", ref bgVec2, ImGuiColorEditFlags.NoInputs))
+                            {
+                                var colU32 = ImGui.ColorConvertFloat4ToU32(bgVec2);
+                                if (_barIndex >= 0) _ = _app.SetMacroHotbarBackgroundColorAtAsync(curBar, colU32);
+                                else _ = _app.SetMacroHotbarBackgroundColorAsync(colU32);
+                            }
+                            ImGui.SameLine();
+                            if (ImGui.Button($"Reset##bar_bgcolor_reset_{i}"))
+                            {
+                                if (_barIndex >= 0) _ = _app.SetMacroHotbarBackgroundColorAtAsync(curBar, null);
+                                else _ = _app.SetMacroHotbarBackgroundColorAsync(null);
+                            }
+
+                            ImGui.TableNextRow();
+                            ImGui.TableSetColumnIndex(0);
+                            ImGui.TextUnformatted("Background Alpha");
+                            ImGui.TableSetColumnIndex(1);
+                            ImGui.SetNextItemWidth(-1);
+                            if (ImGui.SliderFloat($"##bar_bg_alpha_{i}", ref alpha2, 0f, 1f))
+                            {
+                                bgVec2.W = alpha2;
+                                var colU32A = ImGui.ColorConvertFloat4ToU32(bgVec2);
+                                if (_barIndex >= 0) _ = _app.SetMacroHotbarBackgroundColorAtAsync(curBar, colU32A);
+                                else _ = _app.SetMacroHotbarBackgroundColorAsync(colU32A);
+                            }
+
+                            ImGui.TableNextRow();
+                            ImGui.TableSetColumnIndex(0);
+                            ImGui.TextUnformatted("Show on Startup");
+                            ImGui.TableSetColumnIndex(1);
+                            if (ImGui.Checkbox($"##macro_startup_ctx_slot_{i}", ref showPersist2))
+                            {
+                                _ = _app.SetMacroHotbarOpenStateAsync(curBar, showPersist2);
+                                if (showPersist2) _app.OpenMacroHotbarWindowAt(curBar);
+                                else _app.CloseMacroHotbarWindowAt(curBar);
+                            }
+
+                            ImGui.EndTable();
+                        }
+
                         ImGui.EndTabItem();
                     }
                     ImGui.EndTabBar();

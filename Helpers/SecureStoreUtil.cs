@@ -11,8 +11,7 @@ public static class SecureStoreUtil
         var key = Convert.FromBase64String(keyBase64);
         var salt = RandomNumberGenerator.GetBytes(16);
         var nonce = RandomNumberGenerator.GetBytes(12);
-        using var pbkdf2 = new Rfc2898DeriveBytes(key, salt, 100_000, HashAlgorithmName.SHA256);
-        var encKey = pbkdf2.GetBytes(32);
+        var encKey = Rfc2898DeriveBytes.Pbkdf2(key, salt, 100_000, HashAlgorithmName.SHA256, 32);
         var input = Encoding.UTF8.GetBytes(plain ?? string.Empty);
         var cipher = new byte[input.Length];
         var tag = new byte[16];
@@ -42,8 +41,7 @@ public static class SecureStoreUtil
         var cipher = new byte[cipherLen];
         Buffer.BlockCopy(data, 28, cipher, 0, cipherLen);
         var key = Convert.FromBase64String(keyBase64);
-        using var pbkdf2 = new Rfc2898DeriveBytes(key, salt, 100_000, HashAlgorithmName.SHA256);
-        var encKey = pbkdf2.GetBytes(32);
+        var encKey = Rfc2898DeriveBytes.Pbkdf2(key, salt, 100_000, HashAlgorithmName.SHA256, 32);
         var plain = new byte[cipherLen];
         using (var aesgcm = new AesGcm(encKey, 16))
         {
