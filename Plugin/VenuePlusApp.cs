@@ -123,6 +123,7 @@ public sealed class VenuePlusApp : IDisposable, IEventListener
 
     public void OpenVipListWindow()
     {
+        if (!HasStaffSession) return;
         try { OpenVipListRequested?.Invoke(); } catch { }
     }
 
@@ -1733,6 +1734,7 @@ public sealed class VenuePlusApp : IDisposable, IEventListener
         _accessLoading = false;
         _autoLoginAttempted = false;
         _selfUid = null;
+        _vipService.SetActiveClub(null);
         _djService.Clear();
         _shiftService.Clear();
         
@@ -2669,7 +2671,7 @@ public sealed class VenuePlusApp : IDisposable, IEventListener
             }
         }
         var incoming = det ?? Array.Empty<VenuePlus.State.StaffUser>();
-        var ordered = incoming.OrderBy(u => u.Username, System.StringComparer.Ordinal).Select(u => (u.Username ?? string.Empty) + "#" + (u.Job ?? string.Empty) + "#" + (u.Uid ?? string.Empty)).ToArray();
+        var ordered = incoming.OrderBy(u => u.Username, System.StringComparer.Ordinal).Select(u => (u.Username ?? string.Empty) + "#" + (u.Job ?? string.Empty) + "#" + (u.Uid ?? string.Empty) + "#" + (u.IsOnline ? "1" : "0")).ToArray();
         var fp = string.Join("|", ordered);
         if (!string.Equals(_usersDetailsFingerprint, fp, System.StringComparison.Ordinal))
         {

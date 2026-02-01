@@ -52,6 +52,7 @@ public sealed class VenuePlusWindow : Window, IDisposable
     private string _clubsFingerprint = string.Empty;
     private int _statsVipCount;
     private int _statsStaffCount;
+    private int _statsStaffOnlineCount;
 
     public VenuePlusWindow(VenuePlusApp app, ITextureProvider textureProvider) : base("Venue Plus")
     {
@@ -551,7 +552,7 @@ public sealed class VenuePlusWindow : Window, IDisposable
                 ImGui.TextUnformatted("Job: --");
             }
             try { _statsVipCount = _app.GetActive()?.Count ?? 0; } catch { _statsVipCount = 0; }
-            ImGui.TextUnformatted($"VIPs: {_statsVipCount}   Staff: {_statsStaffCount}");
+            ImGui.TextUnformatted($"VIPs: {_statsVipCount}   Staff: {_statsStaffCount}   Online: {_statsStaffOnlineCount}/{_statsStaffCount}");
             ImGui.EndGroup();
             ImGui.Spacing();
             if (ImGui.BeginTabBar("MainTabs"))
@@ -741,6 +742,13 @@ public sealed class VenuePlusWindow : Window, IDisposable
     {
         _staffList.SetUsersFromServer(_app, users);
         _statsStaffCount = users?.Length ?? 0;
+        var online = 0;
+        var arr = users ?? Array.Empty<VenuePlus.State.StaffUser>();
+        for (int i = 0; i < arr.Length; i++)
+        {
+            if (arr[i].IsOnline) online++;
+        }
+        _statsStaffOnlineCount = online;
     }
 
     private void OnUserJobUpdated(string username, string job, string[] jobs)

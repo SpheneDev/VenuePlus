@@ -84,6 +84,14 @@ public sealed class StaffListComponent
         ImGui.InputTextWithHint("##staff_filter", "Search by username or job", ref _filter, 128);
         ImGui.PopItemWidth();
         var visible = ApplyFilter(_users, _filter);
+        var totalStaff = _users.Length;
+        var onlineStaff = 0;
+        for (int i = 0; i < _users.Length; i++)
+        {
+            if (_users[i].IsOnline) onlineStaff++;
+        }
+        ImGui.SameLine();
+        ImGui.TextUnformatted($"Online: {onlineStaff}/{totalStaff}");
         var canInvite = app.IsOwnerCurrentClub || (app.HasStaffSession && app.StaffCanManageUsers);
         if (!canInvite)
         {
@@ -366,10 +374,47 @@ public sealed class StaffListComponent
             {
                 ImGui.TableNextRow();
                 var rowH = ImGui.GetFrameHeight();
-                var textH = ImGui.GetTextLineHeight();
-                var dy = (rowH - textH) / 2f;
                 ImGui.TableSetColumnIndex(0);
-                ImGui.SetCursorPosY(ImGui.GetCursorPosY() + dy);
+                var baseY = ImGui.GetCursorPosY();
+                ImGui.PushFont(UiBuilder.IconFont);
+                ImGui.SetWindowFontScale(0.8f);
+                var statusIconH = ImGui.CalcTextSize(FontAwesomeIcon.Circle.ToIconString()).Y;
+                ImGui.SetWindowFontScale(1f);
+                ImGui.PopFont();
+                var textH = ImGui.CalcTextSize(u.Username).Y;
+                const float nameOffsetY = -1f;
+                var contentH = statusIconH > textH ? statusIconH : textH;
+                ImGui.SetCursorPosY(baseY + (rowH - contentH) / 2f);
+                if (u.IsOnline)
+                {
+                    var t = (float)ImGui.GetTime();
+                    var pulse = 0.5f + 0.5f * System.MathF.Sin(t * 3f);
+                    var c1 = new Vector4(0.1f, 0.9f, 0.3f, 1f);
+                    var c2 = new Vector4(0.1f, 0.7f, 0.3f, 1f);
+                    var col = new Vector4(c1.X + (c2.X - c1.X) * pulse, c1.Y + (c2.Y - c1.Y) * pulse, c1.Z + (c2.Z - c1.Z) * pulse, 1f);
+                    var colU32 = ImGui.ColorConvertFloat4ToU32(col);
+                    IconDraw.IconText(FontAwesomeIcon.Circle, 0.8f, colU32);
+                    if (ImGui.IsItemHovered())
+                    {
+                        ImGui.BeginTooltip();
+                        ImGui.TextUnformatted("Online");
+                        ImGui.EndTooltip();
+                    }
+                    ImGui.SameLine(0f, 6f);
+                }
+                else
+                {
+                    var colU32 = ImGui.ColorConvertFloat4ToU32(new Vector4(0.6f, 0f, 0f, 1f));
+                    IconDraw.IconText(FontAwesomeIcon.Circle, 0.8f, colU32);
+                    if (ImGui.IsItemHovered())
+                    {
+                        ImGui.BeginTooltip();
+                        ImGui.TextUnformatted("Offline");
+                        ImGui.EndTooltip();
+                    }
+                    ImGui.SameLine(0f, 6f);
+                }
+                ImGui.SetCursorPosY(baseY + (rowH - textH) / 2f + nameOffsetY);
                 ImGui.TextUnformatted(u.Username);
                 var showTooltip = ImGui.IsItemHovered();
                 if (u.IsManual)

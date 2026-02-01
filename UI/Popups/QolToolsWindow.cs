@@ -38,7 +38,9 @@ public sealed class QolToolsWindow : Window
         ImGui.Spacing();
         DrawToolItem(FontAwesomeIcon.List, "Macro Hotbar", "Manage available hotbars and startup visibility.", () => _app.OpenMacroHotbarManagerWindow());
         ImGui.Spacing();
+        ImGui.BeginDisabled(!_app.HasStaffSession);
         DrawToolItem(FontAwesomeIcon.Users, "VIP List", "External VIP list window with sorting and search.", () => _app.OpenVipListWindow());
+        ImGui.EndDisabled();
     }
 
     private void DrawToolItem(FontAwesomeIcon icon, string title, string description, System.Action onOpen)

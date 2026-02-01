@@ -23,6 +23,7 @@ public sealed class NameplateVipService : IDisposable
 
     private void OnNamePlateUpdate(INamePlateUpdateContext ctx, IReadOnlyList<INamePlateUpdateHandler> handlers)
     {
+        if (!_app.HasStaffSession) return;
         if (!_app.ShowVipNameplateHook) return;
         for (int i = 0; i < handlers.Count; i++)
         {

@@ -30,6 +30,12 @@ public sealed class VipListWindow : Window
 
     public override void Draw()
     {
+        if (!_app.HasStaffSession)
+        {
+            IsOpen = false;
+            _filter = string.Empty;
+            return;
+        }
         ImGui.PushItemWidth(200f);
         ImGui.InputTextWithHint("##vip_list_filter", "Search by name or homeworld", ref _filter, 256);
         ImGui.PopItemWidth();
