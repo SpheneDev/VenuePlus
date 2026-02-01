@@ -1,5 +1,6 @@
 using System;
 using System.Numerics;
+using System.Globalization;
 using Dalamud.Bindings.ImGui;
 using Dalamud.Interface.Windowing;
 using Dalamud.Interface;
@@ -42,6 +43,11 @@ public sealed class VenuePlusWindow : Window, IDisposable
     private string _resetRecoveryCode = string.Empty;
     private string _resetPassword = string.Empty;
     private string _resetStatus = string.Empty;
+    private string _birthdayFilter = string.Empty;
+    private string _birthdayStatus = string.Empty;
+    private System.DateTimeOffset _birthdayLastRefresh;
+    private VenuePlus.State.StaffUser[] _birthdayUsers = Array.Empty<VenuePlus.State.StaffUser>();
+    private string? _birthdayClubId;
     private bool _openStaffLoginModal;
     private IDalamudTextureWrap? _clubLogoTex;
     private string? _lastLogoBase64;
@@ -639,6 +645,167 @@ public sealed class VenuePlusWindow : Window, IDisposable
             }
             if (_app.HasStaffSession)
             {
+                if (ImGui.BeginTabItem("Birthdays"))
+                {
+                    ImGui.BeginChild("BirthdayTabContent", new Vector2(0, ImGui.GetContentRegionAvail().Y), false);
+                    _vipTable.CloseAddForm();
+                    _djList.CloseAddForm();
+                    _staffList.CloseInviteInline();
+                    var clubId = _app.CurrentClubId;
+                    if (!string.Equals(_birthdayClubId, clubId, StringComparison.Ordinal))
+                    {
+                        _birthdayClubId = clubId;
+                        _birthdayLastRefresh = System.DateTimeOffset.MinValue;
+                        _birthdayUsers = Array.Empty<VenuePlus.State.StaffUser>();
+                    }
+                    if (_birthdayLastRefresh == System.DateTimeOffset.MinValue)
+                    {
+                        TriggerBirthdayRefresh();
+                        _birthdayLastRefresh = System.DateTimeOffset.UtcNow;
+                    }
+                    ImGui.Spacing();
+                    ImGui.PushItemWidth(260f);
+                    ImGui.InputTextWithHint("##birthday_filter", "Search by username", ref _birthdayFilter, 128);
+                    ImGui.PopItemWidth();
+                    if (!string.IsNullOrEmpty(_birthdayStatus)) ImGui.TextUnformatted(_birthdayStatus);
+                    var users = _birthdayUsers ?? Array.Empty<VenuePlus.State.StaffUser>();
+                    var list = new System.Collections.Generic.List<(VenuePlus.State.StaffUser User, System.DateTime Next, int Days)>();
+                    var now = DateTime.UtcNow.Date;
+                    var filter = _birthdayFilter;
+                    for (int i = 0; i < users.Length; i++)
+                    {
+                        var u = users[i];
+                        if (!u.Birthday.HasValue) continue;
+                        if (!string.IsNullOrWhiteSpace(filter))
+                        {
+                            var uname = u.Username ?? string.Empty;
+                            if (uname.IndexOf(filter, StringComparison.OrdinalIgnoreCase) < 0) continue;
+                        }
+                        var b = u.Birthday.Value.UtcDateTime.Date;
+                        var month = b.Month;
+                        var day = b.Day;
+                        var year = now.Year;
+                        var daysInMonth = DateTime.DaysInMonth(year, month);
+                        if (day > daysInMonth) day = daysInMonth;
+                        var next = new DateTime(year, month, day, 0, 0, 0, DateTimeKind.Utc);
+                        if (next.Date < now)
+                        {
+                            year++;
+                            daysInMonth = DateTime.DaysInMonth(year, month);
+                            if (day > daysInMonth) day = daysInMonth;
+                            next = new DateTime(year, month, day, 0, 0, 0, DateTimeKind.Utc);
+                        }
+                        var days = (int)(next.Date - now).TotalDays;
+                        list.Add((u, next, days));
+                    }
+                    list.Sort((a, b) =>
+                    {
+                        var comp = a.Days.CompareTo(b.Days);
+                        if (comp != 0) return comp;
+                        return string.Compare(a.User.Username, b.User.Username, StringComparison.Ordinal);
+                    });
+                    if (list.Count == 0)
+                    {
+                        ImGui.TextUnformatted("No birthdays set");
+                    }
+                    else
+                    {
+                        var birthdayStyle = ImGui.GetStyle();
+                        var todayColor = birthdayStyle.Colors[(int)ImGuiCol.PlotHistogramHovered];
+                        var soonColor = birthdayStyle.Colors[(int)ImGuiCol.PlotHistogram];
+                        var headerColor = birthdayStyle.Colors[(int)ImGuiCol.TextDisabled];
+                        var cakeIcon = IconDraw.ToIconStringFromKey("BirthdayCake");
+                        ImGui.Spacing();
+                        ImGui.PushFont(UiBuilder.IconFont);
+                        ImGui.TextUnformatted(cakeIcon);
+                        ImGui.PopFont();
+                        ImGui.SameLine(0f, 6f);
+                        ImGui.TextUnformatted("Birthday List");
+                        ImGui.SameLine(0f, 6f);
+                        ImGui.TextDisabled($"({list.Count})");
+                        ImGui.Separator();
+                        bool hasToday = false;
+                        bool hasUpcoming = false;
+                        for (int i = 0; i < list.Count; i++)
+                        {
+                            if (list[i].Days == 0) hasToday = true;
+                            else hasUpcoming = true;
+                        }
+                        ImGui.Columns(3, "birthday_cols", false);
+                        ImGui.SetColumnWidth(0, 240f);
+                        ImGui.TextUnformatted("User");
+                        ImGui.NextColumn();
+                        ImGui.TextUnformatted("Birthday");
+                        ImGui.NextColumn();
+                        ImGui.TextUnformatted("Next");
+                        ImGui.NextColumn();
+                        ImGui.Separator();
+                        if (hasToday)
+                        {
+                            ImGui.PushStyleColor(ImGuiCol.Text, todayColor);
+                            ImGui.TextUnformatted("Today");
+                            ImGui.PopStyleColor();
+                            ImGui.NextColumn();
+                            ImGui.TextUnformatted(string.Empty);
+                            ImGui.NextColumn();
+                            ImGui.TextUnformatted(string.Empty);
+                            ImGui.NextColumn();
+                            ImGui.Separator();
+                            for (int i = 0; i < list.Count; i++)
+                            {
+                                var entry = list[i];
+                                if (entry.Days != 0) continue;
+                                var name = entry.User.Username ?? string.Empty;
+                                var birthday = entry.User.Birthday.HasValue ? entry.User.Birthday.Value.UtcDateTime.ToString("MMM dd", CultureInfo.InvariantCulture) : "—";
+                                var nextLabel = "Today";
+                                ImGui.PushStyleColor(ImGuiCol.Text, todayColor);
+                                ImGui.TextUnformatted(name);
+                                ImGui.NextColumn();
+                                ImGui.TextUnformatted(birthday);
+                                ImGui.NextColumn();
+                                ImGui.TextUnformatted(nextLabel);
+                                ImGui.NextColumn();
+                                ImGui.PopStyleColor();
+                            }
+                        }
+                        if (hasUpcoming)
+                        {
+                            if (hasToday) ImGui.Separator();
+                            ImGui.PushStyleColor(ImGuiCol.Text, headerColor);
+                            ImGui.TextUnformatted("Upcoming");
+                            ImGui.PopStyleColor();
+                            ImGui.NextColumn();
+                            ImGui.TextUnformatted(string.Empty);
+                            ImGui.NextColumn();
+                            ImGui.TextUnformatted(string.Empty);
+                            ImGui.NextColumn();
+                            ImGui.Separator();
+                            for (int i = 0; i < list.Count; i++)
+                            {
+                                var entry = list[i];
+                                if (entry.Days == 0) continue;
+                                var name = entry.User.Username ?? string.Empty;
+                                var birthday = entry.User.Birthday.HasValue ? entry.User.Birthday.Value.UtcDateTime.ToString("MMM dd", CultureInfo.InvariantCulture) : "—";
+                                var nextLabel = entry.Days == 1 ? "Tomorrow" : $"{entry.Next.ToString("MMM dd", CultureInfo.InvariantCulture)} ({entry.Days}d)";
+                                bool useColor = entry.Days <= 7;
+                                if (useColor) ImGui.PushStyleColor(ImGuiCol.Text, soonColor);
+                                ImGui.TextUnformatted(name);
+                                ImGui.NextColumn();
+                                ImGui.TextUnformatted(birthday);
+                                ImGui.NextColumn();
+                                ImGui.TextUnformatted(nextLabel);
+                                ImGui.NextColumn();
+                                if (useColor) ImGui.PopStyleColor();
+                            }
+                        }
+                        ImGui.Columns(1);
+                    }
+                    ImGui.EndChild();
+                    ImGui.EndTabItem();
+                }
+            }
+            if (_app.HasStaffSession)
+            {
                 if (ImGui.BeginTabItem("DJs"))
                 {
                     ImGui.BeginChild("DjsTabContent", new Vector2(0, ImGui.GetContentRegionAvail().Y), false);
@@ -689,6 +856,17 @@ public sealed class VenuePlusWindow : Window, IDisposable
         _joinClubModal.Draw(_app);
         _addVip.Draw(_app);
         
+    }
+
+    private void TriggerBirthdayRefresh()
+    {
+        _birthdayStatus = "Refreshing...";
+        System.Threading.Tasks.Task.Run(async () =>
+        {
+            var list = await _app.FetchStaffUsersDetailedAsync();
+            _birthdayUsers = list ?? Array.Empty<VenuePlus.State.StaffUser>();
+            _birthdayStatus = string.Empty;
+        });
     }
 
     private void OnAutoLoginResult(bool adminOk, bool staffOk)
@@ -742,6 +920,8 @@ public sealed class VenuePlusWindow : Window, IDisposable
     {
         _staffList.SetUsersFromServer(_app, users);
         _statsStaffCount = users?.Length ?? 0;
+        _birthdayUsers = users ?? Array.Empty<VenuePlus.State.StaffUser>();
+        _birthdayLastRefresh = System.DateTimeOffset.UtcNow;
         var online = 0;
         var arr = users ?? Array.Empty<VenuePlus.State.StaffUser>();
         for (int i = 0; i < arr.Length; i++)

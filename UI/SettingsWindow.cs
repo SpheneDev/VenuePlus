@@ -1,4 +1,6 @@
+using System;
 using System.Numerics;
+using System.Globalization;
 using Dalamud.Bindings.ImGui;
 using Dalamud.Interface.Windowing;
 using VenuePlus.Plugin;
@@ -19,6 +21,13 @@ public sealed class SettingsWindow : Window, System.IDisposable
     private string _staffPassStatus = string.Empty;
     private string _recoveryCode = string.Empty;
     private string _recoveryStatus = string.Empty;
+    private string _birthdayInput = string.Empty;
+    private string _birthdayStatus = string.Empty;
+    private System.DateTimeOffset? _birthdaySnapshot;
+    private bool _birthdayDirty;
+    private int _birthdayMonth = 1;
+    private int _birthdayDay = 1;
+    private string _birthdayYearInput = string.Empty;
     private readonly Dalamud.Plugin.Services.ITextureProvider _textureProvider;
     private Dalamud.Interface.Textures.TextureWraps.IDalamudTextureWrap? _aboutTex;
     private bool _aboutRequested;
@@ -230,6 +239,150 @@ public sealed class SettingsWindow : Window, System.IDisposable
         ImGui.PopFont();
         ImGui.Columns(1);
         ImGui.Separator();
+        ImGui.Spacing();
+        var currentBirthday = _app.CurrentStaffBirthday;
+        if (!_birthdayDirty && _birthdaySnapshot != currentBirthday)
+        {
+            _birthdaySnapshot = currentBirthday;
+            if (currentBirthday.HasValue)
+            {
+                var bday = currentBirthday.Value.UtcDateTime;
+                _birthdayMonth = bday.Month;
+                _birthdayDay = bday.Day;
+                _birthdayYearInput = bday.Year == 2000 ? string.Empty : bday.Year.ToString(CultureInfo.InvariantCulture);
+                _birthdayInput = bday.Year == 2000
+                    ? bday.ToString("MM-dd", CultureInfo.InvariantCulture)
+                    : bday.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+            }
+            else
+            {
+                var now = DateTime.UtcNow;
+                _birthdayMonth = now.Month;
+                _birthdayDay = now.Day;
+                _birthdayYearInput = string.Empty;
+                _birthdayInput = string.Empty;
+            }
+        }
+        ImGui.TextDisabled("Profile");
+        ImGui.SameLine();
+        DrawHelpIcon("Set your birthday to show in staff lists.");
+        ImGui.Spacing();
+        ImGui.TextDisabled("Select day and month. Year is optional.");
+        ImGui.Spacing();
+        var monthNames = new[]
+        {
+            "January", "February", "March", "April", "May", "June",
+            "July", "August", "September", "October", "November", "December"
+        };
+        var monthIndex = _birthdayMonth - 1;
+        if (monthIndex < 0) monthIndex = 0;
+        if (monthIndex > 11) monthIndex = 11;
+        ImGui.PushItemWidth(140f);
+        if (ImGui.Combo("##birthday_month", ref monthIndex, monthNames, monthNames.Length))
+        {
+            _birthdayMonth = monthIndex + 1;
+            _birthdayDirty = true;
+        }
+        ImGui.PopItemWidth();
+        ImGui.SameLine();
+        var yearForDays = 2000;
+        if (!string.IsNullOrWhiteSpace(_birthdayYearInput) && int.TryParse(_birthdayYearInput, out var parsedYear) && parsedYear >= 1 && parsedYear <= 9999)
+        {
+            yearForDays = parsedYear;
+        }
+        var maxDay = DateTime.DaysInMonth(yearForDays, _birthdayMonth);
+        if (_birthdayDay > maxDay) _birthdayDay = maxDay;
+        if (_birthdayDay < 1) _birthdayDay = 1;
+        var dayLabels = new string[maxDay];
+        for (int i = 0; i < maxDay; i++) dayLabels[i] = (i + 1).ToString(CultureInfo.InvariantCulture);
+        var dayIndex = _birthdayDay - 1;
+        ImGui.PushItemWidth(90f);
+        if (ImGui.Combo("##birthday_day", ref dayIndex, dayLabels, dayLabels.Length))
+        {
+            _birthdayDay = dayIndex + 1;
+            _birthdayDirty = true;
+        }
+        ImGui.PopItemWidth();
+        ImGui.SameLine();
+        ImGui.PushItemWidth(80f);
+        var yearText = _birthdayYearInput;
+        if (ImGui.InputTextWithHint("##birthday_year", "Year", ref yearText, 4))
+        {
+            _birthdayYearInput = yearText;
+            _birthdayDirty = true;
+        }
+        ImGui.PopItemWidth();
+        ImGui.SameLine();
+        if (ImGui.Button("Save Birthday"))
+        {
+            _birthdayStatus = "Submitting...";
+            System.Threading.Tasks.Task.Run(async () =>
+            {
+                System.DateTimeOffset? bday = null;
+                var yearTextLocal = _birthdayYearInput?.Trim() ?? string.Empty;
+                var yearValue = 2000;
+                if (!string.IsNullOrWhiteSpace(yearTextLocal))
+                {
+                    if (!int.TryParse(yearTextLocal, out yearValue) || yearValue < 1 || yearValue > 9999)
+                    {
+                        _birthdayStatus = "Invalid year. Use 1 to 9999 or leave empty.";
+                        return;
+                    }
+                }
+                try
+                {
+                    var normalized = new DateTime(yearValue, _birthdayMonth, _birthdayDay, 0, 0, 0, DateTimeKind.Utc);
+                    bday = new System.DateTimeOffset(normalized, TimeSpan.Zero);
+                }
+                catch
+                {
+                    _birthdayStatus = "Invalid date.";
+                    return;
+                }
+                var ok = await _app.SetSelfBirthdayAsync(bday);
+                _birthdayStatus = ok ? "Birthday updated" : "Update failed";
+                if (ok)
+                {
+                    _birthdayDirty = false;
+                    _birthdaySnapshot = bday;
+                    if (bday.HasValue)
+                    {
+                        var bdayVal = bday.Value.UtcDateTime;
+                        _birthdayMonth = bdayVal.Month;
+                        _birthdayDay = bdayVal.Day;
+                        _birthdayYearInput = bdayVal.Year == 2000 ? string.Empty : bdayVal.Year.ToString(CultureInfo.InvariantCulture);
+                        _birthdayInput = bdayVal.Year == 2000
+                            ? bdayVal.ToString("MM-dd", CultureInfo.InvariantCulture)
+                            : bdayVal.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+                    }
+                    else
+                    {
+                        _birthdayInput = string.Empty;
+                    }
+                }
+            });
+        }
+        ImGui.SameLine();
+        if (ImGui.Button("Clear Birthday"))
+        {
+            _birthdayStatus = "Submitting...";
+            System.Threading.Tasks.Task.Run(async () =>
+            {
+                var ok = await _app.SetSelfBirthdayAsync(null);
+                _birthdayStatus = ok ? "Birthday cleared" : "Update failed";
+                if (ok)
+                {
+                    _birthdayDirty = false;
+                    _birthdaySnapshot = null;
+                    _birthdayInput = string.Empty;
+                    var now = DateTime.UtcNow;
+                    _birthdayMonth = now.Month;
+                    _birthdayDay = now.Day;
+                    _birthdayYearInput = string.Empty;
+                }
+            });
+        }
+        if (!string.IsNullOrEmpty(_birthdayStatus)) ImGui.TextUnformatted(_birthdayStatus);
         ImGui.Spacing();
         ImGui.TextDisabled("Security");
         ImGui.SameLine();

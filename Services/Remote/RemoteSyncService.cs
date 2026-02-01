@@ -86,6 +86,8 @@ public sealed class RemoteSyncService : IDisposable
     private TaskCompletionSource<System.Collections.Generic.Dictionary<string, JobRightsInfo>?>? _pendingJobRightsTcs;
     private TaskCompletionSource<(string Job, System.Collections.Generic.Dictionary<string, bool>)?>? _pendingSelfRightsTcs;
     private TaskCompletionSource<(string Username, string Uid)?>? _pendingSelfProfileTcs;
+    private TaskCompletionSource<DateTimeOffset?>? _pendingSelfBirthdayTcs;
+    private TaskCompletionSource<bool>? _pendingSelfBirthdaySetTcs;
     private TaskCompletionSource<bool?>? _pendingUserExistsTcs;
     private TaskCompletionSource<string?>? _pendingLoginTcs;
     private readonly System.Collections.Concurrent.ConcurrentDictionary<string, TaskCompletionSource<string?>> _pendingClubLogoForByClub = new(System.StringComparer.Ordinal);
@@ -1106,6 +1108,50 @@ public sealed class RemoteSyncService : IDisposable
         return null;
     }
 
+    public async Task<DateTimeOffset?> GetSelfBirthdayAsync(string staffSession)
+    {
+        if (_useWebSocket && _ws != null && _ws.State == WebSocketState.Open)
+        {
+            try
+            {
+                var tcs = new TaskCompletionSource<DateTimeOffset?>();
+                _pendingSelfBirthdayTcs = tcs;
+                var payload = JsonSerializer.Serialize(new { type = "user.self.birthday.request", token = staffSession });
+                var seg = new ArraySegment<byte>(Encoding.UTF8.GetBytes(payload));
+                await _ws.SendAsync(seg, WebSocketMessageType.Text, true, CancellationToken.None);
+                using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(6));
+                await Task.WhenAny(tcs.Task, Task.Delay(Timeout.Infinite, cts.Token)).ConfigureAwait(false);
+                var res = tcs.Task.IsCompleted ? tcs.Task.Result : null;
+                _pendingSelfBirthdayTcs = null;
+                return res;
+            }
+            catch (Exception ex) { _log?.Debug($"WS self birthday failed: {ex.Message}"); _pendingSelfBirthdayTcs = null; return null; }
+        }
+        return null;
+    }
+
+    public async Task<bool> SetSelfBirthdayAsync(DateTimeOffset? birthday, string staffSession)
+    {
+        if (_useWebSocket && _ws != null && _ws.State == WebSocketState.Open)
+        {
+            try
+            {
+                var tcs = new TaskCompletionSource<bool>();
+                _pendingSelfBirthdaySetTcs = tcs;
+                var payload = JsonSerializer.Serialize(new { type = "user.self.birthday.set", token = staffSession, birthday });
+                var seg = new ArraySegment<byte>(Encoding.UTF8.GetBytes(payload));
+                await _ws.SendAsync(seg, WebSocketMessageType.Text, true, CancellationToken.None);
+                using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(6));
+                await Task.WhenAny(tcs.Task, Task.Delay(Timeout.Infinite, cts.Token)).ConfigureAwait(false);
+                var ok = tcs.Task.IsCompleted && tcs.Task.Result;
+                _pendingSelfBirthdaySetTcs = null;
+                return ok;
+            }
+            catch (Exception ex) { _log?.Debug($"WS self birthday set failed: {ex.Message}"); _pendingSelfBirthdaySetTcs = null; return false; }
+        }
+        return false;
+    }
+
 
     public async Task<bool> UpdateJobRightsAsync(string name, JobRightsInfo rights, string staffSession)
     {
@@ -1450,6 +1496,26 @@ public sealed class RemoteSyncService : IDisposable
                         try { if (root.TryGetProperty("message", out var m)) _lastErrorMessage = m.GetString(); } catch { }
                         _pendingSelfPasswordTcs?.TrySetResult(false);
                         _pendingSelfPasswordTcs = null;
+                    }
+                    else if (type == "user.self.birthday")
+                    {
+                        DateTimeOffset? birthday = null;
+                        if (root.TryGetProperty("birthday", out var b))
+                        {
+                            if (b.ValueKind == JsonValueKind.String && DateTimeOffset.TryParse(b.GetString(), out var dt)) birthday = dt;
+                        }
+                        _pendingSelfBirthdayTcs?.TrySetResult(birthday);
+                        _pendingSelfBirthdayTcs = null;
+                    }
+                    else if (type == "user.self.birthday.ok")
+                    {
+                        _pendingSelfBirthdaySetTcs?.TrySetResult(true);
+                        _pendingSelfBirthdaySetTcs = null;
+                    }
+                    else if (type == "user.self.birthday.fail")
+                    {
+                        _pendingSelfBirthdaySetTcs?.TrySetResult(false);
+                        _pendingSelfBirthdaySetTcs = null;
                     }
                     else if (type == "user.recovery.generate.ok")
                     {

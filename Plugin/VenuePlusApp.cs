@@ -33,6 +33,7 @@ public sealed class VenuePlusApp : IDisposable, IEventListener
     private string _selfJob = string.Empty;
     private string[] _selfJobs = Array.Empty<string>();
     private string? _selfUid;
+    private System.DateTimeOffset? _selfBirthday;
     private bool _disposed;
     private VenuePlus.Services.NotificationService? _notifier;
     private static readonly string RemoteBaseUrlConst = GetRemoteBaseUrl();
@@ -1647,6 +1648,7 @@ public sealed class VenuePlusApp : IDisposable, IEventListener
             try { await _remote.RequestShiftSnapshotAsync(_staffToken); } catch { }
         }
         _selfUid = result.SelfUid ?? _selfUid;
+        _selfBirthday = result.SelfBirthday ?? _selfBirthday;
         _myClubs = result.MyClubs ?? _myClubs;
         _myCreatedClubs = result.MyCreatedClubs ?? _myCreatedClubs;
         _clubListsLoaded = (_myClubs != null) || (_myCreatedClubs != null);
@@ -1688,6 +1690,14 @@ public sealed class VenuePlusApp : IDisposable, IEventListener
     {
         if (!_isPowerStaff || string.IsNullOrWhiteSpace(_staffToken)) return false;
         return await _accessService.StaffSetOwnPasswordAsync(newPassword, _staffToken!);
+    }
+
+    public async System.Threading.Tasks.Task<bool> SetSelfBirthdayAsync(System.DateTimeOffset? birthday)
+    {
+        if (!_isPowerStaff || string.IsNullOrWhiteSpace(_staffToken)) return false;
+        var ok = await _remote.SetSelfBirthdayAsync(birthday, _staffToken!);
+        if (ok) _selfBirthday = birthday;
+        return ok;
     }
 
     public async System.Threading.Tasks.Task<string?> GenerateRecoveryCodeAsync()
@@ -1734,6 +1744,7 @@ public sealed class VenuePlusApp : IDisposable, IEventListener
         _accessLoading = false;
         _autoLoginAttempted = false;
         _selfUid = null;
+        _selfBirthday = null;
         _vipService.SetActiveClub(null);
         _djService.Clear();
         _shiftService.Clear();
@@ -2040,6 +2051,13 @@ public sealed class VenuePlusApp : IDisposable, IEventListener
         return det;
     }
 
+    public async System.Threading.Tasks.Task<VenuePlus.State.StaffUser[]?> FetchStaffUsersDetailedAsync()
+    {
+        var staffSess = _staffToken ?? string.Empty;
+        if (string.IsNullOrWhiteSpace(staffSess)) return null;
+        return await _remote.ListUsersDetailedAsync(staffSess);
+    }
+
     public async System.Threading.Tasks.Task<System.Collections.Generic.Dictionary<string, JobRightsInfo>?> ListJobRightsAsync()
     {
         var sess = _staffToken ?? string.Empty;
@@ -2055,6 +2073,7 @@ public sealed class VenuePlusApp : IDisposable, IEventListener
     }
 
     public string? CurrentStaffUid => _selfUid;
+    public System.DateTimeOffset? CurrentStaffBirthday => _selfBirthday;
 
     public async System.Threading.Tasks.Task<bool> UpdateJobRightsAsync(string name, bool addVip, bool removeVip, bool manageUsers, bool manageJobs, bool editVipDuration, bool addDj, bool removeDj, bool editShiftPlan, string colorHex = "#FFFFFF", string iconKey = "User", int rank = 1)
     {
@@ -2398,17 +2417,20 @@ public sealed class VenuePlusApp : IDisposable, IEventListener
                     }
                     if (!string.IsNullOrWhiteSpace(_staffToken))
                     {
-                        if (!_remote.RemoteUseWebSocket)
+                        if (_remote.RemoteUseWebSocket)
                         {
+                            try { await _remote.ListUsersDetailedAsync(_staffToken!); } catch { }
+                        }
+                        else
+                        {
+                            var det = await _remote.ListUsersDetailedAsync(_staffToken!);
+                            if (det != null) OnUsersDetailsReceived(det);
                             var rights = await _remote.GetSelfRightsAsync(_staffToken!);
                             if (rights.HasValue)
                             {
                                 _selfJob = rights.Value.Job;
                                 _selfRights = rights.Value.Rights ?? new System.Collections.Generic.Dictionary<string, bool>();
                             }
-                        }
-                        if (!_remote.RemoteUseWebSocket)
-                        {
                             var logo = await _remote.GetClubLogoAsync(_staffToken!);
                             _clubService.SetCurrentClubLogo(clubId, logo);
                             try { ClubLogoChanged?.Invoke(logo); } catch { }
@@ -2665,13 +2687,14 @@ public sealed class VenuePlusApp : IDisposable, IEventListener
                     _selfJob = GetPrimaryJob(_jobRightsCache, jobsSelf);
                     var uidCandidate = det[i].Uid;
                     _selfUid = string.IsNullOrWhiteSpace(uidCandidate) ? _selfUid : uidCandidate;
+                    _selfBirthday = det[i].Birthday;
                     EnsureSelfRights();
                     break;
                 }
             }
         }
         var incoming = det ?? Array.Empty<VenuePlus.State.StaffUser>();
-        var ordered = incoming.OrderBy(u => u.Username, System.StringComparer.Ordinal).Select(u => (u.Username ?? string.Empty) + "#" + (u.Job ?? string.Empty) + "#" + (u.Uid ?? string.Empty) + "#" + (u.IsOnline ? "1" : "0")).ToArray();
+        var ordered = incoming.OrderBy(u => u.Username, System.StringComparer.Ordinal).Select(u => (u.Username ?? string.Empty) + "#" + (u.Job ?? string.Empty) + "#" + (u.Uid ?? string.Empty) + "#" + (u.IsOnline ? "1" : "0") + "#" + (u.Birthday.HasValue ? u.Birthday.Value.UtcDateTime.Ticks.ToString() : "0")).ToArray();
         var fp = string.Join("|", ordered);
         if (!string.Equals(_usersDetailsFingerprint, fp, System.StringComparison.Ordinal))
         {

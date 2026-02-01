@@ -234,6 +234,7 @@ internal sealed class AccessService
         public string Token { get; init; } = string.Empty;
         public string Username { get; init; } = string.Empty;
         public string? SelfUid { get; init; }
+        public DateTimeOffset? SelfBirthday { get; init; }
         public string[]? MyClubs { get; init; }
         public string[]? MyCreatedClubs { get; init; }
         public System.Collections.Generic.Dictionary<string, JobRightsInfo>? JobRightsCache { get; init; }
@@ -255,6 +256,7 @@ internal sealed class AccessService
         if (!string.IsNullOrWhiteSpace(currentCharacterKey)) _pluginConfigService.Current.ProfilesByCharacter.TryGetValue(currentCharacterKey, out profAuto);
         var clubPref = (!string.IsNullOrWhiteSpace(currentCharacterKey) && profAuto != null) ? profAuto.RemoteClubId : _pluginConfigService.Current.RemoteClubId;
         string? selfUid = null;
+        DateTimeOffset? selfBirthday = null;
         string[]? myClubs = null;
         string[]? myCreated = null;
         System.Collections.Generic.Dictionary<string, JobRightsInfo>? jobRights = null;
@@ -275,11 +277,12 @@ internal sealed class AccessService
             {
                 var tRights = _remote.GetSelfRightsAsync(token);
                 var tProfile = _remote.GetSelfProfileAsync(token);
+                var tBirthday = _remote.GetSelfBirthdayAsync(token);
                 var tJobRights = _remote.ListJobRightsAsync(token);
                 var tUsersDet = _remote.ListUsersDetailedAsync(token);
                 var tMyClubs = _remote.ListUserClubsAsync(token);
                 var tMyCreated = _remote.ListCreatedClubsAsync(token);
-                try { await System.Threading.Tasks.Task.WhenAll(new System.Threading.Tasks.Task[] { tRights, tProfile, tJobRights, tUsersDet, tMyClubs, tMyCreated }); } catch { }
+                try { await System.Threading.Tasks.Task.WhenAll(new System.Threading.Tasks.Task[] { tRights, tProfile, tBirthday, tJobRights, tUsersDet, tMyClubs, tMyCreated }); } catch { }
                 try
                 {
                     var r = tRights.IsCompleted ? tRights.Result : (System.ValueTuple<string, System.Collections.Generic.Dictionary<string, bool>>?)null;
@@ -299,6 +302,7 @@ internal sealed class AccessService
                     }
                 }
                 catch { }
+                try { selfBirthday = tBirthday.IsCompleted ? tBirthday.Result : selfBirthday; } catch { }
                 try { jobRights = tJobRights.IsCompleted ? (tJobRights.Result ?? jobRights) : jobRights; } catch { }
                 try { usersDet = tUsersDet.IsCompleted ? tUsersDet.Result : usersDet; } catch { }
                 try { myClubs = tMyClubs.IsCompleted ? tMyClubs.Result : myClubs; } catch { }
@@ -337,6 +341,7 @@ internal sealed class AccessService
             Token = token,
             Username = usernameFinal,
             SelfUid = selfUid,
+            SelfBirthday = selfBirthday,
             MyClubs = myClubs,
             MyCreatedClubs = myCreated,
             JobRightsCache = jobRights,
