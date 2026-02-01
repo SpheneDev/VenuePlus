@@ -478,23 +478,72 @@ public sealed class VenuePlusWindow : Window, IDisposable
             ImGui.BeginGroup();
             var accessR = _app.AccessLoading ? "Loading..." : (_app.IsOwnerCurrentClub ? "Owner" : (_app.IsPowerStaff ? "Staff" : "Guest"));
             ImGui.TextUnformatted($"Access: {accessR}");
-            var jobR = string.IsNullOrWhiteSpace(_app.CurrentStaffJob) ? string.Empty : _app.CurrentStaffJob;
-            if (!string.IsNullOrWhiteSpace(jobR))
+            var jobsR = _app.CurrentStaffJobs;
+            if (jobsR != null && jobsR.Length > 0)
             {
                 ImGui.TextUnformatted("Job:");
                 ImGui.SameLine();
                 var rightsR = _app.GetJobRightsCache();
-                if (rightsR != null && rightsR.TryGetValue(jobR, out var infoR))
+                var defaultColor = ImGui.GetColorU32(ImGuiCol.Text);
+                var hasNonUnassigned = false;
+                for (int i = 0; i < jobsR.Length; i++)
                 {
-                    var colR = VenuePlus.Helpers.ColorUtil.HexToU32(infoR.ColorHex);
-                    var iconR = VenuePlus.Helpers.IconDraw.ParseIcon(infoR.IconKey);
-                    VenuePlus.Helpers.IconDraw.IconText(iconR, 0.9f, colR);
-                    ImGui.SameLine();
-                    ImGui.TextUnformatted(jobR);
+                    if (!string.Equals(jobsR[i], "Unassigned", StringComparison.Ordinal)) { hasNonUnassigned = true; break; }
                 }
-                else
+                string[] jobsToShow = jobsR;
+                if (hasNonUnassigned)
                 {
-                    ImGui.TextUnformatted(jobR);
+                    var count = 0;
+                    for (int i = 0; i < jobsR.Length; i++) { if (!string.Equals(jobsR[i], "Unassigned", StringComparison.Ordinal)) count++; }
+                    if (count > 0 && count != jobsR.Length)
+                    {
+                        var filtered = new string[count];
+                        var idx = 0;
+                        for (int i = 0; i < jobsR.Length; i++)
+                        {
+                            var j = jobsR[i];
+                            if (!string.Equals(j, "Unassigned", StringComparison.Ordinal)) { filtered[idx] = j; idx++; }
+                        }
+                        jobsToShow = filtered;
+                    }
+                }
+                if (rightsR != null && jobsToShow.Length > 1)
+                {
+                    var sortArr = new string[jobsToShow.Length];
+                    Array.Copy(jobsToShow, sortArr, jobsToShow.Length);
+                    Array.Sort(sortArr, (a, b) =>
+                    {
+                        var ra = 0;
+                        var rb = 0;
+                        if (!string.IsNullOrWhiteSpace(a) && rightsR.TryGetValue(a, out var infoA)) ra = infoA.Rank;
+                        else if (string.Equals(a, "Owner", StringComparison.Ordinal)) ra = 10;
+                        else if (string.Equals(a, "Unassigned", StringComparison.Ordinal)) ra = 0;
+                        if (!string.IsNullOrWhiteSpace(b) && rightsR.TryGetValue(b, out var infoB)) rb = infoB.Rank;
+                        else if (string.Equals(b, "Owner", StringComparison.Ordinal)) rb = 10;
+                        else if (string.Equals(b, "Unassigned", StringComparison.Ordinal)) rb = 0;
+                        var cmp = rb.CompareTo(ra);
+                        if (cmp != 0) return cmp;
+                        return string.Compare(a, b, StringComparison.OrdinalIgnoreCase);
+                    });
+                    jobsToShow = sortArr;
+                }
+                var first = true;
+                for (int i = 0; i < jobsToShow.Length; i++)
+                {
+                    var job = jobsToShow[i];
+                    if (!first) ImGui.SameLine();
+                    first = false;
+                    VenuePlus.State.JobRightsInfo? infoR = null;
+                    var hasInfo = rightsR != null && rightsR.TryGetValue(job, out infoR);
+                    var colR = hasInfo && infoR != null ? ColorUtil.HexToU32(infoR.ColorHex) : defaultColor;
+                    var iconR = hasInfo && infoR != null ? IconDraw.ParseIcon(infoR.IconKey) : FontAwesomeIcon.User;
+                    IconDraw.IconText(iconR, 0.9f, colR);
+                    if (ImGui.IsItemHovered())
+                    {
+                        ImGui.BeginTooltip();
+                        ImGui.TextUnformatted(job);
+                        ImGui.EndTooltip();
+                    }
                 }
             }
             else
@@ -694,9 +743,9 @@ public sealed class VenuePlusWindow : Window, IDisposable
         _statsStaffCount = users?.Length ?? 0;
     }
 
-    private void OnUserJobUpdated(string username, string job)
+    private void OnUserJobUpdated(string username, string job, string[] jobs)
     {
-        _staffList.ApplyUserJobUpdate(_app, username, job);
+        _staffList.ApplyUserJobUpdate(_app, username, job, jobs);
     }
 
     private void OnJobsChangedPanel(string[] jobs)

@@ -20,11 +20,10 @@ internal sealed class EventBindings
     public Action<Dictionary<string, JobRightsInfo>> JobRightsReceived { get; init; } = _ => { };
     public Action<string[]> UsersListReceived { get; init; } = _ => { };
     public Action<StaffUser[]> UsersDetailsReceived { get; init; } = _ => { };
-    public Action<string, string> UserJobUpdated { get; init; } = (_, _) => { };
+    public Action<string, string, string[]> UserJobUpdated { get; init; } = (_, _, _) => { };
     public Action<string, string> OwnerAccessChanged { get; init; } = (_, _) => { };
     public Action<string, string> MembershipRemoved { get; init; } = (_, _) => { };
     public Action<string, string> MembershipAdded { get; init; } = (_, _) => { };
     public Action<string?> ClubLogoReceived { get; init; } = _ => { };
     public Action<bool> ConnectionChanged { get; init; } = _ => { };
 }
-

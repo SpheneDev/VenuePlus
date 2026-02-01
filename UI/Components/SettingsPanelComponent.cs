@@ -25,10 +25,9 @@ public sealed class SettingsPanelComponent
     private string _joinPassword = string.Empty;
     private string _joinPasswordStatus = string.Empty;
     private string _inviteUid = string.Empty;
-    private string _inviteJob = string.Empty;
     private string _inviteStatus = string.Empty;
     private string[] _jobOptions = System.Array.Empty<string>();
-    private string _inviteJobSelected = "Unassigned";
+    private readonly System.Collections.Generic.HashSet<string> _inviteJobsSelected = new(System.StringComparer.Ordinal);
 
     public void Draw(VenuePlusApp app)
     {
@@ -145,7 +144,7 @@ public sealed class SettingsPanelComponent
             ImGui.InputTextWithHint("##invite_uid", "Target UID", ref _inviteUid, 24);
             ImGui.PopItemWidth();
             ImGui.SameLine();
-            var currentJob = string.IsNullOrWhiteSpace(_inviteJobSelected) ? "Unassigned" : _inviteJobSelected;
+            var currentJob = FormatJobs(NormalizeJobs(_inviteJobsSelected));
             ImGui.PushItemWidth(150f);
             if (ImGui.BeginCombo("##invite_job_select", currentJob))
             {
@@ -160,8 +159,13 @@ public sealed class SettingsPanelComponent
                         VenuePlus.Helpers.IconDraw.IconText(icon2, 0.9f, col2);
                         ImGui.SameLine();
                     }
-                    bool selected = string.Equals(currentJob, name, System.StringComparison.Ordinal);
-                    if (ImGui.Selectable(name, selected)) _inviteJobSelected = name;
+                    bool selected = _inviteJobsSelected.Contains(name);
+                    if (ImGui.Selectable(name, selected, ImGuiSelectableFlags.DontClosePopups))
+                    {
+                        if (selected) _inviteJobsSelected.Remove(name);
+                        else _inviteJobsSelected.Add(name);
+                        NormalizeJobSet(_inviteJobsSelected);
+                    }
                     if (selected) ImGui.SetItemDefaultFocus();
                 }
                 ImGui.EndCombo();
@@ -172,12 +176,18 @@ public sealed class SettingsPanelComponent
             if (ImGui.Button("Invite"))
             {
                 _inviteStatus = "Submitting...";
-                var uid = _inviteUid; var jobSel = string.IsNullOrWhiteSpace(_inviteJobSelected) ? "Unassigned" : _inviteJobSelected;
+                var uid = _inviteUid;
+                var jobsSel = NormalizeJobs(_inviteJobsSelected);
                 System.Threading.Tasks.Task.Run(async () =>
                 {
-                    var ok = await app.InviteStaffByUidAsync(uid, jobSel);
+                    var ok = await app.InviteStaffByUidAsync(uid, jobsSel);
                     _inviteStatus = ok ? "Invitation sent" : (app.GetLastServerMessage() ?? "Invite failed");
-                    if (ok) { _inviteUid = string.Empty; _inviteJobSelected = "Unassigned"; }
+                    if (ok)
+                    {
+                        _inviteUid = string.Empty;
+                        _inviteJobsSelected.Clear();
+                        _inviteJobsSelected.Add("Unassigned");
+                    }
                 });
             }
             ImGui.EndDisabled();
@@ -189,6 +199,52 @@ public sealed class SettingsPanelComponent
     {
         if (jobs != null && jobs.Length > 0) _jobOptions = System.Linq.Enumerable.ToArray(System.Linq.Enumerable.Distinct(jobs, System.StringComparer.Ordinal));
         if (_jobOptions.Length == 0) _jobOptions = new[] { "Unassigned" };
+        NormalizeJobSet(_inviteJobsSelected);
+    }
+
+    private static void NormalizeJobSet(System.Collections.Generic.HashSet<string> set)
+    {
+        if (set.Count == 0)
+        {
+            set.Add("Unassigned");
+            return;
+        }
+        if (set.Contains("Unassigned") && set.Count > 1) set.Remove("Unassigned");
+    }
+
+    private static string[] NormalizeJobs(System.Collections.Generic.HashSet<string> jobs)
+    {
+        var set = new System.Collections.Generic.HashSet<string>(System.StringComparer.Ordinal);
+        foreach (var job in jobs)
+        {
+            if (string.IsNullOrWhiteSpace(job)) continue;
+            set.Add(job);
+        }
+        if (set.Count == 0) set.Add("Unassigned");
+        var arr = new string[set.Count];
+        int idx = 0;
+        foreach (var j in set)
+        {
+            arr[idx] = j;
+            idx++;
+        }
+        System.Array.Sort(arr, System.StringComparer.Ordinal);
+        return arr;
+    }
+
+    private static string FormatJobs(string[] jobs)
+    {
+        if (jobs.Length == 0) return "Unassigned";
+        if (jobs.Length == 1) return jobs[0];
+        var total = 0;
+        for (int i = 0; i < jobs.Length; i++) total += jobs[i].Length + 2;
+        var sb = new System.Text.StringBuilder(total);
+        for (int i = 0; i < jobs.Length; i++)
+        {
+            if (i > 0) sb.Append(", ");
+            sb.Append(jobs[i]);
+        }
+        return sb.ToString();
     }
 
     private void DrawClubLogo(VenuePlusApp app)

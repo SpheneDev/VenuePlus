@@ -39,7 +39,7 @@ public sealed class RemoteSyncService : IDisposable
     public event Action<System.Collections.Generic.Dictionary<string, JobRightsInfo>>? JobRightsReceived;
     public event Action<string[]>? UsersListReceived;
     public event Action<VenuePlus.State.StaffUser[]>? UsersDetailsReceived;
-    public event Action<string, string>? UserJobUpdated;
+    public event Action<string, string, string[]>? UserJobUpdated;
     public event Action<string, string>? MembershipRemoved;
     public event Action<string, string>? MembershipAdded;
     public event Action<string, string>? OwnerAccessChanged;
@@ -631,7 +631,7 @@ public sealed class RemoteSyncService : IDisposable
         return false;
     }
 
-    public async Task<bool> InviteStaffByUidAsync(string targetUid, string? job, string staffSession)
+    public async Task<bool> InviteStaffByUidAsync(string targetUid, string[] jobs, string staffSession)
     {
         if (_useWebSocket && _ws != null && _ws.State == WebSocketState.Open)
         {
@@ -640,7 +640,8 @@ public sealed class RemoteSyncService : IDisposable
                 var tcs = new TaskCompletionSource<bool>();
                 _pendingInviteStaffTcs = tcs;
                 var uidTrim = (targetUid ?? string.Empty).Trim();
-                var msgInvite = JsonSerializer.Serialize(new { type = "club.invite", token = staffSession, targetUid = uidTrim, job });
+                var jobsSend = NormalizeJobs(jobs, null);
+                var msgInvite = JsonSerializer.Serialize(new { type = "club.invite", token = staffSession, targetUid = uidTrim, jobs = jobsSend });
                 var seg = new ArraySegment<byte>(Encoding.UTF8.GetBytes(msgInvite));
                 await _ws.SendAsync(seg, WebSocketMessageType.Text, true, CancellationToken.None);
                 using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(6));
@@ -657,6 +658,12 @@ public sealed class RemoteSyncService : IDisposable
             }
         }
         return false;
+    }
+
+    public Task<bool> InviteStaffByUidAsync(string targetUid, string? job, string staffSession)
+    {
+        var jobs = NormalizeJobs(string.IsNullOrWhiteSpace(job) ? Array.Empty<string>() : new[] { job }, null);
+        return InviteStaffByUidAsync(targetUid, jobs, staffSession);
     }
 
     private string? _lastErrorMessage;
@@ -823,7 +830,46 @@ public sealed class RemoteSyncService : IDisposable
         return null;
     }
 
-    public async Task<bool> UpdateUserJobAsync(string username, string job, string staffSession)
+    private static string[] NormalizeJobs(string[]? jobs, string? fallbackJob)
+    {
+        var set = new HashSet<string>(StringComparer.Ordinal);
+        if (jobs != null)
+        {
+            for (int i = 0; i < jobs.Length; i++)
+            {
+                var j = jobs[i];
+                if (string.IsNullOrWhiteSpace(j)) continue;
+                set.Add(j);
+            }
+        }
+        if (set.Count == 0 && !string.IsNullOrWhiteSpace(fallbackJob)) set.Add(fallbackJob);
+        if (set.Count == 0) set.Add("Unassigned");
+        var arr = new string[set.Count];
+        int idx = 0;
+        foreach (var j in set)
+        {
+            arr[idx] = j;
+            idx++;
+        }
+        Array.Sort(arr, StringComparer.Ordinal);
+        return arr;
+    }
+
+    private static void NormalizeStaffUser(StaffUser user)
+    {
+        var jobs = NormalizeJobs(user.Jobs, user.Job);
+        user.Jobs = jobs;
+        if (string.IsNullOrWhiteSpace(user.Job) && jobs.Length > 0) user.Job = jobs[0];
+        if (string.Equals(user.Job, "Unassigned", StringComparison.Ordinal) && jobs.Length > 0)
+        {
+            for (int i = 0; i < jobs.Length; i++)
+            {
+                if (!string.Equals(jobs[i], "Unassigned", StringComparison.Ordinal)) { user.Job = jobs[i]; break; }
+            }
+        }
+    }
+
+    public async Task<bool> UpdateUserJobAsync(string username, string[] jobs, string staffSession)
     {
         if (_useWebSocket && _ws != null && _ws.State == WebSocketState.Open)
         {
@@ -831,7 +877,8 @@ public sealed class RemoteSyncService : IDisposable
             {
                 var tcs = new TaskCompletionSource<bool>();
                 _pendingUpdateUserJobTcs = tcs;
-                var msgUpdate = JsonSerializer.Serialize(new { type = "user.update.request", token = staffSession, username, job });
+                var jobsSend = NormalizeJobs(jobs, null);
+                var msgUpdate = JsonSerializer.Serialize(new { type = "user.update.request", token = staffSession, username, jobs = jobsSend });
                 var seg = new ArraySegment<byte>(Encoding.UTF8.GetBytes(msgUpdate));
                 await _ws.SendAsync(seg, WebSocketMessageType.Text, true, CancellationToken.None);
                 using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(6));
@@ -848,6 +895,12 @@ public sealed class RemoteSyncService : IDisposable
             }
         }
         return false;
+    }
+
+    public Task<bool> UpdateUserJobAsync(string username, string job, string staffSession)
+    {
+        var jobs = NormalizeJobs(string.IsNullOrWhiteSpace(job) ? Array.Empty<string>() : new[] { job }, null);
+        return UpdateUserJobAsync(username, jobs, staffSession);
     }
 
     public async Task<System.Collections.Generic.Dictionary<string, JobRightsInfo>?> ListJobRightsAsync(string staffSession)
@@ -1175,15 +1228,32 @@ public sealed class RemoteSyncService : IDisposable
                     else if (type == "users.details")
                     {
                         var usersEl = root.GetProperty("users");
-            var details = JsonSerializer.Deserialize<System.Collections.Generic.List<VenuePlus.State.StaffUser>>(usersEl.GetRawText(), new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.CamelCase })?.ToArray();
+                        var details = JsonSerializer.Deserialize<System.Collections.Generic.List<VenuePlus.State.StaffUser>>(usersEl.GetRawText(), new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.CamelCase })?.ToArray();
+                        if (details != null)
+                        {
+                            for (int i = 0; i < details.Length; i++)
+                            {
+                                NormalizeStaffUser(details[i]);
+                            }
+                        }
                         if (details != null) UsersDetailsReceived?.Invoke(details);
                         if (details != null) { _pendingUsersDetailsTcs?.TrySetResult(details); _pendingUsersDetailsTcs = null; }
                     }
                     else if (type == "user.update")
                     {
                         var username = root.GetProperty("username").GetString() ?? string.Empty;
-                        var job = root.GetProperty("job").GetString() ?? string.Empty;
-                        UserJobUpdated?.Invoke(username, job);
+                        var job = root.TryGetProperty("job", out var jobEl) ? (jobEl.GetString() ?? string.Empty) : string.Empty;
+                        var jobs = new List<string>();
+                        if (root.TryGetProperty("jobs", out var jobsEl) && jobsEl.ValueKind == JsonValueKind.Array)
+                        {
+                            foreach (var el in jobsEl.EnumerateArray())
+                            {
+                                var val = el.GetString();
+                                if (!string.IsNullOrWhiteSpace(val)) jobs.Add(val);
+                            }
+                        }
+                        var jobsArr = NormalizeJobs(jobs.Count == 0 ? Array.Empty<string>() : jobs.ToArray(), job);
+                        UserJobUpdated?.Invoke(username, job, jobsArr);
                     }
                     else if (type == "access.owner.changed")
                     {
@@ -1348,7 +1418,26 @@ public sealed class RemoteSyncService : IDisposable
                     }
                     else if (type == "user.self.rights")
                     {
-                        var job = root.GetProperty("job").GetString() ?? string.Empty;
+                        var job = root.TryGetProperty("job", out var jobEl) ? (jobEl.GetString() ?? string.Empty) : string.Empty;
+                        var jobs = Array.Empty<string>();
+                        if (root.TryGetProperty("jobs", out var jobsEl) && jobsEl.ValueKind == JsonValueKind.Array)
+                        {
+                            var list = new System.Collections.Generic.List<string>();
+                            foreach (var el in jobsEl.EnumerateArray())
+                            {
+                                var val = el.GetString() ?? string.Empty;
+                                if (!string.IsNullOrWhiteSpace(val)) list.Add(val);
+                            }
+                            jobs = NormalizeJobs(list.Count == 0 ? Array.Empty<string>() : list.ToArray(), job);
+                            if (string.IsNullOrWhiteSpace(job) || string.Equals(job, "Unassigned", StringComparison.Ordinal))
+                            {
+                                for (int i = 0; i < jobs.Length; i++)
+                                {
+                                    if (!string.Equals(jobs[i], "Unassigned", StringComparison.Ordinal)) { job = jobs[i]; break; }
+                                }
+                                if (string.IsNullOrWhiteSpace(job) && jobs.Length > 0) job = jobs[0];
+                            }
+                        }
                         var rightsEl = root.GetProperty("rights");
                         var dict = new System.Collections.Generic.Dictionary<string, bool>();
                         foreach (var prop in rightsEl.EnumerateObject()) dict[prop.Name] = prop.Value.GetBoolean();

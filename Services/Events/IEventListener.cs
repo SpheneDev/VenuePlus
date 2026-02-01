@@ -20,11 +20,10 @@ internal interface IEventListener
     void OnJobRightsReceived(Dictionary<string, JobRightsInfo> dict);
     void OnUsersListReceived(string[] arr);
     void OnUsersDetailsReceived(StaffUser[] det);
-    void OnUserJobUpdated(string username, string job);
+    void OnUserJobUpdated(string username, string job, string[] jobs);
     void OnOwnerAccessChanged(string owner, string clubIdEvt);
     void OnMembershipRemoved(string username, string clubIdEvt);
     void OnMembershipAdded(string username, string clubId);
     void OnClubLogoReceived(string? base64);
     void OnConnectionChanged(bool connected);
 }
-

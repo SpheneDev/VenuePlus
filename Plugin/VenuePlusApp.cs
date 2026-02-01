@@ -31,6 +31,7 @@ public sealed class VenuePlusApp : IDisposable, IEventListener
     private System.Collections.Generic.Dictionary<string, bool> _selfRights = new();
     private System.DateTimeOffset _selfRightsLastFetch;
     private string _selfJob = string.Empty;
+    private string[] _selfJobs = Array.Empty<string>();
     private string? _selfUid;
     private bool _disposed;
     private VenuePlus.Services.NotificationService? _notifier;
@@ -56,7 +57,7 @@ public sealed class VenuePlusApp : IDisposable, IEventListener
     private string? _desiredClubId;
     private bool _clubListsLoaded;
     public event Action<VenuePlus.State.StaffUser[]>? UsersDetailsChanged;
-    public event Action<string, string>? UserJobUpdatedEvt;
+    public event Action<string, string, string[]>? UserJobUpdatedEvt;
     public event Action<string[]>? JobsChanged;
     public event Action<System.Collections.Generic.Dictionary<string, JobRightsInfo>?>? JobRightsChanged;
     public event Action<bool, bool>? AutoLoginResultEvt;
@@ -348,6 +349,7 @@ public sealed class VenuePlusApp : IDisposable, IEventListener
     public bool StaffCanRemoveDj => _selfRights.TryGetValue("removeDj", out var b) && b;
     public bool StaffCanEditShiftPlan => _selfRights.TryGetValue("editShiftPlan", out var b) && b;
     public string CurrentStaffJob => _selfJob;
+    public string[] CurrentStaffJobs => _selfJobs;
     public bool AccessLoading => _accessLoading;
     public bool RememberStaffLogin
     {
@@ -1599,7 +1601,7 @@ public sealed class VenuePlusApp : IDisposable, IEventListener
         return baseName;
     }
 
-    public bool IsOwnerCurrentClub => string.Equals(_selfJob, "Owner", System.StringComparison.Ordinal);
+    public bool IsOwnerCurrentClub => HasOwner(_selfJobs) || string.Equals(_selfJob, "Owner", System.StringComparison.Ordinal);
     public string? CurrentClubLogoBase64 => _clubService.CurrentLogoBase64;
     
 
@@ -1651,6 +1653,7 @@ public sealed class VenuePlusApp : IDisposable, IEventListener
             if (!prefValid) SetClubId(cand);
         }
         _selfJob = result.SelfJob ?? _selfJob;
+        _selfJobs = NormalizeJobs(_selfJobs.Length == 0 ? (_selfJob.Length > 0 ? new[] { _selfJob } : Array.Empty<string>()) : _selfJobs, _selfJob);
         if (result.SelfRights != null) _selfRights = result.SelfRights;
         EnsureSelfRights();
         EnsureValidClubAfterListFetch();
@@ -1706,6 +1709,7 @@ public sealed class VenuePlusApp : IDisposable, IEventListener
         _selfRights = new System.Collections.Generic.Dictionary<string, bool>();
         _selfRightsLastFetch = System.DateTimeOffset.MinValue;
         _selfJob = string.Empty;
+        _selfJobs = Array.Empty<string>();
         _jobsCache = null;
         _jobRightsCache = null;
         _usersCache = null;
@@ -1810,6 +1814,46 @@ public sealed class VenuePlusApp : IDisposable, IEventListener
             ["addDj"] = r.AddDj,
             ["removeDj"] = r.RemoveDj,
             ["editShiftPlan"] = r.EditShiftPlan
+        };
+    }
+
+    private void BuildSelfRightsFromJobs(string[] jobs)
+    {
+        var rightsCache = _jobRightsCache;
+        if (rightsCache == null || jobs.Length == 0) { _selfRights = new System.Collections.Generic.Dictionary<string, bool>(); return; }
+        bool addVip = false;
+        bool removeVip = false;
+        bool manageUsers = false;
+        bool manageJobs = false;
+        bool editVipDuration = false;
+        bool addDj = false;
+        bool removeDj = false;
+        bool editShiftPlan = false;
+        for (int i = 0; i < jobs.Length; i++)
+        {
+            var job = jobs[i];
+            if (rightsCache.TryGetValue(job, out var r))
+            {
+                addVip |= r.AddVip;
+                removeVip |= r.RemoveVip;
+                manageUsers |= r.ManageUsers;
+                manageJobs |= r.ManageJobs;
+                editVipDuration |= r.EditVipDuration;
+                addDj |= r.AddDj;
+                removeDj |= r.RemoveDj;
+                editShiftPlan |= r.EditShiftPlan;
+            }
+        }
+        _selfRights = new System.Collections.Generic.Dictionary<string, bool>
+        {
+            ["addVip"] = addVip,
+            ["removeVip"] = removeVip,
+            ["manageUsers"] = manageUsers,
+            ["manageJobs"] = manageJobs,
+            ["editVipDuration"] = editVipDuration,
+            ["addDj"] = addDj,
+            ["removeDj"] = removeDj,
+            ["editShiftPlan"] = editShiftPlan
         };
     }
 
@@ -1944,9 +1988,9 @@ public sealed class VenuePlusApp : IDisposable, IEventListener
     public void EnsureSelfRights()
     {
         if (!HasStaffSession) return;
-        if (!string.IsNullOrWhiteSpace(_selfJob) && _jobRightsCache != null && _jobRightsCache.TryGetValue(_selfJob, out var r))
+        if (_jobRightsCache != null && _selfJobs.Length > 0)
         {
-            BuildSelfRightsFrom(r);
+            BuildSelfRightsFromJobs(_selfJobs);
             return;
         }
     }
@@ -2008,17 +2052,27 @@ public sealed class VenuePlusApp : IDisposable, IEventListener
         return await _remote.UpdateJobRightsAsync(name, info, sess);
     }
 
-    public async System.Threading.Tasks.Task<bool> UpdateStaffUserJobAsync(string username, string job)
+    public async System.Threading.Tasks.Task<bool> UpdateStaffUserJobsAsync(string username, string[] jobs)
     {
         var staffSess = _staffToken ?? string.Empty;
         if (string.IsNullOrWhiteSpace(staffSess)) return false;
+        var jobsNormalized = NormalizeJobs(jobs, null);
         if (!string.IsNullOrWhiteSpace(_staffUsername) && string.Equals(username, _staffUsername, System.StringComparison.Ordinal) && !IsOwnerCurrentClub)
         {
             var rightsCache = _jobRightsCache;
-            if (rightsCache == null || !rightsCache.TryGetValue(job, out var r) || !r.ManageJobs) return false;
+            bool canManage = false;
+            if (rightsCache != null)
+            {
+                for (int i = 0; i < jobsNormalized.Length; i++)
+                {
+                    var j = jobsNormalized[i];
+                    if (rightsCache.TryGetValue(j, out var r) && r.ManageJobs) { canManage = true; break; }
+                }
+            }
+            if (!canManage) return false;
         }
-        if (string.Equals(job, "Owner", System.StringComparison.Ordinal) && !IsOwnerCurrentClub) return false;
-        if (!string.Equals(job, "Owner", System.StringComparison.Ordinal))
+        if (HasOwner(jobsNormalized) && !IsOwnerCurrentClub) return false;
+        if (!HasOwner(jobsNormalized))
         {
             var owners = 0;
             var isTargetOwner = false;
@@ -2027,17 +2081,25 @@ public sealed class VenuePlusApp : IDisposable, IEventListener
             for (int i = 0; i < arr.Length; i++)
             {
                 var u = arr[i];
-                if (string.Equals(u.Job, "Owner", System.StringComparison.Ordinal)) owners++;
-                if (string.Equals(u.Username, username, System.StringComparison.Ordinal) && string.Equals(u.Job, "Owner", System.StringComparison.Ordinal)) isTargetOwner = true;
+                var uJobs = NormalizeJobs(u.Jobs, u.Job);
+                if (HasOwner(uJobs)) owners++;
+                if (string.Equals(u.Username, username, System.StringComparison.Ordinal) && HasOwner(uJobs)) isTargetOwner = true;
             }
             if (isTargetOwner && owners <= 1 && !string.IsNullOrWhiteSpace(_staffUsername) && string.Equals(username, _staffUsername, System.StringComparison.Ordinal)) return false;
         }
-        var ok = await _remote.UpdateUserJobAsync(username, job, staffSess);
+        var ok = await _remote.UpdateUserJobAsync(username, jobsNormalized, staffSess);
         if (ok && !string.IsNullOrWhiteSpace(_staffUsername) && string.Equals(username, _staffUsername, System.StringComparison.Ordinal))
         {
-            _selfJob = job ?? string.Empty;
+            _selfJobs = jobsNormalized;
+            _selfJob = GetPrimaryJob(_jobRightsCache, jobsNormalized);
         }
         return ok;
+    }
+
+    public System.Threading.Tasks.Task<bool> UpdateStaffUserJobAsync(string username, string job)
+    {
+        var arr = string.IsNullOrWhiteSpace(job) ? Array.Empty<string>() : new[] { job };
+        return UpdateStaffUserJobsAsync(username, arr);
     }
 
     public async System.Threading.Tasks.Task<bool> DeleteStaffUserAsync(string username)
@@ -2454,12 +2516,18 @@ public sealed class VenuePlusApp : IDisposable, IEventListener
         return await _remote.SetJoinPasswordAsync(newPassword ?? string.Empty, _staffToken!);
     }
 
-    public async System.Threading.Tasks.Task<bool> InviteStaffByUidAsync(string uid, string? job)
+    public async System.Threading.Tasks.Task<bool> InviteStaffByUidAsync(string uid, string[] jobs)
     {
         if (!_isPowerStaff || string.IsNullOrWhiteSpace(_staffToken)) return false;
         var canInvite = IsOwnerCurrentClub || (HasStaffSession && StaffCanManageUsers);
         if (!canInvite) return false;
-        return await _remote.InviteStaffByUidAsync(uid, job, _staffToken!);
+        return await _remote.InviteStaffByUidAsync(uid, jobs, _staffToken!);
+    }
+
+    public System.Threading.Tasks.Task<bool> InviteStaffByUidAsync(string uid, string? job)
+    {
+        var arr = string.IsNullOrWhiteSpace(job) ? Array.Empty<string>() : new[] { job };
+        return InviteStaffByUidAsync(uid, arr);
     }
 
     public async System.Threading.Tasks.Task<bool> UpdateClubLogoBase64Async(string logoBase64)
@@ -2560,7 +2628,9 @@ public sealed class VenuePlusApp : IDisposable, IEventListener
             {
                 if (string.Equals(det[i].Username, uname, System.StringComparison.Ordinal))
                 {
-                    _selfJob = det[i].Job ?? string.Empty;
+                    var jobsSelf = NormalizeJobs(det[i].Jobs, det[i].Job);
+                    _selfJobs = jobsSelf;
+                    _selfJob = GetPrimaryJob(_jobRightsCache, jobsSelf);
                     var uidCandidate = det[i].Uid;
                     _selfUid = string.IsNullOrWhiteSpace(uidCandidate) ? _selfUid : uidCandidate;
                     EnsureSelfRights();
@@ -2578,24 +2648,84 @@ public sealed class VenuePlusApp : IDisposable, IEventListener
         }
     }
 
-    public void OnUserJobUpdated(string username, string job)
+    public void OnUserJobUpdated(string username, string job, string[] jobs)
     {
         var isSelf = !string.IsNullOrWhiteSpace(_staffUsername) && string.Equals(_staffUsername, username, System.StringComparison.Ordinal);
         if (isSelf)
         {
-            string jobKey = job ?? string.Empty;
+            var jobsNorm = NormalizeJobs(jobs, job);
+            _selfJobs = jobsNorm;
+            string jobKey = GetPrimaryJob(_jobRightsCache, jobsNorm);
             _selfJob = jobKey;
-            if (_jobRightsCache != null && !string.IsNullOrWhiteSpace(jobKey) && _jobRightsCache.TryGetValue(jobKey, out var r))
-            {
-                BuildSelfRightsFrom(r);
-            }
+            BuildSelfRightsFromJobs(jobsNorm);
             var _np = GetNotificationPreferences();
             if (_np.ShowRoleChangedSelf)
             {
                 try { _notifier?.ShowSuccess("Your role is now: " + jobKey); } catch { }
             }
         }
-        UserJobUpdatedEvt?.Invoke(username ?? string.Empty, job ?? string.Empty);
+        var jobsNorm2 = NormalizeJobs(jobs, job);
+        var primary = GetPrimaryJob(_jobRightsCache, jobsNorm2);
+        UserJobUpdatedEvt?.Invoke(username ?? string.Empty, primary, jobsNorm2);
+    }
+
+    private static bool HasOwner(string[] jobs)
+    {
+        for (int i = 0; i < jobs.Length; i++)
+        {
+            if (string.Equals(jobs[i], "Owner", System.StringComparison.Ordinal)) return true;
+        }
+        return false;
+    }
+
+    private static string[] NormalizeJobs(string[]? jobs, string? fallbackJob)
+    {
+        var set = new System.Collections.Generic.HashSet<string>(StringComparer.Ordinal);
+        if (jobs != null)
+        {
+            for (int i = 0; i < jobs.Length; i++)
+            {
+                var j = jobs[i];
+                if (string.IsNullOrWhiteSpace(j)) continue;
+                set.Add(j);
+            }
+        }
+        if (set.Count == 0 && !string.IsNullOrWhiteSpace(fallbackJob)) set.Add(fallbackJob);
+        if (set.Count == 0) set.Add("Unassigned");
+        var arr = new string[set.Count];
+        int idx = 0;
+        foreach (var j in set)
+        {
+            arr[idx] = j;
+            idx++;
+        }
+        Array.Sort(arr, StringComparer.Ordinal);
+        return arr;
+    }
+
+    private static string GetPrimaryJob(System.Collections.Generic.Dictionary<string, JobRightsInfo>? rightsMap, string[] jobs)
+    {
+        if (HasOwner(jobs)) return "Owner";
+        string best = "Unassigned";
+        int bestRank = 0;
+        if (rightsMap == null) return jobs.Length > 0 ? jobs[0] : best;
+        for (int i = 0; i < jobs.Length; i++)
+        {
+            if (!rightsMap.TryGetValue(jobs[i], out var r)) continue;
+            if (r.Rank > bestRank)
+            {
+                bestRank = r.Rank;
+                best = jobs[i];
+            }
+        }
+        if (string.Equals(best, "Unassigned", System.StringComparison.Ordinal))
+        {
+            for (int i = 0; i < jobs.Length; i++)
+            {
+                if (!string.Equals(jobs[i], "Unassigned", System.StringComparison.Ordinal)) { best = jobs[i]; break; }
+            }
+        }
+        return best;
     }
 
     public void OnOwnerAccessChanged(string owner, string clubIdEvt)
