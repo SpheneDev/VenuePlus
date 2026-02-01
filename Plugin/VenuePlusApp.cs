@@ -2544,6 +2544,22 @@ public sealed class VenuePlusApp : IDisposable, IEventListener
         return InviteStaffByUidAsync(uid, arr);
     }
 
+    public async System.Threading.Tasks.Task<bool> CreateManualStaffEntryAsync(string displayName, string[] jobs)
+    {
+        if (!_isPowerStaff || string.IsNullOrWhiteSpace(_staffToken)) return false;
+        var canManage = IsOwnerCurrentClub || (HasStaffSession && StaffCanManageUsers);
+        if (!canManage) return false;
+        return await _remote.CreateManualStaffEntryAsync(displayName, jobs, _staffToken!);
+    }
+
+    public async System.Threading.Tasks.Task<bool> LinkManualStaffEntryAsync(string manualUid, string targetUid)
+    {
+        if (!_isPowerStaff || string.IsNullOrWhiteSpace(_staffToken)) return false;
+        var canManage = IsOwnerCurrentClub || (HasStaffSession && StaffCanManageUsers);
+        if (!canManage) return false;
+        return await _remote.LinkManualStaffEntryAsync(manualUid, targetUid, _staffToken!);
+    }
+
     public async System.Threading.Tasks.Task<bool> UpdateClubLogoBase64Async(string logoBase64)
     {
         if (!_isPowerStaff || string.IsNullOrWhiteSpace(_staffToken)) return false;

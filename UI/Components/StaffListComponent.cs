@@ -24,9 +24,17 @@ public sealed class StaffListComponent
     private string _inviteUid = string.Empty;
     private readonly HashSet<string> _inviteJobsInline = new(StringComparer.Ordinal);
     private string _inviteStatus = string.Empty;
+    private string _manualDisplayName = string.Empty;
+    private readonly HashSet<string> _manualJobsInline = new(StringComparer.Ordinal);
+    private string _manualAddStatus = string.Empty;
+    private string _manualLinkManualUid = string.Empty;
+    private string _manualLinkTargetUid = string.Empty;
+    private string _manualLinkStatus = string.Empty;
+    private bool _focusManualLinkTarget;
     private string[] _jobOptions = new[] { "Unassigned", "Greeter", "Barkeeper", "Dancer", "Escort" };
     private readonly System.Collections.Generic.HashSet<string> _dirtyKeys = new(System.StringComparer.Ordinal);
     private bool _inviteInlineOpen;
+    private bool _manualLinkInlineOpen;
     private bool _confirmOpen;
     private string _confirmUser = string.Empty;
     private string[] _confirmNewJobs = Array.Empty<string>();
@@ -77,7 +85,12 @@ public sealed class StaffListComponent
         ImGui.PopItemWidth();
         var visible = ApplyFilter(_users, _filter);
         var canInvite = app.IsOwnerCurrentClub || (app.HasStaffSession && app.StaffCanManageUsers);
-        if (!canInvite) _inviteInlineOpen = false;
+        if (!canInvite)
+        {
+            _inviteInlineOpen = false;
+            _manualLinkInlineOpen = false;
+            _focusManualLinkTarget = false;
+        }
         if (canInvite)
         {
             ImGui.SameLine();
@@ -89,10 +102,19 @@ public sealed class StaffListComponent
             if (ImGui.Button("Add Staff##invite_open"))
             {
                 _inviteInlineOpen = true;
+                _manualLinkInlineOpen = false;
                 _inviteStatus = string.Empty;
                 _inviteUid = string.Empty;
                 _inviteJobsInline.Clear();
                 _inviteJobsInline.Add("Unassigned");
+                _manualDisplayName = string.Empty;
+                _manualJobsInline.Clear();
+                _manualJobsInline.Add("Unassigned");
+                _manualAddStatus = string.Empty;
+                _manualLinkManualUid = string.Empty;
+                _manualLinkTargetUid = string.Empty;
+                _manualLinkStatus = string.Empty;
+                _focusManualLinkTarget = false;
             }
         }
         if (_inviteInlineOpen && canInvite)
@@ -168,6 +190,112 @@ public sealed class StaffListComponent
             if (ImGui.Button("Close##invite_inline_close")) { _inviteInlineOpen = false; _inviteStatus = string.Empty; }
             if (!string.IsNullOrEmpty(_inviteStatus)) { ImGui.TextUnformatted(_inviteStatus); }
             ImGui.Separator();
+            ImGui.TextUnformatted("Manual Staff");
+            ImGui.PushItemWidth(150f);
+            ImGui.InputTextWithHint("##manual_name_inline", "Display name", ref _manualDisplayName, 64);
+            ImGui.PopItemWidth();
+            ImGui.SameLine();
+            var manualJob = FormatJobs(NormalizeJobs(_manualJobsInline));
+            ImGui.PushItemWidth(150f);
+            if (ImGui.BeginCombo("##manual_job_inline", manualJob))
+            {
+                var rights = app.GetJobRightsCache();
+                var names = _jobOptions ?? Array.Empty<string>();
+                System.Array.Sort(names, (a, b) =>
+                {
+                    if (string.Equals(a, "Owner", System.StringComparison.Ordinal)) return string.Equals(b, "Owner", System.StringComparison.Ordinal) ? 0 : -1;
+                    if (string.Equals(b, "Owner", System.StringComparison.Ordinal)) return 1;
+                    int ra = 1;
+                    int rb = 1;
+                    if (rights != null && rights.TryGetValue(a, out var ia)) ra = ia.Rank; else if (string.Equals(a, "Owner", System.StringComparison.Ordinal)) ra = 10; else if (string.Equals(a, "Unassigned", System.StringComparison.Ordinal)) ra = 0;
+                    if (rights != null && rights.TryGetValue(b, out var ib)) rb = ib.Rank; else if (string.Equals(b, "Owner", System.StringComparison.Ordinal)) rb = 10; else if (string.Equals(b, "Unassigned", System.StringComparison.Ordinal)) rb = 0;
+                    int cmp = rb.CompareTo(ra);
+                    if (cmp != 0) return cmp;
+                    return string.Compare(a, b, System.StringComparison.OrdinalIgnoreCase);
+                });
+                foreach (var name in names)
+                {
+                    if (string.Equals(name, "Owner", System.StringComparison.Ordinal) && !app.IsOwnerCurrentClub) continue;
+                    var rightsCache2 = rights;
+                    if (rightsCache2 != null && rightsCache2.TryGetValue(name, out var infoOpt))
+                    {
+                        var col2 = VenuePlus.Helpers.ColorUtil.HexToU32(infoOpt.ColorHex);
+                        var icon2 = VenuePlus.Helpers.IconDraw.ParseIcon(infoOpt.IconKey);
+                        VenuePlus.Helpers.IconDraw.IconText(icon2, 0.9f, col2);
+                        ImGui.SameLine();
+                    }
+                    bool selected = _manualJobsInline.Contains(name);
+                    if (ImGui.Selectable(name, selected, ImGuiSelectableFlags.DontClosePopups))
+                    {
+                        if (selected) _manualJobsInline.Remove(name);
+                        else _manualJobsInline.Add(name);
+                        NormalizeJobSet(_manualJobsInline);
+                    }
+                    if (selected) ImGui.SetItemDefaultFocus();
+                }
+                ImGui.EndCombo();
+            }
+            ImGui.PopItemWidth();
+            ImGui.SameLine();
+            ImGui.BeginDisabled(string.IsNullOrWhiteSpace(_manualDisplayName));
+            if (ImGui.Button("Create##manual_add_inline"))
+            {
+                _manualAddStatus = "Submitting...";
+                var name = _manualDisplayName;
+                var jobsInline = NormalizeJobs(_manualJobsInline);
+                System.Threading.Tasks.Task.Run(async () =>
+                {
+                    var ok = await app.CreateManualStaffEntryAsync(name, jobsInline);
+                    _manualAddStatus = ok ? "Added" : (app.GetLastServerMessage() ?? "Add failed");
+                    if (ok)
+                    {
+                        _manualDisplayName = string.Empty;
+                        _manualJobsInline.Clear();
+                        _manualJobsInline.Add("Unassigned");
+                        TriggerRefresh(app);
+                    }
+                });
+            }
+            ImGui.EndDisabled();
+            if (!string.IsNullOrEmpty(_manualAddStatus)) { ImGui.TextUnformatted(_manualAddStatus); }
+            ImGui.Separator();
+        }
+        if (_manualLinkInlineOpen && canInvite)
+        {
+            ImGui.Separator();
+            ImGui.TextUnformatted("Link Manual Entry");
+            ImGui.PushItemWidth(150f);
+            ImGui.InputTextWithHint("##manual_uid_inline", "Manual UID", ref _manualLinkManualUid, 24);
+            ImGui.PopItemWidth();
+            ImGui.SameLine();
+            ImGui.PushItemWidth(150f);
+            if (_focusManualLinkTarget) ImGui.SetKeyboardFocusHere();
+            ImGui.InputTextWithHint("##manual_target_uid_inline", "Target UID", ref _manualLinkTargetUid, 24);
+            ImGui.PopItemWidth();
+            _focusManualLinkTarget = false;
+            ImGui.SameLine();
+            var disableLink = string.IsNullOrWhiteSpace(_manualLinkManualUid) || string.IsNullOrWhiteSpace(_manualLinkTargetUid);
+            ImGui.BeginDisabled(disableLink);
+            if (ImGui.Button("Link##manual_link_inline"))
+            {
+                _manualLinkStatus = "Submitting...";
+                var manualUid = _manualLinkManualUid;
+                var targetUid = _manualLinkTargetUid;
+                System.Threading.Tasks.Task.Run(async () =>
+                {
+                    var ok = await app.LinkManualStaffEntryAsync(manualUid, targetUid);
+                    _manualLinkStatus = ok ? "Linked" : (app.GetLastServerMessage() ?? "Link failed");
+                    if (ok)
+                    {
+                        _manualLinkManualUid = string.Empty;
+                        _manualLinkTargetUid = string.Empty;
+                        TriggerRefresh(app);
+                    }
+                });
+            }
+            ImGui.EndDisabled();
+            if (!string.IsNullOrEmpty(_manualLinkStatus)) { ImGui.TextUnformatted(_manualLinkStatus); }
+            ImGui.Separator();
         }
         ImGui.Separator();
         var style = ImGui.GetStyle();
@@ -180,6 +308,7 @@ public sealed class StaffListComponent
         {
             actionsWidth += ImGui.CalcTextSize(FontAwesomeIcon.Trash.ToIconString()).X + style.FramePadding.X * 2f; actionsCount++;
             actionsWidth += ImGui.CalcTextSize(FontAwesomeIcon.Save.ToIconString()).X + style.FramePadding.X * 2f; actionsCount++;
+            actionsWidth += ImGui.CalcTextSize(FontAwesomeIcon.Link.ToIconString()).X + style.FramePadding.X * 2f; actionsCount++;
         }
         ImGui.SetWindowFontScale(1f);
         ImGui.PopFont();
@@ -242,11 +371,20 @@ public sealed class StaffListComponent
                 ImGui.TableSetColumnIndex(0);
                 ImGui.SetCursorPosY(ImGui.GetCursorPosY() + dy);
                 ImGui.TextUnformatted(u.Username);
-                if (ImGui.IsItemHovered())
+                var showTooltip = ImGui.IsItemHovered();
+                if (u.IsManual)
+                {
+                    ImGui.SameLine();
+                    ImGui.TextDisabled("Manual");
+                    showTooltip = showTooltip || ImGui.IsItemHovered();
+                }
+                if (showTooltip)
                 {
                     ImGui.BeginTooltip();
                     var createdStr = u.CreatedAt?.ToUniversalTime().ToString("yyyy-MM-dd HH:mm 'UTC'", CultureInfo.InvariantCulture) ?? "--";
                     ImGui.TextUnformatted($"Added: {createdStr}");
+                    if (!string.IsNullOrWhiteSpace(u.Uid)) ImGui.TextUnformatted($"UID: {u.Uid}");
+                    if (u.IsManual) ImGui.TextUnformatted("Manual Entry");
                     ImGui.EndTooltip();
                 }
                 ImGui.TableSetColumnIndex(1);
@@ -448,6 +586,26 @@ public sealed class StaffListComponent
                         ImGui.SetWindowFontScale(1f);
                         ImGui.PopFont();
                         if (ImGui.IsItemHovered(ImGuiHoveredFlags.AllowWhenDisabled)) { ImGui.BeginTooltip(); ImGui.TextUnformatted(isOwnerRow ? "Owner job cannot be changed" : (selfLosesManageJobs ? "You cannot assign yourself a role that removes role editing rights" : "Save changes to this staff member's job")); ImGui.EndTooltip(); }
+
+                        ImGui.SameLine();
+                        ImGui.PushFont(UiBuilder.IconFont);
+                        ImGui.SetWindowFontScale(0.9f);
+                        centerY = yBaseAct + (rowH - ImGui.GetFrameHeight()) / 2f;
+                        ImGui.SetCursorPosY(centerY);
+                        ImGui.BeginDisabled(!u.IsManual || isOwnerRow || isSelfRow);
+                        if (ImGui.Button(FontAwesomeIcon.Link.ToIconString() + $"##link_{u.Username}"))
+                        {
+                            _inviteInlineOpen = false;
+                            _manualLinkInlineOpen = true;
+                            _manualLinkManualUid = u.Uid ?? string.Empty;
+                            _manualLinkTargetUid = string.Empty;
+                            _manualLinkStatus = string.Empty;
+                            _focusManualLinkTarget = true;
+                        }
+                        ImGui.EndDisabled();
+                        ImGui.SetWindowFontScale(1f);
+                        ImGui.PopFont();
+                        if (ImGui.IsItemHovered(ImGuiHoveredFlags.AllowWhenDisabled)) { ImGui.BeginTooltip(); ImGui.TextUnformatted(!u.IsManual ? "Only manual entries can be linked" : (isOwnerRow ? "Owner cannot be linked" : (isSelfRow ? "You cannot link yourself" : "Link this manual entry to a real user UID"))); ImGui.EndTooltip(); }
                     }
                     if (_rowStatus.TryGetValue(u.Username, out var rs) && !string.IsNullOrEmpty(rs))
                     {
@@ -586,8 +744,15 @@ public sealed class StaffListComponent
     public void CloseInviteInline()
     {
         _inviteInlineOpen = false;
+        _manualLinkInlineOpen = false;
         _inviteStatus = string.Empty;
         _inviteUid = string.Empty;
+        _manualDisplayName = string.Empty;
+        _manualJobsInline.Clear();
+        _manualAddStatus = string.Empty;
+        _manualLinkManualUid = string.Empty;
+        _manualLinkTargetUid = string.Empty;
+        _manualLinkStatus = string.Empty;
     }
 
     private static StaffUser[] ApplyFilter(StaffUser[] users, string filter)

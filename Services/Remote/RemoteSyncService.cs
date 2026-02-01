@@ -73,6 +73,8 @@ public sealed class RemoteSyncService : IDisposable
     private TaskCompletionSource<bool>? _pendingUpdateUserJobTcs;
     private TaskCompletionSource<bool>? _pendingSetJoinPasswordTcs;
     private TaskCompletionSource<bool>? _pendingInviteStaffTcs;
+    private TaskCompletionSource<bool>? _pendingManualStaffAddTcs;
+    private TaskCompletionSource<bool>? _pendingManualStaffLinkTcs;
     private TaskCompletionSource<string?>? _pendingAccessKeyTcs;
     private TaskCompletionSource<bool>? _pendingDjUpdateTcs;
     
@@ -664,6 +666,64 @@ public sealed class RemoteSyncService : IDisposable
     {
         var jobs = NormalizeJobs(string.IsNullOrWhiteSpace(job) ? Array.Empty<string>() : new[] { job }, null);
         return InviteStaffByUidAsync(targetUid, jobs, staffSession);
+    }
+
+    public async Task<bool> CreateManualStaffEntryAsync(string displayName, string[] jobs, string staffSession)
+    {
+        if (_useWebSocket && _ws != null && _ws.State == WebSocketState.Open)
+        {
+            try
+            {
+                var tcs = new TaskCompletionSource<bool>();
+                _pendingManualStaffAddTcs = tcs;
+                var name = (displayName ?? string.Empty).Trim();
+                var jobsSend = NormalizeJobs(jobs, null);
+                var msgAdd = JsonSerializer.Serialize(new { type = "user.manual.add", token = staffSession, displayName = name, jobs = jobsSend });
+                var seg = new ArraySegment<byte>(Encoding.UTF8.GetBytes(msgAdd));
+                await _ws.SendAsync(seg, WebSocketMessageType.Text, true, CancellationToken.None);
+                using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(6));
+                await Task.WhenAny(tcs.Task, Task.Delay(Timeout.Infinite, cts.Token)).ConfigureAwait(false);
+                var ok = tcs.Task.IsCompleted && tcs.Task.Result;
+                _pendingManualStaffAddTcs = null;
+                return ok;
+            }
+            catch (Exception ex)
+            {
+                _log?.Debug($"WS manual staff add failed: {ex.Message}");
+                _pendingManualStaffAddTcs = null;
+                return false;
+            }
+        }
+        return false;
+    }
+
+    public async Task<bool> LinkManualStaffEntryAsync(string manualUid, string targetUid, string staffSession)
+    {
+        if (_useWebSocket && _ws != null && _ws.State == WebSocketState.Open)
+        {
+            try
+            {
+                var tcs = new TaskCompletionSource<bool>();
+                _pendingManualStaffLinkTcs = tcs;
+                var manualUidTrim = (manualUid ?? string.Empty).Trim();
+                var targetUidTrim = (targetUid ?? string.Empty).Trim();
+                var msgLink = JsonSerializer.Serialize(new { type = "user.manual.link", token = staffSession, manualUid = manualUidTrim, targetUid = targetUidTrim });
+                var seg = new ArraySegment<byte>(Encoding.UTF8.GetBytes(msgLink));
+                await _ws.SendAsync(seg, WebSocketMessageType.Text, true, CancellationToken.None);
+                using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(6));
+                await Task.WhenAny(tcs.Task, Task.Delay(Timeout.Infinite, cts.Token)).ConfigureAwait(false);
+                var ok = tcs.Task.IsCompleted && tcs.Task.Result;
+                _pendingManualStaffLinkTcs = null;
+                return ok;
+            }
+            catch (Exception ex)
+            {
+                _log?.Debug($"WS manual staff link failed: {ex.Message}");
+                _pendingManualStaffLinkTcs = null;
+                return false;
+            }
+        }
+        return false;
     }
 
     private string? _lastErrorMessage;
@@ -1546,6 +1606,30 @@ public sealed class RemoteSyncService : IDisposable
                         try { if (root.TryGetProperty("message", out var m)) _lastErrorMessage = m.GetString(); } catch { }
                         _pendingInviteStaffTcs?.TrySetResult(false);
                         _pendingInviteStaffTcs = null;
+                    }
+                    else if (type == "user.manual.add.ok")
+                    {
+                        _pendingManualStaffAddTcs?.TrySetResult(true);
+                        _pendingManualStaffAddTcs = null;
+                    }
+                    else if (type == "user.manual.add.fail")
+                    {
+                        _lastErrorMessage = null;
+                        try { if (root.TryGetProperty("message", out var m)) _lastErrorMessage = m.GetString(); } catch { }
+                        _pendingManualStaffAddTcs?.TrySetResult(false);
+                        _pendingManualStaffAddTcs = null;
+                    }
+                    else if (type == "user.manual.link.ok")
+                    {
+                        _pendingManualStaffLinkTcs?.TrySetResult(true);
+                        _pendingManualStaffLinkTcs = null;
+                    }
+                    else if (type == "user.manual.link.fail")
+                    {
+                        _lastErrorMessage = null;
+                        try { if (root.TryGetProperty("message", out var m)) _lastErrorMessage = m.GetString(); } catch { }
+                        _pendingManualStaffLinkTcs?.TrySetResult(false);
+                        _pendingManualStaffLinkTcs = null;
                     }
                     else if (type == "user.create.ok")
                     {
