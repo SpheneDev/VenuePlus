@@ -17,6 +17,8 @@ public sealed class SettingsWindow : Window, System.IDisposable
     private bool _selectAccountOnOpen;
     private string _staffNewPassword = string.Empty;
     private string _staffPassStatus = string.Empty;
+    private string _recoveryCode = string.Empty;
+    private string _recoveryStatus = string.Empty;
     private readonly Dalamud.Plugin.Services.ITextureProvider _textureProvider;
     private Dalamud.Interface.Textures.TextureWraps.IDalamudTextureWrap? _aboutTex;
     private bool _aboutRequested;
@@ -252,6 +254,44 @@ public sealed class SettingsWindow : Window, System.IDisposable
         ImGui.SameLine();
         DrawHelpIcon("Updates the password used to login.");
         if (!string.IsNullOrEmpty(_staffPassStatus)) ImGui.TextUnformatted(_staffPassStatus);
+        ImGui.Spacing();
+        ImGui.TextDisabled("Recovery");
+        ImGui.SameLine();
+        DrawHelpIcon("Generate a recovery code to reset your password.");
+        ImGui.Spacing();
+        if (ImGui.Button("Generate Recovery Code"))
+        {
+            _recoveryStatus = "Submitting...";
+            System.Threading.Tasks.Task.Run(async () =>
+            {
+                var code = await _app.GenerateRecoveryCodeAsync();
+                if (!string.IsNullOrWhiteSpace(code))
+                {
+                    _recoveryCode = code;
+                    _recoveryStatus = "Recovery code generated";
+                }
+                else
+                {
+                    _recoveryStatus = "Generation failed";
+                }
+            });
+        }
+        ImGui.SameLine();
+        DrawHelpIcon("Use the code in Password Recovery to reset your password.");
+        if (!string.IsNullOrEmpty(_recoveryStatus)) ImGui.TextUnformatted(_recoveryStatus);
+        if (!string.IsNullOrWhiteSpace(_recoveryCode))
+        {
+            ImGui.TextUnformatted(_recoveryCode);
+            ImGui.SameLine();
+            ImGui.PushFont(UiBuilder.IconFont);
+            ImGui.SetWindowFontScale(0.9f);
+            if (ImGui.Button(FontAwesomeIcon.Copy.ToIconString() + "##copy_recovery_code"))
+            {
+                ImGui.SetClipboardText(_recoveryCode);
+            }
+            ImGui.SetWindowFontScale(1f);
+            ImGui.PopFont();
+        }
     }
 
     private void DrawSettingsLoginBehavior()

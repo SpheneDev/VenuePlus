@@ -135,6 +135,19 @@ internal sealed class AccessService
         return await _remote.StaffSetPasswordAsync(newPassword, staffToken);
     }
 
+    public async System.Threading.Tasks.Task<string?> GenerateRecoveryCodeAsync(string staffToken)
+    {
+        if (_remote is null) return null;
+        if (string.IsNullOrWhiteSpace(staffToken)) return null;
+        return await _remote.GenerateRecoveryCodeAsync(staffToken);
+    }
+
+    public async System.Threading.Tasks.Task<bool> ResetPasswordByRecoveryCodeAsync(string username, string recoveryCode, string newPassword)
+    {
+        if (_remote is null) return false;
+        return await _remote.ResetPasswordByRecoveryCodeAsync(username, recoveryCode, newPassword);
+    }
+
     public bool SetRememberStaffLogin(string currentCharacterKey, bool remember, bool isPowerStaff)
     {
         var keyRem = currentCharacterKey;

@@ -39,6 +39,9 @@ public sealed class VenuePlusWindow : Window, IDisposable
     private string _staffPassInput = string.Empty;
     private string _adminLoginStatus = string.Empty;
     private string _staffLoginStatus = string.Empty;
+    private string _resetRecoveryCode = string.Empty;
+    private string _resetPassword = string.Empty;
+    private string _resetStatus = string.Empty;
     private bool _openStaffLoginModal;
     private IDalamudTextureWrap? _clubLogoTex;
     private string? _lastLogoBase64;
@@ -215,6 +218,40 @@ public sealed class VenuePlusWindow : Window, IDisposable
                     if (ImGui.IsItemHovered()) { ImGui.BeginTooltip(); ImGui.TextUnformatted("Login using current character"); ImGui.EndTooltip(); }
                     if (!string.IsNullOrEmpty(_staffLoginStatus)) ImGui.TextUnformatted(_staffLoginStatus);
                     ImGui.Spacing();
+                    ImGui.Separator();
+                    ImGui.TextUnformatted("Password Recovery");
+                    ImGui.TextWrapped("Use a recovery code to reset the password.");
+                    ImGui.TextWrapped("Generate a recovery code in Account Settings.");
+                    ImGui.Spacing();
+                    var recoverInfo = _app.GetCurrentCharacter();
+                    var recoverUser = recoverInfo.HasValue ? recoverInfo.Value.name + "@" + recoverInfo.Value.world : string.Empty;
+                    ImGui.TextUnformatted("Recovery Account:");
+                    ImGui.SameLine();
+                    ImGui.TextUnformatted(!string.IsNullOrWhiteSpace(recoverUser) ? recoverUser : "--");
+                    ImGui.PushItemWidth(-1f);
+                    ImGui.InputTextWithHint("##reset_recovery_code", "Recovery Code", ref _resetRecoveryCode, 32);
+                    ImGui.InputTextWithHint("##reset_password", "New Password", ref _resetPassword, 64, ImGuiInputTextFlags.Password);
+                    ImGui.PopItemWidth();
+                    ImGui.BeginDisabled(!_app.RemoteConnected || string.IsNullOrWhiteSpace(recoverUser) || !_currentCharExists);
+                    if (ImGui.Button("Reset Password", new Vector2(-1f, 0)))
+                    {
+                        _resetStatus = "Submitting...";
+                        var user = recoverUser;
+                        var code = _resetRecoveryCode;
+                        var pass = _resetPassword;
+                        System.Threading.Tasks.Task.Run(async () =>
+                        {
+                            var ok = await _app.ResetPasswordByRecoveryCodeAsync(user, code, pass);
+                            _resetStatus = ok ? "Password reset" : "Reset failed";
+                            if (ok)
+                            {
+                                _resetPassword = string.Empty;
+                                _resetRecoveryCode = string.Empty;
+                            }
+                        });
+                    }
+                    ImGui.EndDisabled();
+                    if (!string.IsNullOrWhiteSpace(_resetStatus)) ImGui.TextUnformatted(_resetStatus);
                 }
                 else
                 {

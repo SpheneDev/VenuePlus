@@ -1672,6 +1672,18 @@ public sealed class VenuePlusApp : IDisposable, IEventListener
         return await _accessService.StaffSetOwnPasswordAsync(newPassword, _staffToken!);
     }
 
+    public async System.Threading.Tasks.Task<string?> GenerateRecoveryCodeAsync()
+    {
+        if (!_isPowerStaff || string.IsNullOrWhiteSpace(_staffToken)) return null;
+        return await _accessService.GenerateRecoveryCodeAsync(_staffToken!);
+    }
+
+    public async System.Threading.Tasks.Task<bool> ResetPasswordByRecoveryCodeAsync(string username, string recoveryCode, string newPassword)
+    {
+        if (!RemoteConnected) return false;
+        return await _accessService.ResetPasswordByRecoveryCodeAsync(username, recoveryCode, newPassword);
+    }
+
     public void StaffLogout()
     {
         _accessService.LogoutStaffAndReset(GetCurrentCharacterKey(), _staffToken);

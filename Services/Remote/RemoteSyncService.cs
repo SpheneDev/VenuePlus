@@ -79,6 +79,8 @@ public sealed class RemoteSyncService : IDisposable
     private TaskCompletionSource<bool>? _pendingRegisterUserTcs;
     private TaskCompletionSource<bool>? _pendingLogoutTcs;
     private TaskCompletionSource<bool>? _pendingSelfPasswordTcs;
+    private TaskCompletionSource<string?>? _pendingGenerateRecoveryCodeTcs;
+    private TaskCompletionSource<bool>? _pendingResetRecoveryPasswordTcs;
     private TaskCompletionSource<System.Collections.Generic.Dictionary<string, JobRightsInfo>?>? _pendingJobRightsTcs;
     private TaskCompletionSource<(string Job, System.Collections.Generic.Dictionary<string, bool>)?>? _pendingSelfRightsTcs;
     private TaskCompletionSource<(string Username, string Uid)?>? _pendingSelfProfileTcs;
@@ -432,6 +434,60 @@ public sealed class RemoteSyncService : IDisposable
                 return ok;
             }
             catch (Exception ex) { _log?.Debug($"WS self password set failed: {ex.Message}"); _pendingSelfPasswordTcs = null; return false; }
+        }
+        return false;
+    }
+
+    public async Task<string?> GenerateRecoveryCodeAsync(string session)
+    {
+        if (_useWebSocket && _ws != null && _ws.State == WebSocketState.Open)
+        {
+            try
+            {
+                var tcs = new TaskCompletionSource<string?>();
+                _pendingGenerateRecoveryCodeTcs = tcs;
+                var payloadWs = JsonSerializer.Serialize(new { type = "user.recovery.generate.request", token = session });
+                var seg = new ArraySegment<byte>(Encoding.UTF8.GetBytes(payloadWs));
+                await _ws.SendAsync(seg, WebSocketMessageType.Text, true, CancellationToken.None);
+                using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(6));
+                await Task.WhenAny(tcs.Task, Task.Delay(Timeout.Infinite, cts.Token)).ConfigureAwait(false);
+                var code = tcs.Task.IsCompleted ? tcs.Task.Result : null;
+                _pendingGenerateRecoveryCodeTcs = null;
+                return code;
+            }
+            catch (Exception ex)
+            {
+                _log?.Debug($"WS generate recovery code failed: {ex.Message}");
+                _pendingGenerateRecoveryCodeTcs = null;
+                return null;
+            }
+        }
+        return null;
+    }
+
+    public async Task<bool> ResetPasswordByRecoveryCodeAsync(string username, string recoveryCode, string newPassword)
+    {
+        if (_useWebSocket && _ws != null && _ws.State == WebSocketState.Open)
+        {
+            try
+            {
+                var tcs = new TaskCompletionSource<bool>();
+                _pendingResetRecoveryPasswordTcs = tcs;
+                var payloadWs = JsonSerializer.Serialize(new { type = "user.password.reset.recovery.request", username, recoveryCode, newPassword });
+                var seg = new ArraySegment<byte>(Encoding.UTF8.GetBytes(payloadWs));
+                await _ws.SendAsync(seg, WebSocketMessageType.Text, true, CancellationToken.None);
+                using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(6));
+                await Task.WhenAny(tcs.Task, Task.Delay(Timeout.Infinite, cts.Token)).ConfigureAwait(false);
+                var ok = tcs.Task.IsCompleted && tcs.Task.Result;
+                _pendingResetRecoveryPasswordTcs = null;
+                return ok;
+            }
+            catch (Exception ex)
+            {
+                _log?.Debug($"WS reset password failed: {ex.Message}");
+                _pendingResetRecoveryPasswordTcs = null;
+                return false;
+            }
         }
         return false;
     }
@@ -1264,6 +1320,31 @@ public sealed class RemoteSyncService : IDisposable
                         try { if (root.TryGetProperty("message", out var m)) _lastErrorMessage = m.GetString(); } catch { }
                         _pendingSelfPasswordTcs?.TrySetResult(false);
                         _pendingSelfPasswordTcs = null;
+                    }
+                    else if (type == "user.recovery.generate.ok")
+                    {
+                        var code = root.TryGetProperty("recoveryCode", out var rc) ? (rc.GetString() ?? string.Empty) : string.Empty;
+                        _pendingGenerateRecoveryCodeTcs?.TrySetResult(string.IsNullOrWhiteSpace(code) ? null : code);
+                        _pendingGenerateRecoveryCodeTcs = null;
+                    }
+                    else if (type == "user.recovery.generate.fail")
+                    {
+                        _lastErrorMessage = null;
+                        try { if (root.TryGetProperty("message", out var m)) _lastErrorMessage = m.GetString(); } catch { }
+                        _pendingGenerateRecoveryCodeTcs?.TrySetResult(null);
+                        _pendingGenerateRecoveryCodeTcs = null;
+                    }
+                    else if (type == "user.password.reset.recovery.ok")
+                    {
+                        _pendingResetRecoveryPasswordTcs?.TrySetResult(true);
+                        _pendingResetRecoveryPasswordTcs = null;
+                    }
+                    else if (type == "user.password.reset.recovery.fail")
+                    {
+                        _lastErrorMessage = null;
+                        try { if (root.TryGetProperty("message", out var m)) _lastErrorMessage = m.GetString(); } catch { }
+                        _pendingResetRecoveryPasswordTcs?.TrySetResult(false);
+                        _pendingResetRecoveryPasswordTcs = null;
                     }
                     else if (type == "user.self.rights")
                     {
