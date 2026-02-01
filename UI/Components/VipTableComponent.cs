@@ -18,6 +18,8 @@ public sealed class VipTableComponent
     private string _pendingWorld = string.Empty;
     private VenuePlus.State.VipDuration _pendingDuration = VenuePlus.State.VipDuration.FourWeeks;
     private string _addStatus = string.Empty;
+    private string? _editKey;
+    private string _editHomeWorld = string.Empty;
 
     public void OpenAddForm()
     {
@@ -88,6 +90,7 @@ public sealed class VipTableComponent
         int actionsCount = 0;
         var canRemoveGlobal = app.IsOwnerCurrentClub || (app.HasStaffSession && app.StaffCanRemoveVip);
         var canSetDurationGlobal = app.IsOwnerCurrentClub || (app.HasStaffSession && app.StaffCanEditVipDuration);
+        var canEditHomeWorldGlobal = canSetDurationGlobal;
         if (canRemoveGlobal)
         {
             actionsWidth += ImGui.CalcTextSize(FontAwesomeIcon.Trash.ToIconString()).X + style.FramePadding.X * 2f;
@@ -98,6 +101,13 @@ public sealed class VipTableComponent
             actionsWidth += ImGui.CalcTextSize(FontAwesomeIcon.Calendar.ToIconString()).X + style.FramePadding.X * 2f;
             actionsWidth += ImGui.CalcTextSize(FontAwesomeIcon.CalendarAlt.ToIconString()).X + style.FramePadding.X * 2f;
             actionsWidth += ImGui.CalcTextSize(FontAwesomeIcon.Infinity.ToIconString()).X + style.FramePadding.X * 2f;
+            actionsCount += 3;
+        }
+        if (canEditHomeWorldGlobal)
+        {
+            actionsWidth += ImGui.CalcTextSize(FontAwesomeIcon.Edit.ToIconString()).X + style.FramePadding.X * 2f;
+            actionsWidth += ImGui.CalcTextSize(FontAwesomeIcon.Save.ToIconString()).X + style.FramePadding.X * 2f;
+            actionsWidth += ImGui.CalcTextSize(FontAwesomeIcon.Times.ToIconString()).X + style.FramePadding.X * 2f;
             actionsCount += 3;
         }
         ImGui.SetWindowFontScale(1f);
@@ -112,8 +122,8 @@ public sealed class VipTableComponent
         var tableFlags = ImGuiTableFlags.RowBg | ImGuiTableFlags.Borders | ImGuiTableFlags.SizingStretchProp;
         if (ImGui.BeginTable("vip_table", showActions ? 5 : 4, tableFlags))
         {
-            ImGui.TableSetupColumn("Name");
-            ImGui.TableSetupColumn("Homeworld");
+            ImGui.TableSetupColumn("Name", ImGuiTableColumnFlags.WidthFixed, 170f);
+            ImGui.TableSetupColumn("Homeworld", ImGuiTableColumnFlags.WidthFixed, 110f);
             ImGui.TableSetupColumn("Remaining", ImGuiTableColumnFlags.WidthFixed, remainingWidth);
             ImGui.TableSetupColumn("Duration");
             if (showActions)
@@ -181,7 +191,17 @@ public sealed class VipTableComponent
                 }
                 ImGui.TableSetColumnIndex(1);
                 ImGui.SetCursorPosY(ImGui.GetCursorPosY() + dy);
-                ImGui.TextUnformatted(e.HomeWorld);
+                var isEditing = _editKey != null && string.Equals(_editKey, e.Key, StringComparison.Ordinal);
+                if (isEditing)
+                {
+                    ImGui.PushItemWidth(-1f);
+                    ImGui.InputText($"##edit_world_{e.Key}", ref _editHomeWorld, 64);
+                    ImGui.PopItemWidth();
+                }
+                else
+                {
+                    ImGui.TextUnformatted(e.HomeWorld);
+                }
                 ImGui.TableSetColumnIndex(2);
                 ImGui.SetCursorPosY(ImGui.GetCursorPosY() + dy);
                 if (e.Duration == VipDuration.Lifetime)
@@ -224,6 +244,8 @@ public sealed class VipTableComponent
                     ImGui.TableSetColumnIndex(4);
                     var hasRemove = canRemoveGlobal;
                     var hasAdd = canSetDurationGlobal;
+                    var hasEditHome = canEditHomeWorldGlobal;
+                    var homeWorld = e.HomeWorld ?? string.Empty;
                     ImGui.BeginGroup();
                     bool any = false;
                     var yBase = ImGui.GetCursorPosY();
@@ -238,13 +260,65 @@ public sealed class VipTableComponent
                         ImGui.BeginDisabled(!ctrlDown);
                         if (ImGui.Button(FontAwesomeIcon.Trash.ToIconString() + $"##rm_{e.Key}"))
                         {
-                            app.RemoveVip(e.CharacterName, e.HomeWorld);
+                            app.RemoveVip(e.CharacterName, homeWorld);
                         }
                         ImGui.EndDisabled();
                         ImGui.SetWindowFontScale(1f);
                         ImGui.PopFont();
                         if (ImGui.IsItemHovered(ImGuiHoveredFlags.AllowWhenDisabled)) { ImGui.BeginTooltip(); ImGui.TextUnformatted(ctrlDown ? "Remove this VIP from the list" : "Hold Ctrl to remove this VIP"); ImGui.EndTooltip(); }
                         any = true;
+                    }
+                    if (hasEditHome)
+                    {
+                        if (any) ImGui.SameLine();
+                        if (!isEditing)
+                        {
+                            ImGui.PushFont(UiBuilder.IconFont);
+                            ImGui.SetWindowFontScale(0.9f);
+                            centerY = yBase + (rowH - ImGui.GetFrameHeight()) / 2f;
+                            ImGui.SetCursorPosY(centerY);
+                            if (ImGui.Button(FontAwesomeIcon.Edit.ToIconString() + $"##edit_{e.Key}"))
+                            {
+                                _editKey = e.Key;
+                                _editHomeWorld = homeWorld;
+                            }
+                            ImGui.SetWindowFontScale(1f);
+                            ImGui.PopFont();
+                            if (ImGui.IsItemHovered()) { ImGui.BeginTooltip(); ImGui.TextUnformatted("Edit homeworld"); ImGui.EndTooltip(); }
+                            any = true;
+                        }
+                        else
+                        {
+                            var canSave = !string.IsNullOrWhiteSpace(_editHomeWorld);
+                            ImGui.BeginDisabled(!canSave);
+                            ImGui.PushFont(UiBuilder.IconFont);
+                            ImGui.SetWindowFontScale(0.9f);
+                            centerY = yBase + (rowH - ImGui.GetFrameHeight()) / 2f;
+                            ImGui.SetCursorPosY(centerY);
+                            if (ImGui.Button(FontAwesomeIcon.Save.ToIconString() + $"##save_{e.Key}"))
+                            {
+                                var ok = app.UpdateVipHomeWorld(e.CharacterName, homeWorld, _editHomeWorld.Trim());
+                                if (ok) { _editKey = null; _editHomeWorld = string.Empty; }
+                            }
+                            ImGui.SetWindowFontScale(1f);
+                            ImGui.PopFont();
+                            ImGui.EndDisabled();
+                            if (ImGui.IsItemHovered(ImGuiHoveredFlags.AllowWhenDisabled)) { ImGui.BeginTooltip(); ImGui.TextUnformatted(canSave ? "Save homeworld changes" : "Enter a homeworld"); ImGui.EndTooltip(); }
+                            any = true;
+                            if (any) ImGui.SameLine();
+                            ImGui.PushFont(UiBuilder.IconFont);
+                            ImGui.SetWindowFontScale(0.9f);
+                            centerY = yBase + (rowH - ImGui.GetFrameHeight()) / 2f;
+                            ImGui.SetCursorPosY(centerY);
+                            if (ImGui.Button(FontAwesomeIcon.Times.ToIconString() + $"##cancel_{e.Key}"))
+                            {
+                                _editKey = null;
+                                _editHomeWorld = string.Empty;
+                            }
+                            ImGui.SetWindowFontScale(1f);
+                            ImGui.PopFont();
+                            if (ImGui.IsItemHovered()) { ImGui.BeginTooltip(); ImGui.TextUnformatted("Cancel edit"); ImGui.EndTooltip(); }
+                        }
                     }
                     if (hasAdd)
                     {
@@ -255,7 +329,7 @@ public sealed class VipTableComponent
                         ImGui.SetCursorPosY(centerY);
                         if (ImGui.Button(FontAwesomeIcon.Calendar.ToIconString() + $"##4w_{e.Key}"))
                         {
-                            app.AddVip(e.CharacterName, e.HomeWorld, VipDuration.FourWeeks);
+                            app.AddVip(e.CharacterName, homeWorld, VipDuration.FourWeeks);
                         }
                         ImGui.SetWindowFontScale(1f);
                         ImGui.PopFont();
@@ -269,7 +343,7 @@ public sealed class VipTableComponent
                         ImGui.SetCursorPosY(centerY);
                         if (ImGui.Button(FontAwesomeIcon.CalendarAlt.ToIconString() + $"##12w_{e.Key}"))
                         {
-                            app.AddVip(e.CharacterName, e.HomeWorld, VipDuration.TwelveWeeks);
+                            app.AddVip(e.CharacterName, homeWorld, VipDuration.TwelveWeeks);
                         }
                         ImGui.SetWindowFontScale(1f);
                         ImGui.PopFont();
@@ -283,7 +357,7 @@ public sealed class VipTableComponent
                         ImGui.SetCursorPosY(centerY);
                         if (ImGui.Button(FontAwesomeIcon.Infinity.ToIconString() + $"##life_{e.Key}"))
                         {
-                            app.AddVip(e.CharacterName, e.HomeWorld, VipDuration.Lifetime);
+                            app.AddVip(e.CharacterName, homeWorld, VipDuration.Lifetime);
                         }
                         ImGui.SetWindowFontScale(1f);
                         ImGui.PopFont();

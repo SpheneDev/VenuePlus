@@ -245,6 +245,20 @@ public sealed class VenuePlusApp : IDisposable, IEventListener
         return ok;
     }
 
+    public bool UpdateVipHomeWorld(string characterName, string oldHomeWorld, string newHomeWorld)
+    {
+        if (string.IsNullOrWhiteSpace(characterName) || string.IsNullOrWhiteSpace(oldHomeWorld) || string.IsNullOrWhiteSpace(newHomeWorld)) return false;
+        if (string.Equals(oldHomeWorld, newHomeWorld, StringComparison.Ordinal)) return true;
+        var canOwner = IsOwnerCurrentClub;
+        var canEdit = HasStaffSession && StaffCanEditVipDuration;
+        if (!(canOwner || canEdit)) return false;
+        var updated = _vipService.UpdateHomeWorld(characterName, oldHomeWorld, newHomeWorld);
+        if (updated == null) return false;
+        TryPublishRemove(new VipEntry { CharacterName = characterName, HomeWorld = oldHomeWorld, Duration = updated.Duration, CreatedAt = updated.CreatedAt, ExpiresAt = updated.ExpiresAt });
+        TryPublishAdd(updated);
+        return true;
+    }
+
     public void PurgeExpired()
     {
         _vipService.PurgeExpired();

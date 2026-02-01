@@ -72,6 +72,29 @@ public sealed class VipService
         return entry;
     }
 
+    public VipEntry? UpdateHomeWorld(string characterName, string oldHomeWorld, string newHomeWorld)
+    {
+        if (string.IsNullOrWhiteSpace(_activeClub)) return null;
+        if (string.IsNullOrWhiteSpace(characterName) || string.IsNullOrWhiteSpace(oldHomeWorld) || string.IsNullOrWhiteSpace(newHomeWorld)) return null;
+        if (string.Equals(oldHomeWorld, newHomeWorld, StringComparison.Ordinal)) return null;
+        var map = GetActiveMap();
+        var oldKey = characterName + "@" + oldHomeWorld;
+        if (!map.TryGetValue(oldKey, out var existing)) return null;
+        var newKey = characterName + "@" + newHomeWorld;
+        var updated = new VipEntry
+        {
+            CharacterName = characterName,
+            HomeWorld = newHomeWorld,
+            CreatedAt = existing.CreatedAt,
+            Duration = existing.Duration,
+            ExpiresAt = existing.ExpiresAt
+        };
+        map.Remove(oldKey);
+        map[newKey] = updated;
+        _config.SaveClub(_activeClub!, map.Values.ToList());
+        return updated;
+    }
+
     public VipEntry SetFromRemote(VipEntry entry)
     {
         if (string.IsNullOrWhiteSpace(_activeClub)) return entry;
