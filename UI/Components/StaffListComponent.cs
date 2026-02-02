@@ -618,7 +618,7 @@ public sealed class StaffListComponent
         var flags = ImGuiTableFlags.RowBg | ImGuiTableFlags.Borders | ImGuiTableFlags.SizingStretchProp;
         if (ImGui.BeginTable("staff_table", showActions ? 3 : 2, flags))
         {
-            ImGui.TableSetupColumn("Username");
+            ImGui.TableSetupColumn("Username", ImGuiTableColumnFlags.WidthFixed, 170f);
             ImGui.TableSetupColumn("Job");
             if (showActions)
             {
@@ -649,7 +649,16 @@ public sealed class StaffListComponent
                 var statusIconH = ImGui.CalcTextSize(FontAwesomeIcon.Circle.ToIconString()).Y;
                 ImGui.SetWindowFontScale(1f);
                 ImGui.PopFont();
-                var textH = ImGui.CalcTextSize(u.Username).Y;
+                var fullName = u.Username ?? string.Empty;
+                string displayName = fullName;
+                string? homeWorld = null;
+                var atIndex = fullName.IndexOf('@');
+                if (atIndex > 0 && atIndex < fullName.Length - 1)
+                {
+                    displayName = fullName.Substring(0, atIndex);
+                    homeWorld = fullName[(atIndex + 1)..];
+                }
+                var textH = ImGui.CalcTextSize(displayName).Y;
                 const float nameOffsetY = -1f;
                 var contentH = statusIconH > textH ? statusIconH : textH;
                 ImGui.SetCursorPosY(baseY + (rowH - contentH) / 2f);
@@ -683,7 +692,7 @@ public sealed class StaffListComponent
                     ImGui.SameLine(0f, 6f);
                 }
                 ImGui.SetCursorPosY(baseY + (rowH - textH) / 2f + nameOffsetY);
-                ImGui.TextUnformatted(u.Username);
+                ImGui.TextUnformatted(displayName);
                 var showTooltip = ImGui.IsItemHovered();
                 if (u.IsManual)
                 {
@@ -696,7 +705,7 @@ public sealed class StaffListComponent
                     ImGui.BeginTooltip();
                     var createdStr = u.CreatedAt?.ToUniversalTime().ToString("yyyy-MM-dd HH:mm 'UTC'", CultureInfo.InvariantCulture) ?? "--";
                     ImGui.TextUnformatted($"Added: {createdStr}");
-                    if (!string.IsNullOrWhiteSpace(u.Uid)) ImGui.TextUnformatted($"UID: {u.Uid}");
+                    if (!string.IsNullOrWhiteSpace(homeWorld)) ImGui.TextUnformatted($"Homeworld: {homeWorld}");
                     if (u.IsManual) ImGui.TextUnformatted("Manual Entry (Editable)");
                     ImGui.EndTooltip();
                 }
@@ -732,7 +741,13 @@ public sealed class StaffListComponent
             var yBase = ImGui.GetCursorPosY();
             var cellStartX = ImGui.GetCursorPosX();
             var cellWidth = ImGui.GetContentRegionAvail().X;
-            var centerYIcon = yBase + (rowH - ImGui.GetFrameHeight()) / 2f;
+            float jobIconH;
+            ImGui.PushFont(UiBuilder.IconFont);
+            ImGui.SetWindowFontScale(0.9f);
+            jobIconH = ImGui.CalcTextSize(FontAwesomeIcon.Square.ToIconString()).Y;
+            ImGui.SetWindowFontScale(1f);
+            ImGui.PopFont();
+            var centerYIcon = yBase + (rowH - jobIconH) / 2f;
             ImGui.SetCursorPosY(centerYIcon);
             var rightsCachePre2 = app.GetJobRightsCache();
             for (int i = 0; i < currentDisplayArr.Length; i++)
@@ -743,10 +758,22 @@ public sealed class StaffListComponent
                     var iconPre2 = VenuePlus.Helpers.IconDraw.ParseIcon(infoPre2.IconKey);
                     var colPre2 = VenuePlus.Helpers.ColorUtil.HexToU32(infoPre2.ColorHex);
                     IconDraw.IconText(iconPre2, 0.9f, colPre2);
+                    if (ImGui.IsItemHovered())
+                    {
+                        ImGui.BeginTooltip();
+                        ImGui.TextUnformatted(jn ?? string.Empty);
+                        ImGui.EndTooltip();
+                    }
                 }
                 else
                 {
                     ImGui.TextUnformatted(jn ?? string.Empty);
+                    if (ImGui.IsItemHovered())
+                    {
+                        ImGui.BeginTooltip();
+                        ImGui.TextUnformatted(jn ?? string.Empty);
+                        ImGui.EndTooltip();
+                    }
                 }
                 if (i + 1 < currentDisplayArr.Length) ImGui.SameLine(0f, 6f);
             }

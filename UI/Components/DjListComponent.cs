@@ -130,13 +130,19 @@ public sealed class DjListComponent
         var availX = ImGui.GetContentRegionAvail().X;
         if (ImGui.BeginTable("dj_table", showActions ? 3 : 2, flags, new System.Numerics.Vector2(availX, Math.Max(160f, ImGui.GetContentRegionAvail().Y - 28f))))
         {
-            ImGui.TableSetupColumn("DJ Name");
+            ImGui.TableSetupColumn("DJ Name", ImGuiTableColumnFlags.WidthFixed, 170f);
             ImGui.TableSetupColumn("Twitch");
             if (showActions) ImGui.TableSetupColumn("Actions", ImGuiTableColumnFlags.WidthFixed, widthActions);
             ImGui.TableNextRow(ImGuiTableRowFlags.Headers);
+            ImGui.TableSetColumnIndex(0);
             TableSortUi.DrawSortableHeader("DJ Name", 0, ref _sortCol, ref _sortAsc);
             ImGui.TableSetColumnIndex(1);
             TableSortUi.DrawSortableHeader("Twitch", 1, ref _sortCol, ref _sortAsc);
+            if (showActions)
+            {
+                ImGui.TableSetColumnIndex(2);
+                ImGui.TextUnformatted("Actions");
+            }
             if (_sortCol == 0)
             {
                 list = _sortAsc ? list.OrderBy(e => e.DjName, StringComparer.Ordinal).ToArray()
@@ -151,13 +157,21 @@ public sealed class DjListComponent
             foreach (var e in list)
             {
                 ImGui.TableNextRow();
+                var rowH = ImGui.GetFrameHeight();
+                var baseY = ImGui.GetCursorPosY();
+                var textH = ImGui.GetTextLineHeight();
+                var textY = baseY + (rowH - textH) / 2f;
+                var buttonY = baseY + (rowH - ImGui.GetFrameHeight()) / 2f;
                 ImGui.TableSetColumnIndex(0);
+                ImGui.SetCursorPosY(textY);
                 ImGui.TextUnformatted(e.DjName);
                 ImGui.TableSetColumnIndex(1);
+                ImGui.SetCursorPosY(textY);
                 ImGui.TextUnformatted(string.IsNullOrWhiteSpace(e.TwitchLink) ? "" : e.TwitchLink);
                 if (showActions)
                 {
                     ImGui.TableSetColumnIndex(2);
+                    ImGui.SetCursorPosY(buttonY);
                     bool anyPrinted = false;
                     if (!string.IsNullOrWhiteSpace(e.TwitchLink))
                     {
