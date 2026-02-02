@@ -2325,23 +2325,25 @@ public sealed class VenuePlusApp : IDisposable, IEventListener
         try { _remote.Dispose(); } catch { }
     }
 
-    public async System.Threading.Tasks.Task<bool> RegisterCurrentCharacterAsync(string password)
+    public async System.Threading.Tasks.Task<(bool LoginOk, string? RecoveryCode)> RegisterCurrentCharacterAsync(string password)
     {
-        if (string.IsNullOrWhiteSpace(_currentCharName) || string.IsNullOrWhiteSpace(_currentCharWorld)) return false;
+        if (string.IsNullOrWhiteSpace(_currentCharName) || string.IsNullOrWhiteSpace(_currentCharWorld)) return (false, null);
         var name = _currentCharName;
         var world = _currentCharWorld;
-        var ok = await _remote.RegisterAsync(name, world, password);
-        if (!ok) return false;
+        var recoveryCode = await _remote.RegisterAsync(name, world, password);
+        if (string.IsNullOrWhiteSpace(recoveryCode)) return (false, null);
         var username = name + "@" + world;
-        return await StaffLoginAsync(username, password);
+        var loginOk = await StaffLoginAsync(username, password);
+        return (loginOk, recoveryCode);
     }
 
-    public async System.Threading.Tasks.Task<bool> RegisterCharacterAsync(string name, string world, string password)
+    public async System.Threading.Tasks.Task<(bool LoginOk, string? RecoveryCode)> RegisterCharacterAsync(string name, string world, string password)
     {
-        var ok = await _remote.RegisterAsync(name, world, password);
-        if (!ok) return false;
+        var recoveryCode = await _remote.RegisterAsync(name, world, password);
+        if (string.IsNullOrWhiteSpace(recoveryCode)) return (false, null);
         var username = name + "@" + world;
-        return await StaffLoginAsync(username, password);
+        var loginOk = await StaffLoginAsync(username, password);
+        return (loginOk, recoveryCode);
     }
 
     public (string name, string world)? GetCurrentCharacter()

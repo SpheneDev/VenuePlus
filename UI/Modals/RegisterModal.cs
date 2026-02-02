@@ -8,6 +8,8 @@ public sealed class RegisterModal
     private bool _open;
     private string _password = string.Empty;
     private string _status = string.Empty;
+    private string _recoveryCode = string.Empty;
+    private bool _showRecovery;
     private System.DateTimeOffset _submittedAt;
     private bool _delayCloseRequested;
 
@@ -15,6 +17,8 @@ public sealed class RegisterModal
     {
         _password = string.Empty;
         _status = string.Empty;
+        _recoveryCode = string.Empty;
+        _showRecovery = false;
         _open = true;
         _submittedAt = System.DateTimeOffset.MinValue;
         _delayCloseRequested = false;
@@ -42,13 +46,17 @@ public sealed class RegisterModal
                 if (ImGui.Button("Register"))
                 {
                     _status = "Submitting...";
+                    _recoveryCode = string.Empty;
+                    _showRecovery = false;
                     var n = name; var w = world; var p = _password;
                     _delayCloseRequested = true;
                     _submittedAt = System.DateTimeOffset.UtcNow;
                     System.Threading.Tasks.Task.Run(async () =>
                     {
-                        var ok = await app.RegisterCharacterAsync(n, w, p);
-                        _status = ok ? "Registration successful" : "Registration failed";
+                        var result = await app.RegisterCharacterAsync(n, w, p);
+                        _status = result.LoginOk ? "Registration successful" : "Registration failed";
+                        _recoveryCode = result.RecoveryCode ?? string.Empty;
+                        _showRecovery = result.LoginOk && !string.IsNullOrWhiteSpace(_recoveryCode);
                     });
                 }
                 ImGui.EndDisabled();
@@ -58,12 +66,24 @@ public sealed class RegisterModal
                 {
                     _password = string.Empty;
                     _status = string.Empty;
+                    _recoveryCode = string.Empty;
+                    _showRecovery = false;
                     _open = false;
                     _delayCloseRequested = false;
                 }
                 if (ImGui.IsItemHovered()) { ImGui.BeginTooltip(); ImGui.TextUnformatted("Close this dialog"); ImGui.EndTooltip(); }
                 if (!string.IsNullOrEmpty(_status)) ImGui.TextUnformatted(_status);
-                if (_delayCloseRequested && System.DateTimeOffset.UtcNow >= _submittedAt.AddSeconds(2)) _open = false;
+                if (_showRecovery)
+                {
+                    ImGui.Separator();
+                    ImGui.TextUnformatted("Recovery Code");
+                    ImGui.TextWrapped("Please save this recovery code. It is required to reset your password.");
+                    ImGui.InputText("Code", ref _recoveryCode, 64, ImGuiInputTextFlags.ReadOnly);
+                    ImGui.SameLine();
+                    if (ImGui.Button("Copy")) { ImGui.SetClipboardText(_recoveryCode); }
+                    if (ImGui.IsItemHovered(ImGuiHoveredFlags.AllowWhenDisabled)) { ImGui.BeginTooltip(); ImGui.TextUnformatted("Copy recovery code to clipboard"); ImGui.EndTooltip(); }
+                }
+                if (_delayCloseRequested && !_showRecovery && System.DateTimeOffset.UtcNow >= _submittedAt.AddSeconds(2)) _open = false;
                 ImGui.EndPopup();
             }
         }

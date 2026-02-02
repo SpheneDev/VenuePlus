@@ -80,7 +80,7 @@ public sealed class RemoteSyncService : IDisposable
     private TaskCompletionSource<string?>? _pendingAccessKeyTcs;
     private TaskCompletionSource<bool>? _pendingDjUpdateTcs;
     
-    private TaskCompletionSource<bool>? _pendingRegisterUserTcs;
+    private TaskCompletionSource<string?>? _pendingRegisterUserTcs;
     private TaskCompletionSource<bool>? _pendingLogoutTcs;
     private TaskCompletionSource<bool>? _pendingSelfPasswordTcs;
     private TaskCompletionSource<string?>? _pendingGenerateRecoveryCodeTcs;
@@ -548,26 +548,26 @@ public sealed class RemoteSyncService : IDisposable
         return false;
     }
 
-    public async Task<bool> RegisterAsync(string characterName, string homeWorld, string password)
+    public async Task<string?> RegisterAsync(string characterName, string homeWorld, string password)
     {
         if (_useWebSocket && _ws != null && _ws.State == WebSocketState.Open)
         {
             try
             {
-                var tcs = new TaskCompletionSource<bool>();
+                var tcs = new TaskCompletionSource<string?>();
                 _pendingRegisterUserTcs = tcs;
                 var payloadWs = JsonSerializer.Serialize(new { type = "register.request", characterName, homeWorld, password });
                 var seg = new ArraySegment<byte>(Encoding.UTF8.GetBytes(payloadWs));
                 await _ws.SendAsync(seg, WebSocketMessageType.Text, true, CancellationToken.None);
                 using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(6));
                 await Task.WhenAny(tcs.Task, Task.Delay(Timeout.Infinite, cts.Token)).ConfigureAwait(false);
-                var ok = tcs.Task.IsCompleted && tcs.Task.Result;
+                var recoveryCode = tcs.Task.IsCompleted ? tcs.Task.Result : null;
                 _pendingRegisterUserTcs = null;
-                return ok;
+                return string.IsNullOrWhiteSpace(recoveryCode) ? null : recoveryCode;
             }
-            catch (Exception ex) { _log?.Debug($"WS register failed: {ex.Message}"); _pendingRegisterUserTcs = null; return false; }
+            catch (Exception ex) { _log?.Debug($"WS register failed: {ex.Message}"); _pendingRegisterUserTcs = null; return null; }
         }
-        return false;
+        return null;
     }
 
     public async Task<bool> RegisterClubAsync(string clubId, string? adminPin = null, string? defaultStaffPassword = null, string? staffSession = null, string? creatorUsername = null)
@@ -1531,14 +1531,15 @@ public sealed class RemoteSyncService : IDisposable
                     }
                     else if (type == "register.ok")
                     {
-                        _pendingRegisterUserTcs?.TrySetResult(true);
+                        var recoveryCode = root.TryGetProperty("recoveryCode", out var rc) ? (rc.GetString() ?? string.Empty) : string.Empty;
+                        _pendingRegisterUserTcs?.TrySetResult(string.IsNullOrWhiteSpace(recoveryCode) ? null : recoveryCode);
                         _pendingRegisterUserTcs = null;
                     }
                     else if (type == "register.fail")
                     {
                         _lastErrorMessage = null;
                         try { if (root.TryGetProperty("message", out var m)) _lastErrorMessage = m.GetString(); } catch { }
-                        _pendingRegisterUserTcs?.TrySetResult(false);
+                        _pendingRegisterUserTcs?.TrySetResult(null);
                         _pendingRegisterUserTcs = null;
                     }
                     else if (type == "session.logout.ok")
