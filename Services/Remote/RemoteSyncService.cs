@@ -71,6 +71,7 @@ public sealed class RemoteSyncService : IDisposable
     private TaskCompletionSource<bool>? _pendingCreateUserTcs;
     private TaskCompletionSource<bool>? _pendingDeleteUserTcs;
     private TaskCompletionSource<bool>? _pendingUpdateUserJobTcs;
+    private TaskCompletionSource<bool>? _pendingUpdateUserBirthdayTcs;
     private TaskCompletionSource<bool>? _pendingSetJoinPasswordTcs;
     private TaskCompletionSource<bool>? _pendingInviteStaffTcs;
     private TaskCompletionSource<bool>? _pendingManualStaffAddTcs;
@@ -670,7 +671,7 @@ public sealed class RemoteSyncService : IDisposable
         return InviteStaffByUidAsync(targetUid, jobs, staffSession);
     }
 
-    public async Task<bool> CreateManualStaffEntryAsync(string displayName, string[] jobs, string staffSession)
+    public async Task<bool> CreateManualStaffEntryAsync(string displayName, string[] jobs, DateTimeOffset? birthday, string staffSession)
     {
         if (_useWebSocket && _ws != null && _ws.State == WebSocketState.Open)
         {
@@ -680,7 +681,7 @@ public sealed class RemoteSyncService : IDisposable
                 _pendingManualStaffAddTcs = tcs;
                 var name = (displayName ?? string.Empty).Trim();
                 var jobsSend = NormalizeJobs(jobs, null);
-                var msgAdd = JsonSerializer.Serialize(new { type = "user.manual.add", token = staffSession, displayName = name, jobs = jobsSend });
+                var msgAdd = JsonSerializer.Serialize(new { type = "user.manual.add", token = staffSession, displayName = name, jobs = jobsSend, birthday });
                 var seg = new ArraySegment<byte>(Encoding.UTF8.GetBytes(msgAdd));
                 await _ws.SendAsync(seg, WebSocketMessageType.Text, true, CancellationToken.None);
                 using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(6));
@@ -953,6 +954,33 @@ public sealed class RemoteSyncService : IDisposable
             {
                 _log?.Debug($"WS update user job failed: {ex.Message}");
                 _pendingUpdateUserJobTcs = null;
+                return false;
+            }
+        }
+        return false;
+    }
+
+    public async Task<bool> UpdateStaffBirthdayAsync(string username, DateTimeOffset? birthday, string staffSession)
+    {
+        if (_useWebSocket && _ws != null && _ws.State == WebSocketState.Open)
+        {
+            try
+            {
+                var tcs = new TaskCompletionSource<bool>();
+                _pendingUpdateUserBirthdayTcs = tcs;
+                var msgUpdate = JsonSerializer.Serialize(new { type = "user.update.request", token = staffSession, username, birthday });
+                var seg = new ArraySegment<byte>(Encoding.UTF8.GetBytes(msgUpdate));
+                await _ws.SendAsync(seg, WebSocketMessageType.Text, true, CancellationToken.None);
+                using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(6));
+                await Task.WhenAny(tcs.Task, Task.Delay(Timeout.Infinite, cts.Token)).ConfigureAwait(false);
+                var ok = tcs.Task.IsCompleted && tcs.Task.Result;
+                _pendingUpdateUserBirthdayTcs = null;
+                return ok;
+            }
+            catch (Exception ex)
+            {
+                _log?.Debug($"WS update staff birthday failed: {ex.Message}");
+                _pendingUpdateUserBirthdayTcs = null;
                 return false;
             }
         }
@@ -1348,9 +1376,12 @@ public sealed class RemoteSyncService : IDisposable
                     else if (type == "user.update")
                     {
                         var username = root.GetProperty("username").GetString() ?? string.Empty;
-                        var job = root.TryGetProperty("job", out var jobEl) ? (jobEl.GetString() ?? string.Empty) : string.Empty;
+                        var hasJob = root.TryGetProperty("job", out var jobEl);
+                        var hasJobs = root.TryGetProperty("jobs", out var jobsEl) && jobsEl.ValueKind == JsonValueKind.Array;
+                        if (!hasJob && !hasJobs) continue;
+                        var job = hasJob ? (jobEl.GetString() ?? string.Empty) : string.Empty;
                         var jobs = new List<string>();
-                        if (root.TryGetProperty("jobs", out var jobsEl) && jobsEl.ValueKind == JsonValueKind.Array)
+                        if (hasJobs)
                         {
                             foreach (var el in jobsEl.EnumerateArray())
                             {
@@ -1725,6 +1756,8 @@ public sealed class RemoteSyncService : IDisposable
                     {
                         _pendingUpdateUserJobTcs?.TrySetResult(true);
                         _pendingUpdateUserJobTcs = null;
+                        _pendingUpdateUserBirthdayTcs?.TrySetResult(true);
+                        _pendingUpdateUserBirthdayTcs = null;
                     }
                     else if (type == "user.update.fail")
                     {
@@ -1732,6 +1765,8 @@ public sealed class RemoteSyncService : IDisposable
                         try { if (root.TryGetProperty("message", out var m)) _lastErrorMessage = m.GetString(); } catch { }
                         _pendingUpdateUserJobTcs?.TrySetResult(false);
                         _pendingUpdateUserJobTcs = null;
+                        _pendingUpdateUserBirthdayTcs?.TrySetResult(false);
+                        _pendingUpdateUserBirthdayTcs = null;
                     }
                     else if (type == "club.accesskey")
                     {

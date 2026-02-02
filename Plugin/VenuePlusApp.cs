@@ -2131,6 +2131,20 @@ public sealed class VenuePlusApp : IDisposable, IEventListener
         return ok;
     }
 
+    public async System.Threading.Tasks.Task<bool> UpdateStaffBirthdayAsync(string username, System.DateTimeOffset? birthday)
+    {
+        if (!_isPowerStaff || string.IsNullOrWhiteSpace(_staffToken)) return false;
+        var canManage = IsOwnerCurrentClub || (HasStaffSession && StaffCanManageUsers);
+        if (!canManage) return false;
+        if (string.IsNullOrWhiteSpace(username)) return false;
+        var ok = await _remote.UpdateStaffBirthdayAsync(username, birthday, _staffToken!);
+        if (ok && !string.IsNullOrWhiteSpace(_staffUsername) && string.Equals(username, _staffUsername, System.StringComparison.Ordinal))
+        {
+            _selfBirthday = birthday;
+        }
+        return ok;
+    }
+
     public System.Threading.Tasks.Task<bool> UpdateStaffUserJobAsync(string username, string job)
     {
         var arr = string.IsNullOrWhiteSpace(job) ? Array.Empty<string>() : new[] { job };
@@ -2568,12 +2582,12 @@ public sealed class VenuePlusApp : IDisposable, IEventListener
         return InviteStaffByUidAsync(uid, arr);
     }
 
-    public async System.Threading.Tasks.Task<bool> CreateManualStaffEntryAsync(string displayName, string[] jobs)
+    public async System.Threading.Tasks.Task<bool> CreateManualStaffEntryAsync(string displayName, string[] jobs, System.DateTimeOffset? birthday)
     {
         if (!_isPowerStaff || string.IsNullOrWhiteSpace(_staffToken)) return false;
         var canManage = IsOwnerCurrentClub || (HasStaffSession && StaffCanManageUsers);
         if (!canManage) return false;
-        return await _remote.CreateManualStaffEntryAsync(displayName, jobs, _staffToken!);
+        return await _remote.CreateManualStaffEntryAsync(displayName, jobs, birthday, _staffToken!);
     }
 
     public async System.Threading.Tasks.Task<bool> LinkManualStaffEntryAsync(string manualUid, string targetUid)

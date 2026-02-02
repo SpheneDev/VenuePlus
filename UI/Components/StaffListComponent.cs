@@ -27,6 +27,17 @@ public sealed class StaffListComponent
     private string _manualDisplayName = string.Empty;
     private readonly HashSet<string> _manualJobsInline = new(StringComparer.Ordinal);
     private string _manualAddStatus = string.Empty;
+    private bool _manualBirthdayEnabled;
+    private int _manualBirthdayMonth = 1;
+    private int _manualBirthdayDay = 1;
+    private string _manualBirthdayYearInput = string.Empty;
+    private string _editBirthdayUser = string.Empty;
+    private string _editBirthdayUserSnapshot = string.Empty;
+    private bool _editBirthdayEnabled;
+    private int _editBirthdayMonth = 1;
+    private int _editBirthdayDay = 1;
+    private string _editBirthdayYearInput = string.Empty;
+    private string _editBirthdayStatus = string.Empty;
     private string _manualLinkManualUid = string.Empty;
     private string _manualLinkTargetUid = string.Empty;
     private string _manualLinkStatus = string.Empty;
@@ -39,13 +50,14 @@ public sealed class StaffListComponent
     private string _confirmUser = string.Empty;
     private string[] _confirmNewJobs = Array.Empty<string>();
     private string _confirmStatus = string.Empty;
+    private bool _editBirthdayOpen;
 
     public void TriggerRefresh(VenuePlusApp app)
     {
         _status = string.Empty;
         System.Threading.Tasks.Task.Run(async () =>
         {
-            var list = await app.ListStaffUsersDetailedAsync();
+            var list = await app.FetchStaffUsersDetailedAsync();
             _users = list ?? Array.Empty<StaffUser>();
             _status = _users.Length.ToString(System.Globalization.CultureInfo.InvariantCulture);
             var clubId = app.CurrentClubId;
@@ -80,18 +92,6 @@ public sealed class StaffListComponent
     {
         
         ImGui.Spacing();
-        ImGui.PushItemWidth(260f);
-        ImGui.InputTextWithHint("##staff_filter", "Search by username or job", ref _filter, 128);
-        ImGui.PopItemWidth();
-        var visible = ApplyFilter(_users, _filter);
-        var totalStaff = _users.Length;
-        var onlineStaff = 0;
-        for (int i = 0; i < _users.Length; i++)
-        {
-            if (_users[i].IsOnline) onlineStaff++;
-        }
-        ImGui.SameLine();
-        ImGui.TextUnformatted($"Online: {onlineStaff}/{totalStaff}");
         var canInvite = app.IsOwnerCurrentClub || (app.HasStaffSession && app.StaffCanManageUsers);
         if (!canInvite)
         {
@@ -99,14 +99,16 @@ public sealed class StaffListComponent
             _manualLinkInlineOpen = false;
             _focusManualLinkTarget = false;
         }
+        ImGui.PushItemWidth(260f);
+        ImGui.InputTextWithHint("##staff_filter", "Search by username or job", ref _filter, 128);
+        ImGui.PopItemWidth();
         if (canInvite)
         {
-            ImGui.SameLine();
             var styleStaff = ImGui.GetStyle();
             var btnWStaff = ImGui.CalcTextSize("Add Staff").X + styleStaff.FramePadding.X * 2f;
-            var startXStaff = ImGui.GetCursorPosX();
-            var rightXStaff = startXStaff + ImGui.GetContentRegionAvail().X - btnWStaff;
-            ImGui.SameLine(rightXStaff);
+            ImGui.SameLine();
+            var rightXStaff = ImGui.GetCursorPosX() + ImGui.GetContentRegionAvail().X - btnWStaff;
+            ImGui.SetCursorPosX(rightXStaff);
             if (ImGui.Button("Add Staff##invite_open"))
             {
                 _inviteInlineOpen = true;
@@ -119,12 +121,18 @@ public sealed class StaffListComponent
                 _manualJobsInline.Clear();
                 _manualJobsInline.Add("Unassigned");
                 _manualAddStatus = string.Empty;
+                var nowBday = DateTime.UtcNow;
+                _manualBirthdayMonth = nowBday.Month;
+                _manualBirthdayDay = nowBday.Day;
+                _manualBirthdayYearInput = string.Empty;
+                _manualBirthdayEnabled = false;
                 _manualLinkManualUid = string.Empty;
                 _manualLinkTargetUid = string.Empty;
                 _manualLinkStatus = string.Empty;
                 _focusManualLinkTarget = false;
             }
         }
+        ImGui.Spacing();
         if (_inviteInlineOpen && canInvite)
         {
             ImGui.Separator();
@@ -244,6 +252,56 @@ public sealed class StaffListComponent
                 ImGui.EndCombo();
             }
             ImGui.PopItemWidth();
+            ImGui.Spacing();
+            ImGui.TextDisabled("Birthday");
+            ImGui.SameLine();
+            var manualBirthdayEnabled = _manualBirthdayEnabled;
+            if (ImGui.Checkbox("Set birthday##manual_birthday_enable", ref manualBirthdayEnabled))
+            {
+                _manualBirthdayEnabled = manualBirthdayEnabled;
+            }
+            ImGui.BeginDisabled(!_manualBirthdayEnabled);
+            var monthNames = new[]
+            {
+                "January", "February", "March", "April", "May", "June",
+                "July", "August", "September", "October", "November", "December"
+            };
+            var monthIndex = _manualBirthdayMonth - 1;
+            if (monthIndex < 0) monthIndex = 0;
+            if (monthIndex > 11) monthIndex = 11;
+            ImGui.PushItemWidth(140f);
+            if (ImGui.Combo("##manual_birthday_month", ref monthIndex, monthNames, monthNames.Length))
+            {
+                _manualBirthdayMonth = monthIndex + 1;
+            }
+            ImGui.PopItemWidth();
+            ImGui.SameLine();
+            var yearForDays = 2000;
+            if (!string.IsNullOrWhiteSpace(_manualBirthdayYearInput) && int.TryParse(_manualBirthdayYearInput, out var parsedYear) && parsedYear >= 1 && parsedYear <= 9999)
+            {
+                yearForDays = parsedYear;
+            }
+            var maxDay = DateTime.DaysInMonth(yearForDays, _manualBirthdayMonth);
+            if (_manualBirthdayDay > maxDay) _manualBirthdayDay = maxDay;
+            if (_manualBirthdayDay < 1) _manualBirthdayDay = 1;
+            var dayLabels = new string[maxDay];
+            for (int i = 0; i < maxDay; i++) dayLabels[i] = (i + 1).ToString(CultureInfo.InvariantCulture);
+            var dayIndex = _manualBirthdayDay - 1;
+            ImGui.PushItemWidth(90f);
+            if (ImGui.Combo("##manual_birthday_day", ref dayIndex, dayLabels, dayLabels.Length))
+            {
+                _manualBirthdayDay = dayIndex + 1;
+            }
+            ImGui.PopItemWidth();
+            ImGui.SameLine();
+            ImGui.PushItemWidth(80f);
+            var yearText = _manualBirthdayYearInput;
+            if (ImGui.InputTextWithHint("##manual_birthday_year", "Year", ref yearText, 4))
+            {
+                _manualBirthdayYearInput = yearText;
+            }
+            ImGui.PopItemWidth();
+            ImGui.EndDisabled();
             ImGui.SameLine();
             ImGui.BeginDisabled(string.IsNullOrWhiteSpace(_manualDisplayName));
             if (ImGui.Button("Create##manual_add_inline"))
@@ -251,15 +309,44 @@ public sealed class StaffListComponent
                 _manualAddStatus = "Submitting...";
                 var name = _manualDisplayName;
                 var jobsInline = NormalizeJobs(_manualJobsInline);
+                DateTimeOffset? birthday = null;
+                if (_manualBirthdayEnabled)
+                {
+                    var yearTextLocal = _manualBirthdayYearInput?.Trim() ?? string.Empty;
+                    var yearValue = 2000;
+                    if (!string.IsNullOrWhiteSpace(yearTextLocal))
+                    {
+                        if (!int.TryParse(yearTextLocal, out yearValue) || yearValue < 1 || yearValue > 9999)
+                        {
+                            _manualAddStatus = "Invalid year. Use 1 to 9999 or leave empty.";
+                            return;
+                        }
+                    }
+                    try
+                    {
+                        var normalized = new DateTime(yearValue, _manualBirthdayMonth, _manualBirthdayDay, 0, 0, 0, DateTimeKind.Utc);
+                        birthday = new DateTimeOffset(normalized, TimeSpan.Zero);
+                    }
+                    catch
+                    {
+                        _manualAddStatus = "Invalid date.";
+                        return;
+                    }
+                }
                 System.Threading.Tasks.Task.Run(async () =>
                 {
-                    var ok = await app.CreateManualStaffEntryAsync(name, jobsInline);
+                    var ok = await app.CreateManualStaffEntryAsync(name, jobsInline, birthday);
                     _manualAddStatus = ok ? "Added" : (app.GetLastServerMessage() ?? "Add failed");
                     if (ok)
                     {
                         _manualDisplayName = string.Empty;
                         _manualJobsInline.Clear();
                         _manualJobsInline.Add("Unassigned");
+                        var now = DateTime.UtcNow;
+                        _manualBirthdayMonth = now.Month;
+                        _manualBirthdayDay = now.Day;
+                        _manualBirthdayYearInput = string.Empty;
+                        _manualBirthdayEnabled = false;
                         TriggerRefresh(app);
                     }
                 });
@@ -305,6 +392,155 @@ public sealed class StaffListComponent
             if (!string.IsNullOrEmpty(_manualLinkStatus)) { ImGui.TextUnformatted(_manualLinkStatus); }
             ImGui.Separator();
         }
+        if (canInvite && _editBirthdayOpen)
+        {
+            var nameList = new List<string>();
+            for (int i = 0; i < _users.Length; i++)
+            {
+                var uname = _users[i].Username ?? string.Empty;
+                if (!string.IsNullOrWhiteSpace(uname) && _users[i].IsManual) nameList.Add(uname);
+            }
+            var namesArr = nameList.ToArray();
+            Array.Sort(namesArr, StringComparer.OrdinalIgnoreCase);
+            if (namesArr.Length > 0)
+            {
+                var selectedIndex = Array.IndexOf(namesArr, _editBirthdayUser);
+                if (selectedIndex < 0)
+                {
+                    _editBirthdayUser = namesArr[0];
+                }
+                if (!string.Equals(_editBirthdayUserSnapshot, _editBirthdayUser, StringComparison.Ordinal))
+                {
+                    _editBirthdayUserSnapshot = _editBirthdayUser;
+                    var now = DateTime.UtcNow;
+                    _editBirthdayMonth = now.Month;
+                    _editBirthdayDay = now.Day;
+                    _editBirthdayYearInput = string.Empty;
+                    _editBirthdayEnabled = false;
+                    for (int i = 0; i < _users.Length; i++)
+                    {
+                        var u = _users[i];
+                        if (!string.Equals(u.Username, _editBirthdayUser, StringComparison.Ordinal)) continue;
+                        if (u.Birthday.HasValue)
+                        {
+                            var bday = u.Birthday.Value.UtcDateTime;
+                            _editBirthdayMonth = bday.Month;
+                            _editBirthdayDay = bday.Day;
+                            _editBirthdayYearInput = bday.Year == 2000 ? string.Empty : bday.Year.ToString(CultureInfo.InvariantCulture);
+                            _editBirthdayEnabled = true;
+                        }
+                        break;
+                    }
+                }
+                ImGui.Separator();
+                ImGui.TextUnformatted("Edit Birthday");
+                ImGui.SameLine();
+                if (ImGui.Button("Close##edit_birthday_close"))
+                {
+                    _editBirthdayOpen = false;
+                    _editBirthdayStatus = string.Empty;
+                }
+                ImGui.TextUnformatted($"User: {_editBirthdayUser}");
+                var editEnabled = _editBirthdayEnabled;
+                if (ImGui.Checkbox("Has birthday##edit_birthday_enable", ref editEnabled))
+                {
+                    _editBirthdayEnabled = editEnabled;
+                }
+                ImGui.BeginDisabled(!_editBirthdayEnabled);
+                var editMonthNames = new[]
+                {
+                    "January", "February", "March", "April", "May", "June",
+                    "July", "August", "September", "October", "November", "December"
+                };
+                var editMonthIndex = _editBirthdayMonth - 1;
+                if (editMonthIndex < 0) editMonthIndex = 0;
+                if (editMonthIndex > 11) editMonthIndex = 11;
+                ImGui.PushItemWidth(140f);
+                if (ImGui.Combo("##edit_birthday_month", ref editMonthIndex, editMonthNames, editMonthNames.Length))
+                {
+                    _editBirthdayMonth = editMonthIndex + 1;
+                }
+                ImGui.PopItemWidth();
+                ImGui.SameLine();
+                var editYearForDays = 2000;
+                if (!string.IsNullOrWhiteSpace(_editBirthdayYearInput) && int.TryParse(_editBirthdayYearInput, out var editParsedYear) && editParsedYear >= 1 && editParsedYear <= 9999)
+                {
+                    editYearForDays = editParsedYear;
+                }
+                var editMaxDay = DateTime.DaysInMonth(editYearForDays, _editBirthdayMonth);
+                if (_editBirthdayDay > editMaxDay) _editBirthdayDay = editMaxDay;
+                if (_editBirthdayDay < 1) _editBirthdayDay = 1;
+                var editDayLabels = new string[editMaxDay];
+                for (int i = 0; i < editMaxDay; i++) editDayLabels[i] = (i + 1).ToString(CultureInfo.InvariantCulture);
+                var editDayIndex = _editBirthdayDay - 1;
+                ImGui.PushItemWidth(90f);
+                if (ImGui.Combo("##edit_birthday_day", ref editDayIndex, editDayLabels, editDayLabels.Length))
+                {
+                    _editBirthdayDay = editDayIndex + 1;
+                }
+                ImGui.PopItemWidth();
+                ImGui.SameLine();
+                ImGui.PushItemWidth(80f);
+                var editYearText = _editBirthdayYearInput;
+                if (ImGui.InputTextWithHint("##edit_birthday_year", "Year", ref editYearText, 4))
+                {
+                    _editBirthdayYearInput = editYearText;
+                }
+                ImGui.PopItemWidth();
+                ImGui.EndDisabled();
+                ImGui.SameLine();
+                ImGui.BeginDisabled(string.IsNullOrWhiteSpace(_editBirthdayUser));
+                if (ImGui.Button("Save##edit_birthday_save"))
+                {
+                    _editBirthdayStatus = "Submitting...";
+                    DateTimeOffset? birthday = null;
+                    var invalidBirthday = false;
+                    if (_editBirthdayEnabled)
+                    {
+                        var yearTextLocal = _editBirthdayYearInput?.Trim() ?? string.Empty;
+                        var yearValue = 2000;
+                        if (!string.IsNullOrWhiteSpace(yearTextLocal))
+                        {
+                            if (!int.TryParse(yearTextLocal, out yearValue) || yearValue < 1 || yearValue > 9999)
+                            {
+                                _editBirthdayStatus = "Invalid year. Use 1 to 9999 or leave empty.";
+                                invalidBirthday = true;
+                            }
+                        }
+                        if (!invalidBirthday)
+                        {
+                            try
+                            {
+                                var normalized = new DateTime(yearValue, _editBirthdayMonth, _editBirthdayDay, 0, 0, 0, DateTimeKind.Utc);
+                                birthday = new DateTimeOffset(normalized, TimeSpan.Zero);
+                            }
+                            catch
+                            {
+                                _editBirthdayStatus = "Invalid date.";
+                                invalidBirthday = true;
+                            }
+                        }
+                    }
+                    if (!invalidBirthday)
+                    {
+                        var username = _editBirthdayUser;
+                        System.Threading.Tasks.Task.Run(async () =>
+                        {
+                            var ok = await app.UpdateStaffBirthdayAsync(username, birthday);
+                            _editBirthdayStatus = ok ? (_editBirthdayEnabled ? "Birthday updated" : "Birthday cleared") : (app.GetLastServerMessage() ?? "Update failed");
+                            if (ok) TriggerRefresh(app);
+                        });
+                    }
+                }
+                ImGui.EndDisabled();
+                if (!string.IsNullOrEmpty(_editBirthdayStatus)) { ImGui.TextUnformatted(_editBirthdayStatus); }
+            }
+            else
+            {
+                ImGui.Separator();
+                ImGui.TextDisabled("No manual entries available");
+            }
+        }
         ImGui.Separator();
         var style = ImGui.GetStyle();
         ImGui.PushFont(UiBuilder.IconFont);
@@ -316,6 +552,7 @@ public sealed class StaffListComponent
         {
             actionsWidth += ImGui.CalcTextSize(FontAwesomeIcon.Trash.ToIconString()).X + style.FramePadding.X * 2f; actionsCount++;
             actionsWidth += ImGui.CalcTextSize(FontAwesomeIcon.Save.ToIconString()).X + style.FramePadding.X * 2f; actionsCount++;
+            actionsWidth += ImGui.CalcTextSize(FontAwesomeIcon.Calendar.ToIconString()).X + style.FramePadding.X * 2f; actionsCount++;
             actionsWidth += ImGui.CalcTextSize(FontAwesomeIcon.Link.ToIconString()).X + style.FramePadding.X * 2f; actionsCount++;
         }
         ImGui.SetWindowFontScale(1f);
@@ -343,6 +580,7 @@ public sealed class StaffListComponent
                 ImGui.TableSetColumnIndex(2);
                 ImGui.TextUnformatted("Actions");
             }
+            var visible = ApplyFilter(_users, _filter);
             System.Array.Sort(visible, (a, b) =>
             {
                 int r = 0;
@@ -420,7 +658,7 @@ public sealed class StaffListComponent
                 if (u.IsManual)
                 {
                     ImGui.SameLine();
-                    ImGui.TextDisabled("Manual");
+                    ImGui.TextDisabled("Manual (Editable)");
                     showTooltip = showTooltip || ImGui.IsItemHovered();
                 }
                 if (showTooltip)
@@ -429,7 +667,7 @@ public sealed class StaffListComponent
                     var createdStr = u.CreatedAt?.ToUniversalTime().ToString("yyyy-MM-dd HH:mm 'UTC'", CultureInfo.InvariantCulture) ?? "--";
                     ImGui.TextUnformatted($"Added: {createdStr}");
                     if (!string.IsNullOrWhiteSpace(u.Uid)) ImGui.TextUnformatted($"UID: {u.Uid}");
-                    if (u.IsManual) ImGui.TextUnformatted("Manual Entry");
+                    if (u.IsManual) ImGui.TextUnformatted("Manual Entry (Editable)");
                     ImGui.EndTooltip();
                 }
                 ImGui.TableSetColumnIndex(1);
@@ -631,6 +869,24 @@ public sealed class StaffListComponent
                         ImGui.SetWindowFontScale(1f);
                         ImGui.PopFont();
                         if (ImGui.IsItemHovered(ImGuiHoveredFlags.AllowWhenDisabled)) { ImGui.BeginTooltip(); ImGui.TextUnformatted(isOwnerRow ? "Owner job cannot be changed" : (selfLosesManageJobs ? "You cannot assign yourself a role that removes role editing rights" : "Save changes to this staff member's job")); ImGui.EndTooltip(); }
+
+                        ImGui.SameLine();
+                        ImGui.PushFont(UiBuilder.IconFont);
+                        ImGui.SetWindowFontScale(0.9f);
+                        centerY = yBaseAct + (rowH - ImGui.GetFrameHeight()) / 2f;
+                        ImGui.SetCursorPosY(centerY);
+                        ImGui.BeginDisabled(!u.IsManual);
+                        if (ImGui.Button(FontAwesomeIcon.Calendar.ToIconString() + $"##birthday_{u.Username}"))
+                        {
+                            _editBirthdayOpen = true;
+                            _editBirthdayUser = u.Username;
+                            _editBirthdayUserSnapshot = string.Empty;
+                            _editBirthdayStatus = string.Empty;
+                        }
+                        ImGui.EndDisabled();
+                        ImGui.SetWindowFontScale(1f);
+                        ImGui.PopFont();
+                        if (ImGui.IsItemHovered(ImGuiHoveredFlags.AllowWhenDisabled)) { ImGui.BeginTooltip(); ImGui.TextUnformatted(!u.IsManual ? "Only manual entries can be edited" : "Edit birthday"); ImGui.EndTooltip(); }
 
                         ImGui.SameLine();
                         ImGui.PushFont(UiBuilder.IconFont);
