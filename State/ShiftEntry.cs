@@ -6,6 +6,7 @@ namespace VenuePlus.State
     {
         public Guid Id { get; set; }
         public string Title { get; set; } = string.Empty;
+        public string? DjName { get; set; }
         public string? AssignedUid { get; set; }
         public string? Job { get; set; }
         public DateTimeOffset StartAt { get; set; } = DateTimeOffset.UtcNow;

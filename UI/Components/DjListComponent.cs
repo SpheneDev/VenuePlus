@@ -17,6 +17,7 @@ public sealed class DjListComponent
     private bool _sortAsc = true;
     private string _status = string.Empty;
     private bool _openAddForm;
+    private string _editingName = string.Empty;
 
     public void OpenAddForm()
     {
@@ -30,6 +31,7 @@ public sealed class DjListComponent
         _status = string.Empty;
         _pendingName = string.Empty;
         _pendingTwitch = string.Empty;
+        _editingName = string.Empty;
     }
 
     public void Draw(VenuePlusApp app)
@@ -52,27 +54,31 @@ public sealed class DjListComponent
         }
         if (_openAddForm && canAddDjTop)
         {
+            var editing = !string.IsNullOrWhiteSpace(_editingName);
             ImGui.Separator();
-            ImGui.TextUnformatted("Add DJ");
+            ImGui.TextUnformatted(editing ? "Edit DJ" : "Add DJ");
             ImGui.PushItemWidth(220f);
+            ImGui.BeginDisabled(editing);
             ImGui.InputTextWithHint("##dj_name", "DJ name", ref _pendingName, 128);
+            ImGui.EndDisabled();
             ImGui.InputTextWithHint("##dj_twitch", "Twitch URL or name", ref _pendingTwitch, 256);
             ImGui.PopItemWidth();
             ImGui.SameLine();
             ImGui.BeginDisabled(string.IsNullOrWhiteSpace(_pendingName));
-            if (ImGui.Button("Add"))
+            if (ImGui.Button(editing ? "Save" : "Add"))
             {
                 _status = "Submitting...";
                 var name = _pendingName.Trim();
                 var twitch = (_pendingTwitch ?? string.Empty).Trim();
                 System.Threading.Tasks.Task.Run(async () =>
                 {
-                    var ok = await app.AddDjAsync(name, twitch);
-                    _status = ok ? "Added" : (app.GetLastServerMessage() ?? "Add failed");
+                    var ok = await app.AddDjAsync(name, twitch, null, null);
+                    _status = ok ? (editing ? "Saved" : "Added") : (app.GetLastServerMessage() ?? "Add failed");
                     if (ok)
                     {
                         _pendingName = string.Empty;
                         _pendingTwitch = string.Empty;
+                        _editingName = string.Empty;
                         _openAddForm = false;
                     }
                 });
@@ -83,6 +89,7 @@ public sealed class DjListComponent
             {
                 _openAddForm = false;
                 _status = string.Empty;
+                _editingName = string.Empty;
             }
             if (!string.IsNullOrEmpty(_status)) ImGui.TextUnformatted(_status);
             ImGui.Separator();
@@ -100,18 +107,26 @@ public sealed class DjListComponent
         var style = ImGui.GetStyle();
         var copyIcon = IconDraw.ToIconStringFromKey("Copy");
         var openIcon = IconDraw.ToIconStringFromKey("Link");
+        var editIcon = IconDraw.ToIconStringFromKey("Edit");
         var rmIcon = IconDraw.ToIconStringFromKey("Trash");
+        var canEditDj = canAddDjTop;
         ImGui.PushFont(UiBuilder.IconFont);
-        float actionsWidth = ImGui.CalcTextSize(copyIcon).X + style.FramePadding.X * 2f
-                           + ImGui.CalcTextSize(openIcon).X + style.FramePadding.X * 2f
-                           + ImGui.CalcTextSize(rmIcon).X + style.FramePadding.X * 2f
-                           + style.ItemSpacing.X * 2f;
+        float actionsWidth = 0f;
+        int actionsCount = 0;
+        void AddActionWidth(string icon)
+        {
+            actionsWidth += ImGui.CalcTextSize(icon).X + style.FramePadding.X * 2f;
+            actionsCount++;
+        }
+        AddActionWidth(copyIcon);
+        AddActionWidth(openIcon);
+        if (canEditDj) AddActionWidth(editIcon);
+        if (canRemoveDj) AddActionWidth(rmIcon);
         ImGui.PopFont();
-        int actionsCount = 2;
 
         var flags = ImGuiTableFlags.RowBg | ImGuiTableFlags.Borders | ImGuiTableFlags.SizingStretchProp | ImGuiTableFlags.ScrollY | ImGuiTableFlags.Sortable | ImGuiTableFlags.NoSavedSettings;
         var showActions = actionsCount > 0;
-        var widthActions = showActions ? actionsWidth + style.ItemSpacing.X * (actionsCount - 1) : 0f;
+        var widthActions = showActions ? actionsWidth + style.ItemSpacing.X * Math.Max(0, actionsCount - 1) : 0f;
         var availX = ImGui.GetContentRegionAvail().X;
         if (ImGui.BeginTable("dj_table", showActions ? 3 : 2, flags, new System.Numerics.Vector2(availX, Math.Max(160f, ImGui.GetContentRegionAvail().Y - 28f))))
         {
@@ -170,6 +185,23 @@ public sealed class DjListComponent
                             });
                         }
                         if (ImGui.IsItemHovered()) { ImGui.BeginTooltip(); ImGui.TextUnformatted("Open Twitch link"); ImGui.EndTooltip(); }
+                    }
+                    if (canEditDj)
+                    {
+                        if (anyPrinted) ImGui.SameLine();
+                        ImGui.PushFont(UiBuilder.IconFont);
+                        var editClicked = ImGui.Button(editIcon + $"##edit_{e.DjName}");
+                        ImGui.PopFont();
+                        if (editClicked)
+                        {
+                            _openAddForm = true;
+                            _editingName = e.DjName;
+                            _pendingName = e.DjName;
+                            _pendingTwitch = e.TwitchLink ?? string.Empty;
+                            _status = string.Empty;
+                        }
+                        if (ImGui.IsItemHovered()) { ImGui.BeginTooltip(); ImGui.TextUnformatted("Edit DJ"); ImGui.EndTooltip(); }
+                        anyPrinted = true;
                     }
                     if (canRemoveDj)
                     {

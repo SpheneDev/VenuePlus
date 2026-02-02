@@ -20,6 +20,8 @@ public sealed class VipTableComponent
     private string _addStatus = string.Empty;
     private string? _editKey;
     private string _editHomeWorld = string.Empty;
+    private int _pageIndex;
+    private string _pageFilter = string.Empty;
 
     public void OpenAddForm()
     {
@@ -40,6 +42,11 @@ public sealed class VipTableComponent
     public void Draw(VenuePlusApp app, string filter)
     {
         var canAddVipGlobal = app.IsOwnerCurrentClub || (app.HasStaffSession && app.StaffCanAddVip);
+        if (!string.Equals(_pageFilter, filter, StringComparison.Ordinal))
+        {
+            _pageFilter = filter ?? string.Empty;
+            _pageIndex = 0;
+        }
         if (_openAddForm && canAddVipGlobal)
         {
             ImGui.Separator();
@@ -82,6 +89,22 @@ public sealed class VipTableComponent
             items = items.Where(e => e.CharacterName.Contains(f, StringComparison.OrdinalIgnoreCase)
                                    || e.HomeWorld.Contains(f, StringComparison.OrdinalIgnoreCase)).ToArray();
         }
+
+        const int pageSize = 15;
+        var totalCount = items.Length;
+        var totalPages = Math.Max(1, (totalCount + pageSize - 1) / pageSize);
+        if (_pageIndex >= totalPages) _pageIndex = totalPages - 1;
+        if (_pageIndex < 0) _pageIndex = 0;
+        ImGui.BeginDisabled(_pageIndex <= 0);
+        if (ImGui.Button("Prev##vip_page_prev")) { _pageIndex--; }
+        ImGui.EndDisabled();
+        ImGui.SameLine();
+        ImGui.TextUnformatted($"Page {_pageIndex + 1} / {totalPages}");
+        ImGui.SameLine();
+        ImGui.BeginDisabled(_pageIndex >= totalPages - 1);
+        if (ImGui.Button("Next##vip_page_next")) { _pageIndex++; }
+        ImGui.EndDisabled();
+        ImGui.Separator();
 
         var style = ImGui.GetStyle();
         ImGui.PushFont(UiBuilder.IconFont);
@@ -170,8 +193,11 @@ public sealed class VipTableComponent
                 return _sortAsc ? r : -r;
             });
 
-            foreach (var e in items)
+            var startIndex = _pageIndex * pageSize;
+            var endIndex = Math.Min(items.Length, startIndex + pageSize);
+            for (int i = startIndex; i < endIndex; i++)
             {
+                var e = items[i];
                 ImGui.TableNextRow();
                 var rowH = ImGui.GetFrameHeight();
                 var textH = ImGui.GetTextLineHeight();

@@ -51,6 +51,8 @@ public sealed class StaffListComponent
     private string[] _confirmNewJobs = Array.Empty<string>();
     private string _confirmStatus = string.Empty;
     private bool _editBirthdayOpen;
+    private int _pageIndex;
+    private string _pageFilter = string.Empty;
 
     public void TriggerRefresh(VenuePlusApp app)
     {
@@ -132,7 +134,6 @@ public sealed class StaffListComponent
                 _focusManualLinkTarget = false;
             }
         }
-        ImGui.Spacing();
         if (_inviteInlineOpen && canInvite)
         {
             ImGui.Separator();
@@ -561,6 +562,59 @@ public sealed class StaffListComponent
         var showActions = actionsCount > 0;
         if (showActions && actionsWidth <= 0f) actionsWidth = ImGui.GetFrameHeight() * 1.5f;
 
+        if (!string.Equals(_pageFilter, _filter, StringComparison.Ordinal))
+        {
+            _pageFilter = _filter;
+            _pageIndex = 0;
+        }
+        var visible = ApplyFilter(_users, _filter);
+        System.Array.Sort(visible, (a, b) =>
+        {
+            int r = 0;
+            switch (_sortCol)
+            {
+                case 0:
+                    r = string.Compare(a.Username, b.Username, System.StringComparison.OrdinalIgnoreCase);
+                    break;
+                case 1:
+                    var rights = app.GetJobRightsCache();
+                    int ra = 1;
+                    int rb = 1;
+                    var aj = GetPrimaryJob(rights, NormalizeJobs(GetJobsFromUser(a)));
+                    var bj = GetPrimaryJob(rights, NormalizeJobs(GetJobsFromUser(b)));
+                    if (rights != null && rights.TryGetValue(aj, out var ia)) ra = ia.Rank;
+                    else if (string.Equals(aj, "Owner", System.StringComparison.Ordinal)) ra = 10;
+                    else if (string.Equals(aj, "Unassigned", System.StringComparison.Ordinal)) ra = 0;
+                    if (rights != null && rights.TryGetValue(bj, out var ib)) rb = ib.Rank;
+                    else if (string.Equals(bj, "Owner", System.StringComparison.Ordinal)) rb = 10;
+                    else if (string.Equals(bj, "Unassigned", System.StringComparison.Ordinal)) rb = 0;
+                    r = ra.CompareTo(rb);
+                    if (!_sortAsc) r = -r;
+                    if (r == 0) r = string.Compare(aj, bj, System.StringComparison.OrdinalIgnoreCase);
+                    break;
+            }
+            return r;
+        });
+        const int pageSize = 15;
+        var totalCount = visible.Length;
+        var totalPages = Math.Max(1, (totalCount + pageSize - 1) / pageSize);
+        if (_pageIndex >= totalPages) _pageIndex = totalPages - 1;
+        if (_pageIndex < 0) _pageIndex = 0;
+        ImGui.BeginDisabled(_pageIndex <= 0);
+        if (ImGui.Button("Prev##staff_page_prev")) { _pageIndex--; }
+        ImGui.EndDisabled();
+        ImGui.SameLine();
+        ImGui.TextUnformatted($"Page {_pageIndex + 1} / {totalPages}");
+        ImGui.SameLine();
+        ImGui.BeginDisabled(_pageIndex >= totalPages - 1);
+        if (ImGui.Button("Next##staff_page_next")) { _pageIndex++; }
+        ImGui.EndDisabled();
+        ImGui.Separator();
+        var startIndex = _pageIndex * pageSize;
+        var pageCount = Math.Min(pageSize, Math.Max(0, totalCount - startIndex));
+        var pageItems = new StaffUser[pageCount];
+        if (pageCount > 0) Array.Copy(visible, startIndex, pageItems, 0, pageCount);
+
         var flags = ImGuiTableFlags.RowBg | ImGuiTableFlags.Borders | ImGuiTableFlags.SizingStretchProp;
         if (ImGui.BeginTable("staff_table", showActions ? 3 : 2, flags))
         {
@@ -580,36 +634,12 @@ public sealed class StaffListComponent
                 ImGui.TableSetColumnIndex(2);
                 ImGui.TextUnformatted("Actions");
             }
-            var visible = ApplyFilter(_users, _filter);
-            System.Array.Sort(visible, (a, b) =>
+            int rowIndex = 0;
+            foreach (var u in pageItems)
             {
-                int r = 0;
-                switch (_sortCol)
-                {
-                    case 0:
-                        r = string.Compare(a.Username, b.Username, System.StringComparison.OrdinalIgnoreCase);
-                        break;
-                    case 1:
-                        var rights = app.GetJobRightsCache();
-                        int ra = 1;
-                        int rb = 1;
-                        var aj = GetPrimaryJob(rights, NormalizeJobs(GetJobsFromUser(a)));
-                        var bj = GetPrimaryJob(rights, NormalizeJobs(GetJobsFromUser(b)));
-                        if (rights != null && rights.TryGetValue(aj, out var ia)) ra = ia.Rank;
-                        else if (string.Equals(aj, "Owner", System.StringComparison.Ordinal)) ra = 10;
-                        else if (string.Equals(aj, "Unassigned", System.StringComparison.Ordinal)) ra = 0;
-                        if (rights != null && rights.TryGetValue(bj, out var ib)) rb = ib.Rank;
-                        else if (string.Equals(bj, "Owner", System.StringComparison.Ordinal)) rb = 10;
-                        else if (string.Equals(bj, "Unassigned", System.StringComparison.Ordinal)) rb = 0;
-                        r = ra.CompareTo(rb);
-                        if (!_sortAsc) r = -r;
-                        if (r == 0) r = string.Compare(aj, bj, System.StringComparison.OrdinalIgnoreCase);
-                        break;
-                }
-                return r;
-            });
-            foreach (var u in visible)
-            {
+                var rowId = !string.IsNullOrWhiteSpace(u.Uid) ? u.Uid : u.Username;
+                if (!string.IsNullOrWhiteSpace(rowId)) ImGui.PushID(rowId);
+                else ImGui.PushID(rowIndex);
                 ImGui.TableNextRow();
                 var rowH = ImGui.GetFrameHeight();
                 ImGui.TableSetColumnIndex(0);
@@ -905,6 +935,8 @@ public sealed class StaffListComponent
                         ImGui.TextUnformatted(rs);
                     }
                 }
+                ImGui.PopID();
+                rowIndex++;
             }
             ImGui.EndTable();
         }

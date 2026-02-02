@@ -48,8 +48,11 @@ public sealed class VenuePlusWindow : Window, IDisposable
     private System.DateTimeOffset _birthdayLastRefresh;
     private VenuePlus.State.StaffUser[] _birthdayUsers = Array.Empty<VenuePlus.State.StaffUser>();
     private string? _birthdayClubId;
+    private int _birthdayPageIndex;
+    private string _birthdayPageFilter = string.Empty;
     private bool _openStaffLoginModal;
     private IDalamudTextureWrap? _clubLogoTex;
+    private IDalamudTextureWrap? _fallbackLogoTex;
     private string? _lastLogoBase64;
     private readonly ITextureProvider _textureProvider;
     private readonly System.Collections.Concurrent.ConcurrentDictionary<string, IDalamudTextureWrap> _clubLogoTexCache = new(System.StringComparer.Ordinal);
@@ -560,6 +563,7 @@ public sealed class VenuePlusWindow : Window, IDisposable
             ImGui.TextUnformatted($"VIPs: {_statsVipCount}   Staff: {_statsStaffCount}   Online: {_statsStaffOnlineCount}/{_statsStaffCount}");
             ImGui.EndGroup();
             ImGui.Spacing();
+            var showShiftTab = false;
             if (ImGui.BeginTabBar("MainTabs"))
             {
             if (ImGui.BeginTabItem("VIPs"))
@@ -612,18 +616,15 @@ public sealed class VenuePlusWindow : Window, IDisposable
                 ImGui.EndChild();
                 ImGui.EndTabItem();
             }
-            if (!_app.HasStaffSession)
+            if (showShiftTab && ImGui.BeginTabItem("Schedule"))
             {
-                if (ImGui.BeginTabItem("Shifts"))
-                {
-                    ImGui.BeginChild("ShiftsTabContent", new Vector2(0, ImGui.GetContentRegionAvail().Y), false);
-                    _vipTable.CloseAddForm();
-                    _staffList.CloseInviteInline();
-                    _djList.CloseAddForm();
-                    _shiftPlan.Draw(_app);
-                    ImGui.EndChild();
-                    ImGui.EndTabItem();
-                }
+                ImGui.BeginChild("ShiftsTabContent", new Vector2(0, ImGui.GetContentRegionAvail().Y), false);
+                _vipTable.CloseAddForm();
+                _staffList.CloseInviteInline();
+                _djList.CloseAddForm();
+                _shiftPlan.Draw(_app);
+                ImGui.EndChild();
+                ImGui.EndTabItem();
             }
             if (_app.HasStaffSession)
             {
@@ -638,6 +639,18 @@ public sealed class VenuePlusWindow : Window, IDisposable
                         _staffLastRefresh = System.DateTimeOffset.UtcNow;
                     }
                     _staffList.Draw(_app);
+                    ImGui.EndChild();
+                    ImGui.EndTabItem();
+                }
+            }
+            if (_app.HasStaffSession)
+            {
+                if (ImGui.BeginTabItem("DJs"))
+                {
+                    ImGui.BeginChild("DjsTabContent", new Vector2(0, ImGui.GetContentRegionAvail().Y), false);
+                    _vipTable.CloseAddForm();
+                    _staffList.CloseInviteInline();
+                    _djList.Draw(_app);
                     ImGui.EndChild();
                     ImGui.EndTabItem();
                 }
@@ -703,7 +716,20 @@ public sealed class VenuePlusWindow : Window, IDisposable
                         if (comp != 0) return comp;
                         return string.Compare(a.User.Username, b.User.Username, StringComparison.Ordinal);
                     });
-                    if (list.Count == 0)
+                    if (!string.Equals(_birthdayPageFilter, filter, StringComparison.Ordinal))
+                    {
+                        _birthdayPageFilter = filter ?? string.Empty;
+                        _birthdayPageIndex = 0;
+                    }
+                    const int pageSize = 15;
+                    var totalCount = list.Count;
+                    var totalPages = Math.Max(1, (totalCount + pageSize - 1) / pageSize);
+                    if (_birthdayPageIndex >= totalPages) _birthdayPageIndex = totalPages - 1;
+                    if (_birthdayPageIndex < 0) _birthdayPageIndex = 0;
+                    var startIndex = _birthdayPageIndex * pageSize;
+                    var pageCount = Math.Min(pageSize, Math.Max(0, totalCount - startIndex));
+                    var pageList = pageCount > 0 ? list.GetRange(startIndex, pageCount) : new System.Collections.Generic.List<(VenuePlus.State.StaffUser User, System.DateTime Next, int Days)>();
+                    if (totalCount == 0)
                     {
                         ImGui.TextUnformatted("No birthdays set");
                     }
@@ -721,13 +747,23 @@ public sealed class VenuePlusWindow : Window, IDisposable
                         ImGui.SameLine(0f, 6f);
                         ImGui.TextUnformatted("Birthday List");
                         ImGui.SameLine(0f, 6f);
-                        ImGui.TextDisabled($"({list.Count})");
+                        ImGui.TextDisabled($"({totalCount})");
+                        ImGui.Separator();
+                        ImGui.BeginDisabled(_birthdayPageIndex <= 0);
+                        if (ImGui.Button("Prev##birthday_page_prev")) { _birthdayPageIndex--; }
+                        ImGui.EndDisabled();
+                        ImGui.SameLine();
+                        ImGui.TextUnformatted($"Page {_birthdayPageIndex + 1} / {totalPages}");
+                        ImGui.SameLine();
+                        ImGui.BeginDisabled(_birthdayPageIndex >= totalPages - 1);
+                        if (ImGui.Button("Next##birthday_page_next")) { _birthdayPageIndex++; }
+                        ImGui.EndDisabled();
                         ImGui.Separator();
                         bool hasToday = false;
                         bool hasUpcoming = false;
-                        for (int i = 0; i < list.Count; i++)
+                        for (int i = 0; i < pageList.Count; i++)
                         {
-                            if (list[i].Days == 0) hasToday = true;
+                            if (pageList[i].Days == 0) hasToday = true;
                             else hasUpcoming = true;
                         }
                         ImGui.Columns(3, "birthday_cols", false);
@@ -750,9 +786,9 @@ public sealed class VenuePlusWindow : Window, IDisposable
                             ImGui.TextUnformatted(string.Empty);
                             ImGui.NextColumn();
                             ImGui.Separator();
-                            for (int i = 0; i < list.Count; i++)
+                            for (int i = 0; i < pageList.Count; i++)
                             {
-                                var entry = list[i];
+                                var entry = pageList[i];
                                 if (entry.Days != 0) continue;
                                 var name = entry.User.Username ?? string.Empty;
                                 var birthday = entry.User.Birthday.HasValue ? entry.User.Birthday.Value.UtcDateTime.ToString("MMM dd", CultureInfo.InvariantCulture) : "—";
@@ -779,9 +815,9 @@ public sealed class VenuePlusWindow : Window, IDisposable
                             ImGui.TextUnformatted(string.Empty);
                             ImGui.NextColumn();
                             ImGui.Separator();
-                            for (int i = 0; i < list.Count; i++)
+                            for (int i = 0; i < pageList.Count; i++)
                             {
-                                var entry = list[i];
+                                var entry = pageList[i];
                                 if (entry.Days == 0) continue;
                                 var name = entry.User.Username ?? string.Empty;
                                 var birthday = entry.User.Birthday.HasValue ? entry.User.Birthday.Value.UtcDateTime.ToString("MMM dd", CultureInfo.InvariantCulture) : "—";
@@ -799,18 +835,6 @@ public sealed class VenuePlusWindow : Window, IDisposable
                         }
                         ImGui.Columns(1);
                     }
-                    ImGui.EndChild();
-                    ImGui.EndTabItem();
-                }
-            }
-            if (_app.HasStaffSession)
-            {
-                if (ImGui.BeginTabItem("DJs"))
-                {
-                    ImGui.BeginChild("DjsTabContent", new Vector2(0, ImGui.GetContentRegionAvail().Y), false);
-                    _vipTable.CloseAddForm();
-                    _staffList.CloseInviteInline();
-                    _djList.Draw(_app);
                     ImGui.EndChild();
                     ImGui.EndTabItem();
                 }
@@ -912,6 +936,8 @@ public sealed class VenuePlusWindow : Window, IDisposable
         _app.ClubLogoChanged -= OnClubLogoChanged;
         try { _clubLogoTex?.Dispose(); } catch { }
         _clubLogoTex = null;
+        try { _fallbackLogoTex?.Dispose(); } catch { }
+        _fallbackLogoTex = null;
         foreach (var kv in _clubLogoTexCache) { try { kv.Value.Dispose(); } catch { } }
         _clubLogoTexCache.Clear();
     }
@@ -957,6 +983,27 @@ public sealed class VenuePlusWindow : Window, IDisposable
         _openStaffLoginModal = true;
     }
 
+    private void EnsureFallbackLogoTexture()
+    {
+        if (_fallbackLogoTex != null) return;
+        var base64 = VImages.GetDefaultVenueLogoBase64Raw();
+        if (string.IsNullOrWhiteSpace(base64)) return;
+        try
+        {
+            var bytes = Convert.FromBase64String(base64);
+            System.Threading.Tasks.Task.Run(async () =>
+            {
+                try
+                {
+                    var tex = await _textureProvider.CreateFromImageAsync(bytes);
+                    _fallbackLogoTex = tex;
+                }
+                catch { }
+            });
+        }
+        catch { }
+    }
+
     private void OnClubLogoChanged(string? base64)
     {
         try
@@ -993,6 +1040,7 @@ public sealed class VenuePlusWindow : Window, IDisposable
 
     private IDalamudTextureWrap? GetClubLogoTexture(string clubId)
     {
+        EnsureFallbackLogoTexture();
         var cur = _app.CurrentClubId;
         if (!string.IsNullOrWhiteSpace(cur) && string.Equals(cur, clubId, StringComparison.Ordinal) && _clubLogoTex != null)
         {
@@ -1004,7 +1052,14 @@ public sealed class VenuePlusWindow : Window, IDisposable
             try { var _ = t.Handle; return t; }
             catch { try { t.Dispose(); } catch { } _clubLogoTexCache.TryRemove(clubId, out _); }
         }
-        if (_clubLogoFetchPending.ContainsKey(clubId)) return null;
+        if (_clubLogoFetchPending.ContainsKey(clubId))
+        {
+            if (_fallbackLogoTex != null)
+            {
+                try { var _ = _fallbackLogoTex.Handle; return _fallbackLogoTex; } catch { try { _fallbackLogoTex?.Dispose(); } catch { } _fallbackLogoTex = null; }
+            }
+            return null;
+        }
         if (!_clubLogoFetchPending.TryAdd(clubId, 1)) return null;
         System.Threading.Tasks.Task.Run(async () =>
         {
@@ -1038,6 +1093,10 @@ public sealed class VenuePlusWindow : Window, IDisposable
                 _clubLogoFetchPending.TryRemove(clubId, out _);
             }
         });
+        if (_fallbackLogoTex != null)
+        {
+            try { var _ = _fallbackLogoTex.Handle; return _fallbackLogoTex; } catch { try { _fallbackLogoTex?.Dispose(); } catch { } _fallbackLogoTex = null; }
+        }
         return null;
     }
     private void PrefetchClubLogos(VenuePlusApp app)

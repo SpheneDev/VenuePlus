@@ -14,6 +14,8 @@ public sealed class VipListWindow : Window
     private string _filter = string.Empty;
     private int _sortCol;
     private bool _sortAsc = true;
+    private int _pageIndex;
+    private string _pageFilter = string.Empty;
 
     public VipListWindow(VenuePlusApp app) : base("VIP List")
     {
@@ -49,6 +51,27 @@ public sealed class VipListWindow : Window
                                    || e.HomeWorld.Contains(f, StringComparison.OrdinalIgnoreCase)).ToArray();
         }
 
+        if (!string.Equals(_pageFilter, f, StringComparison.Ordinal))
+        {
+            _pageFilter = f;
+            _pageIndex = 0;
+        }
+        const int pageSize = 15;
+        var totalCount = items.Length;
+        var totalPages = Math.Max(1, (totalCount + pageSize - 1) / pageSize);
+        if (_pageIndex >= totalPages) _pageIndex = totalPages - 1;
+        if (_pageIndex < 0) _pageIndex = 0;
+        ImGui.BeginDisabled(_pageIndex <= 0);
+        if (ImGui.Button("Prev##vip_list_page_prev")) { _pageIndex--; }
+        ImGui.EndDisabled();
+        ImGui.SameLine();
+        ImGui.TextUnformatted($"Page {_pageIndex + 1} / {totalPages}");
+        ImGui.SameLine();
+        ImGui.BeginDisabled(_pageIndex >= totalPages - 1);
+        if (ImGui.Button("Next##vip_list_page_next")) { _pageIndex++; }
+        ImGui.EndDisabled();
+        ImGui.Separator();
+
         ImGui.BeginChild("vip_list_table_scroll", new Vector2(0, ImGui.GetContentRegionAvail().Y), false);
         var flags = ImGuiTableFlags.RowBg | ImGuiTableFlags.Borders | ImGuiTableFlags.SizingStretchProp;
         if (ImGui.BeginTable("vip_list_popup_table", 2, flags))
@@ -77,8 +100,11 @@ public sealed class VipListWindow : Window
                 return _sortAsc ? r : -r;
             });
 
-            foreach (var e in items)
+            var startIndex = _pageIndex * pageSize;
+            var endIndex = Math.Min(items.Length, startIndex + pageSize);
+            for (int i = startIndex; i < endIndex; i++)
             {
+                var e = items[i];
                 ImGui.TableNextRow();
                 ImGui.TableSetColumnIndex(0);
                 ImGui.TextUnformatted(e.CharacterName);

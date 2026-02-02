@@ -291,12 +291,12 @@ public sealed class VenuePlusApp : IDisposable, IEventListener
         return _shiftService.GetAll();
     }
 
-    public async System.Threading.Tasks.Task<bool> AddDjAsync(string djName, string twitchLink)
+    public async System.Threading.Tasks.Task<bool> AddDjAsync(string djName, string twitchLink, System.DateTimeOffset? startAt, System.DateTimeOffset? endAt)
     {
         var canAddDj = IsOwnerCurrentClub || (HasStaffSession && StaffCanAddDj);
         if (!canAddDj) return false;
         var link = DjService.NormalizeTwitchLink(twitchLink);
-        var entry = new VenuePlus.State.DjEntry { DjName = djName ?? string.Empty, TwitchLink = link, CreatedAt = System.DateTimeOffset.UtcNow };
+        var entry = new VenuePlus.State.DjEntry { DjName = djName ?? string.Empty, TwitchLink = link, CreatedAt = System.DateTimeOffset.UtcNow, StartAt = startAt, EndAt = endAt };
         _djService.SetOrAdd(entry);
         if (HasStaffSession)
         {
@@ -320,11 +320,11 @@ public sealed class VenuePlusApp : IDisposable, IEventListener
         return true;
     }
 
-    public async System.Threading.Tasks.Task<bool> AddShiftAsync(string title, System.DateTimeOffset startAt, System.DateTimeOffset endAt, string? assignedUid = null, string? job = null)
+    public async System.Threading.Tasks.Task<bool> AddShiftAsync(string title, System.DateTimeOffset startAt, System.DateTimeOffset endAt, string? assignedUid = null, string? job = null, string? djName = null)
     {
         var canEdit = CanEditShiftPlanInternal();
         if (!canEdit) return false;
-        var entry = new VenuePlus.State.ShiftEntry { Id = Guid.Empty, Title = title ?? string.Empty, AssignedUid = string.IsNullOrWhiteSpace(assignedUid) ? null : assignedUid, Job = string.IsNullOrWhiteSpace(job) ? null : job, StartAt = startAt, EndAt = endAt };
+        var entry = new VenuePlus.State.ShiftEntry { Id = Guid.Empty, Title = title ?? string.Empty, DjName = string.IsNullOrWhiteSpace(djName) ? null : djName, AssignedUid = string.IsNullOrWhiteSpace(assignedUid) ? null : assignedUid, Job = string.IsNullOrWhiteSpace(job) ? null : job, StartAt = startAt, EndAt = endAt };
         if (HasStaffSession)
         {
             try { var ok = await _remote.PublishAddShiftAsync(entry, _staffToken!); if (ok) { TryNotifyShiftCreated(entry); } return ok; } catch { return false; }
@@ -332,11 +332,11 @@ public sealed class VenuePlusApp : IDisposable, IEventListener
         return false;
     }
 
-    public async System.Threading.Tasks.Task<bool> UpdateShiftAsync(Guid id, string title, System.DateTimeOffset startAt, System.DateTimeOffset endAt, string? assignedUid = null, string? job = null)
+    public async System.Threading.Tasks.Task<bool> UpdateShiftAsync(Guid id, string title, System.DateTimeOffset startAt, System.DateTimeOffset endAt, string? assignedUid = null, string? job = null, string? djName = null)
     {
         var canEdit = CanEditShiftPlanInternal();
         if (!canEdit) return false;
-        var entry = new VenuePlus.State.ShiftEntry { Id = id, Title = title ?? string.Empty, AssignedUid = string.IsNullOrWhiteSpace(assignedUid) ? null : assignedUid, Job = string.IsNullOrWhiteSpace(job) ? null : job, StartAt = startAt, EndAt = endAt };
+        var entry = new VenuePlus.State.ShiftEntry { Id = id, Title = title ?? string.Empty, DjName = string.IsNullOrWhiteSpace(djName) ? null : djName, AssignedUid = string.IsNullOrWhiteSpace(assignedUid) ? null : assignedUid, Job = string.IsNullOrWhiteSpace(job) ? null : job, StartAt = startAt, EndAt = endAt };
         if (HasStaffSession)
         {
             try { var ok = await _remote.PublishUpdateShiftAsync(entry, _staffToken!); if (ok) { TryNotifyShiftUpdated(entry); } return ok; } catch { return false; }

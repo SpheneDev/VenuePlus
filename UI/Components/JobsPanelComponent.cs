@@ -47,6 +47,8 @@ public sealed class JobsPanelComponent
     private int _addRank = 1;
     private int _editRank = 1;
     private readonly string[] _iconOptions = new[] { "User", "Shield", "Star", "Beer", "Music", "GlassCheers", "Heart", "Sun", "Moon", "Crown", "Gem", "Fire", "Snowflake" };
+    private int _pageIndex;
+    private string _pageFilter = string.Empty;
 
     public void Draw(VenuePlusApp app)
     {
@@ -76,7 +78,27 @@ public sealed class JobsPanelComponent
         }
         if (ImGui.IsItemHovered()) { ImGui.BeginTooltip(); ImGui.TextUnformatted("Create a new role"); ImGui.EndTooltip(); }
         ImGui.Separator();
+        if (!string.Equals(_pageFilter, _filter, System.StringComparison.Ordinal))
+        {
+            _pageFilter = _filter;
+            _pageIndex = 0;
+        }
         var jobs = ApplyFilter(_jobs, _filter);
+        const int pageSize = 15;
+        var totalCount = jobs.Length;
+        var totalPages = System.Math.Max(1, (totalCount + pageSize - 1) / pageSize);
+        if (_pageIndex >= totalPages) _pageIndex = totalPages - 1;
+        if (_pageIndex < 0) _pageIndex = 0;
+        ImGui.BeginDisabled(_pageIndex <= 0);
+        if (ImGui.Button("Prev##roles_page_prev")) { _pageIndex--; }
+        ImGui.EndDisabled();
+        ImGui.SameLine();
+        ImGui.TextUnformatted($"Page {_pageIndex + 1} / {totalPages}");
+        ImGui.SameLine();
+        ImGui.BeginDisabled(_pageIndex >= totalPages - 1);
+        if (ImGui.Button("Next##roles_page_next")) { _pageIndex++; }
+        ImGui.EndDisabled();
+        ImGui.Separator();
         var style = ImGui.GetStyle();
         ImGui.PushFont(UiBuilder.IconFont);
         ImGui.SetWindowFontScale(0.9f);
@@ -120,8 +142,11 @@ public sealed class JobsPanelComponent
                 if (cmp != 0) return cmp;
                 return string.Compare(a ?? string.Empty, b ?? string.Empty, System.StringComparison.OrdinalIgnoreCase);
             });
-            foreach (var j in jobs)
+            var startIndex = _pageIndex * pageSize;
+            var endIndex = System.Math.Min(jobs.Length, startIndex + pageSize);
+            for (int i = startIndex; i < endIndex; i++)
             {
+                var j = jobs[i];
                 ImGui.TableNextRow();
                 var rowH = ImGui.GetFrameHeight();
                 var textH = ImGui.GetTextLineHeight();

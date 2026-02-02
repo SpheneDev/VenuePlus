@@ -5,6 +5,7 @@ using Dalamud.Interface.Windowing;
 using Dalamud.Interface.Textures.TextureWraps;
 using Dalamud.Plugin.Services;
 using VenuePlus.Plugin;
+using VenuePlus.Helpers;
 
 namespace VenuePlus.UI;
 
@@ -15,6 +16,7 @@ public sealed class VenuesListWindow : Window, IDisposable
     private bool _disposed;
     private readonly System.Collections.Concurrent.ConcurrentDictionary<string, IDalamudTextureWrap> _logoCache = new(System.StringComparer.Ordinal);
     private readonly System.Collections.Concurrent.ConcurrentDictionary<string, byte> _fetchPending = new(System.StringComparer.Ordinal);
+    private IDalamudTextureWrap? _fallbackLogoTex;
 
     public VenuesListWindow(VenuePlusApp app, ITextureProvider textureProvider) : base("My Venues")
     {
@@ -108,13 +110,42 @@ public sealed class VenuesListWindow : Window, IDisposable
         if (clubsOwned.Length == 0 && clubsMember.Length == 0) ImGui.TextUnformatted("No Venues yet.");
     }
 
+    private void EnsureFallbackLogoTexture()
+    {
+        if (_fallbackLogoTex != null) return;
+        var base64 = VImages.GetDefaultVenueLogoBase64Raw();
+        if (string.IsNullOrWhiteSpace(base64)) return;
+        try
+        {
+            var bytes = Convert.FromBase64String(base64);
+            System.Threading.Tasks.Task.Run(async () =>
+            {
+                try
+                {
+                    var tex = await _textureProvider.CreateFromImageAsync(bytes);
+                    _fallbackLogoTex = tex;
+                }
+                catch { }
+            });
+        }
+        catch { }
+    }
+
     private IDalamudTextureWrap? GetClubLogoTexture(string clubId)
     {
+        EnsureFallbackLogoTexture();
         if (_logoCache.TryGetValue(clubId, out var cached))
         {
             try { var _ = cached.Handle; return cached; } catch { try { cached.Dispose(); } catch { } _logoCache.TryRemove(clubId, out _); }
         }
-        if (_fetchPending.ContainsKey(clubId)) return null;
+        if (_fetchPending.ContainsKey(clubId))
+        {
+            if (_fallbackLogoTex != null)
+            {
+                try { var _ = _fallbackLogoTex.Handle; return _fallbackLogoTex; } catch { try { _fallbackLogoTex?.Dispose(); } catch { } _fallbackLogoTex = null; }
+            }
+            return null;
+        }
         if (!_fetchPending.TryAdd(clubId, 1)) return null;
         System.Threading.Tasks.Task.Run(async () =>
         {
@@ -132,12 +163,20 @@ public sealed class VenuesListWindow : Window, IDisposable
                     }
                     catch { }
                 }
+                else
+                {
+                    if (_logoCache.TryGetValue(clubId, out var old)) { try { old.Dispose(); } catch { } _logoCache.TryRemove(clubId, out _); }
+                }
             }
             finally
             {
                 _fetchPending.TryRemove(clubId, out _);
             }
         });
+        if (_fallbackLogoTex != null)
+        {
+            try { var _ = _fallbackLogoTex.Handle; return _fallbackLogoTex; } catch { try { _fallbackLogoTex?.Dispose(); } catch { } _fallbackLogoTex = null; }
+        }
         return null;
     }
 
@@ -150,6 +189,7 @@ public sealed class VenuesListWindow : Window, IDisposable
             try { kv.Value.Dispose(); } catch { }
         }
         _logoCache.Clear();
+        try { _fallbackLogoTex?.Dispose(); } catch { }
+        _fallbackLogoTex = null;
     }
 }
-

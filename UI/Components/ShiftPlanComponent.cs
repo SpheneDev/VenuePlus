@@ -1,6 +1,8 @@
 using System;
+using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
+using System.Text;
 using Dalamud.Bindings.ImGui;
 using Dalamud.Interface;
 using VenuePlus.Plugin;
@@ -27,6 +29,8 @@ public sealed class ShiftPlanComponent
     private int _selUserIdx = -1;
     private string? _selUid;
     private string? _selJob;
+    private int _selDjIdx = -1;
+    private string? _selDjName;
     private int _startYear;
     private int _startMonth;
     private int _startDay;
@@ -58,6 +62,8 @@ public sealed class ShiftPlanComponent
         _selUserIdx = -1;
         _selUid = null;
         _selJob = null;
+        _selDjIdx = -1;
+        _selDjName = null;
         var now = DateTime.Now;
         _startYear = now.Year;
         _startMonth = now.Month;
@@ -85,6 +91,8 @@ public sealed class ShiftPlanComponent
         _selUserIdx = -1;
         _selUid = null;
         _selJob = null;
+        _selDjIdx = -1;
+        _selDjName = null;
     }
 
     private void EnsureLookups(VenuePlusApp app)
@@ -209,6 +217,35 @@ public sealed class ShiftPlanComponent
             ImGui.PushItemWidth(220f);
             ImGui.InputTextWithHint("##shift_title", "Title (optional)", ref _pendingTitle, 128);
             ImGui.PopItemWidth();
+            var djEntries = app.GetDjEntries().OrderBy(e => e.DjName, StringComparer.Ordinal).ToArray();
+            if (_selDjIdx >= djEntries.Length) { _selDjIdx = -1; _selDjName = null; }
+            if (_selDjIdx < 0 && !string.IsNullOrWhiteSpace(_selDjName))
+            {
+                for (int i = 0; i < djEntries.Length; i++)
+                {
+                    if (string.Equals(djEntries[i].DjName, _selDjName, StringComparison.Ordinal))
+                    {
+                        _selDjIdx = i;
+                        break;
+                    }
+                }
+            }
+            ImGui.TextUnformatted("DJ");
+            ImGui.PushItemWidth(220f);
+            var selDjLabel = _selDjIdx < 0 ? "(none)" : djEntries[_selDjIdx].DjName;
+            if (ImGui.BeginCombo("##dj_select", selDjLabel))
+            {
+                bool selNone = _selDjIdx < 0;
+                if (ImGui.Selectable("(none)", selNone)) { _selDjIdx = -1; _selDjName = null; }
+                for (int i = 0; i < djEntries.Length; i++)
+                {
+                    var label = djEntries[i].DjName;
+                    bool sel = _selDjIdx == i;
+                    if (ImGui.Selectable(label, sel)) { _selDjIdx = i; _selDjName = label; }
+                }
+                ImGui.EndCombo();
+            }
+            ImGui.PopItemWidth();
             EnsureLookups(app);
             var leftWidth = 260f;
             var calHeight = 180f;
@@ -295,11 +332,12 @@ public sealed class ShiftPlanComponent
                 var title = (_pendingTitle ?? string.Empty).Trim();
                 var uid = _selUid;
                 var job = _selJob;
+                var djName = _selDjName;
                 if (_editingId == Guid.Empty)
                 {
                     System.Threading.Tasks.Task.Run(async () =>
                     {
-                        var ok = await app.AddShiftAsync(title, startAt, endAt, uid, job);
+                        var ok = await app.AddShiftAsync(title, startAt, endAt, uid, job, djName);
                         _status = ok ? "Added" : (app.GetLastServerMessage() ?? "Add failed");
                         if (ok) CloseAddForm();
                     });
@@ -309,7 +347,7 @@ public sealed class ShiftPlanComponent
                     var id = _editingId;
                     System.Threading.Tasks.Task.Run(async () =>
                     {
-                        var ok = await app.UpdateShiftAsync(id, title, startAt, endAt, uid, job);
+                        var ok = await app.UpdateShiftAsync(id, title, startAt, endAt, uid, job, djName);
                         _status = ok ? "Updated" : (app.GetLastServerMessage() ?? "Update failed");
                         if (ok) CloseAddForm();
                     });
@@ -323,6 +361,8 @@ public sealed class ShiftPlanComponent
         }
 
         ImGui.Separator();
+        var all = app.GetShiftEntries().ToArray();
+        var eventDays = GetEventDays(all);
         if (_viewYear <= 0 || _viewMonth <= 0) { var nowV = DateTime.Now; _viewYear = nowV.Year; _viewMonth = nowV.Month; _selectedDayMain = nowV.Day; }
         if (!_listMode)
         {
@@ -331,6 +371,18 @@ public sealed class ShiftPlanComponent
             ImGui.SameLine(); ImGui.TextUnformatted(labelMonth);
             ImGui.SameLine(); if (ImGui.Button(">##cal_next")) { _viewMonth += 1; if (_viewMonth >= 13) { _viewMonth = 1; _viewYear += 1; } var maxD = DaysInMonth(_viewYear, _viewMonth); if (_selectedDayMain > maxD) _selectedDayMain = maxD; }
             ImGui.SameLine(); if (ImGui.Button("Refresh")) { var club = app.CurrentClubId ?? string.Empty; if (!string.IsNullOrWhiteSpace(club)) app.SetClubId(club); }
+            ImGui.SameLine();
+            if (ImGui.Button("Schedule"))
+            {
+                _listMode = true;
+                var pick = PickEventDay(eventDays);
+                if (pick.HasValue)
+                {
+                    _viewYear = pick.Value.Year;
+                    _viewMonth = pick.Value.Month;
+                    _selectedDayMain = pick.Value.Day;
+                }
+            }
         }
         if (!_listMode)
         {
@@ -345,17 +397,111 @@ public sealed class ShiftPlanComponent
             EnsureLookups(app);
             if (ImGui.Button("Refresh") && !string.IsNullOrWhiteSpace(app.CurrentClubId)) { app.SetClubId(app.CurrentClubId); }
             ImGui.SameLine();
-            if (ImGui.Button("Back")) { _listMode = false; }
+            if (ImGui.Button("Calendar")) { _listMode = false; }
+            if (eventDays.Count > 0)
+            {
+                var currentDay = new DateTime(_viewYear, _viewMonth, Math.Max(1, _selectedDayMain));
+                var selectedIndex = eventDays.FindIndex(d => d.Date == currentDay.Date);
+                if (selectedIndex < 0)
+                {
+                    var pick = PickEventDay(eventDays);
+                    if (pick.HasValue)
+                    {
+                        _viewYear = pick.Value.Year;
+                        _viewMonth = pick.Value.Month;
+                        _selectedDayMain = pick.Value.Day;
+                        selectedIndex = eventDays.FindIndex(d => d.Date == pick.Value.Date);
+                    }
+                }
+                if (selectedIndex < 0) selectedIndex = 0;
+                var label = eventDays[selectedIndex].ToString("yyyy-MM-dd");
+                ImGui.SameLine();
+                ImGui.TextUnformatted("Date");
+                ImGui.SameLine();
+                ImGui.PushItemWidth(140f);
+                if (ImGui.BeginCombo("##schedule_day", label))
+                {
+                    for (int i = 0; i < eventDays.Count; i++)
+                    {
+                        var d = eventDays[i];
+                        var text = d.ToString("yyyy-MM-dd");
+                        bool sel = i == selectedIndex;
+                        if (ImGui.Selectable(text, sel))
+                        {
+                            _viewYear = d.Year;
+                            _viewMonth = d.Month;
+                            _selectedDayMain = d.Day;
+                            selectedIndex = i;
+                        }
+                    }
+                    ImGui.EndCombo();
+                }
+                ImGui.PopItemWidth();
+            }
+            else
+            {
+                ImGui.SameLine();
+                ImGui.TextUnformatted("No event days");
+            }
             var listHeight = Math.Max(140f, ImGui.GetContentRegionAvail().Y);
             var availX = ImGui.GetContentRegionAvail().X;
             ImGui.BeginChild("day_plan_panel", new System.Numerics.Vector2(availX, listHeight), false);
             var day = _selectedDayMain <= 0 ? 1 : _selectedDayMain;
             var dayLocalStart = new DateTime(_viewYear, _viewMonth, day, 0, 0, 0, DateTimeKind.Local);
             var dayLocalEnd = dayLocalStart.AddDays(1);
-            var all = app.GetShiftEntries().ToArray();
-            var listDay = all.Where(e => e.StartAt.ToLocalTime() < dayLocalEnd && e.EndAt.ToLocalTime() > dayLocalStart).OrderBy(e => e.StartAt).ToArray();
+            var listDay = all.Where(e => e.StartAt.ToLocalTime() < dayLocalEnd && e.EndAt.ToLocalTime() > dayLocalStart).ToArray();
+            var nowLocal = DateTimeOffset.Now;
+            if (dayLocalStart.Date == nowLocal.ToLocalTime().Date)
+            {
+                Array.Sort(listDay, (a, b) => CompareByCurrent(nowLocal, a, b));
+            }
+            else
+            {
+                Array.Sort(listDay, (a, b) => a.StartAt.CompareTo(b.StartAt));
+            }
             var titleDay = dayLocalStart.ToString("yyyy-MM-dd");
             ImGui.TextUnformatted("Plan " + titleDay);
+            if (listDay.Length == 0)
+            {
+                ImGui.TextUnformatted("No events for this day");
+            }
+
+            var panelHeight = ImGui.GetContentRegionAvail().Y;
+            var hourTableHeight = Math.Max(180f, Math.Min(260f, panelHeight * 0.45f));
+            var listTableHeight = Math.Max(120f, panelHeight - hourTableHeight - ImGui.GetStyle().ItemSpacing.Y);
+            var hourFlags = ImGuiTableFlags.RowBg | ImGuiTableFlags.Borders | ImGuiTableFlags.SizingStretchProp | ImGuiTableFlags.ScrollY | ImGuiTableFlags.NoSavedSettings;
+            if (ImGui.BeginTable("day_hour_table", 2, hourFlags, new System.Numerics.Vector2(availX, hourTableHeight)))
+            {
+                ImGui.TableSetupColumn("Hour", ImGuiTableColumnFlags.WidthStretch, 0.18f);
+                ImGui.TableSetupColumn("Events", ImGuiTableColumnFlags.WidthStretch, 0.82f);
+                ImGui.TableNextRow(ImGuiTableRowFlags.Headers);
+                ImGui.TableSetColumnIndex(0); ImGui.TextUnformatted("Hour");
+                ImGui.TableSetColumnIndex(1); ImGui.TextUnformatted("Events");
+                for (int h = 0; h < 24; h++)
+                {
+                    var hourStart = dayLocalStart.AddHours(h);
+                    var hourEnd = hourStart.AddHours(1);
+                    var sb = new StringBuilder();
+                    for (int i = 0; i < listDay.Length; i++)
+                    {
+                        var e = listDay[i];
+                        var sLocal = e.StartAt.ToLocalTime();
+                        var eLocal = e.EndAt.ToLocalTime();
+                        if (sLocal < hourEnd && eLocal > hourStart)
+                        {
+                            if (sb.Length > 0) sb.Append(" | ");
+                            var whoLabel = BuildWhoLabel(e, _staffUsers);
+                            sb.Append(BuildShiftLabel(e, whoLabel));
+                        }
+                    }
+                    ImGui.TableNextRow();
+                    ImGui.TableSetColumnIndex(0);
+                    ImGui.TextUnformatted(hourStart.ToString("HH:00"));
+                    ImGui.TableSetColumnIndex(1);
+                    ImGui.TextUnformatted(sb.Length > 0 ? sb.ToString() : string.Empty);
+                }
+                ImGui.EndTable();
+            }
 
             var style = ImGui.GetStyle();
             var editIcon2 = IconDraw.ToIconStringFromKey("PenToSquare");
@@ -366,7 +512,7 @@ public sealed class ShiftPlanComponent
                                + style.ItemSpacing.X;
             ImGui.PopFont();
             var flagsList = ImGuiTableFlags.RowBg | ImGuiTableFlags.Borders | ImGuiTableFlags.SizingStretchProp | ImGuiTableFlags.ScrollY | ImGuiTableFlags.NoSavedSettings;
-            if (ImGui.BeginTable("day_list_table", 4, flagsList, new System.Numerics.Vector2(availX, listHeight - ImGui.GetFrameHeight() - style.ItemSpacing.Y)))
+            if (ImGui.BeginTable("day_list_table", 4, flagsList, new System.Numerics.Vector2(availX, listTableHeight)))
             {
                 ImGui.TableSetupColumn("Time", ImGuiTableColumnFlags.WidthStretch, 0.16f);
                 ImGui.TableSetupColumn("User/Job", ImGuiTableColumnFlags.WidthStretch, 0.34f);
@@ -382,14 +528,13 @@ public sealed class ShiftPlanComponent
                     var e = listDay[i];
                     var s = e.StartAt.ToLocalTime().ToString("HH:mm");
                     var ee = e.EndAt.ToLocalTime().ToString("HH:mm");
-                    var uname = (!string.IsNullOrWhiteSpace(e.AssignedUid)) ? _staffUsers.FirstOrDefault(u => string.Equals(u.Uid, e.AssignedUid, StringComparison.Ordinal))?.Username : null;
-                    var who = !string.IsNullOrWhiteSpace(uname) ? uname : (string.IsNullOrWhiteSpace(e.AssignedUid) ? (string.IsNullOrWhiteSpace(e.Job) ? string.Empty : e.Job!) : e.AssignedUid!);
+                    var whoLabel = BuildWhoLabel(e, _staffUsers);
 
                     ImGui.TableNextRow();
                     ImGui.TableSetColumnIndex(0);
                     ImGui.TextUnformatted(s + "-" + ee);
                     ImGui.TableSetColumnIndex(1);
-                    ImGui.TextUnformatted(string.IsNullOrWhiteSpace(e.Job) ? who : (who + " [" + e.Job + "]"));
+                    ImGui.TextUnformatted(whoLabel);
                     ImGui.TableSetColumnIndex(2);
                     ImGui.TextUnformatted(e.Title ?? string.Empty);
                     ImGui.TableSetColumnIndex(3);
@@ -412,6 +557,8 @@ public sealed class ShiftPlanComponent
                         _durationMinutes = (int)Math.Max(0, (eL - sL).TotalMinutes);
                         _selUid = string.IsNullOrWhiteSpace(e.AssignedUid) ? null : e.AssignedUid;
                         _selJob = string.IsNullOrWhiteSpace(e.Job) ? null : e.Job;
+                        _selDjName = string.IsNullOrWhiteSpace(e.DjName) ? null : e.DjName;
+                        _selDjIdx = -1;
                         _selUserIdx = -1;
                         for (int j = 0; j < _staffUsers.Length; j++) { var u = _staffUsers[j]; if (!string.IsNullOrWhiteSpace(_selUid) && string.Equals(u.Uid, _selUid, StringComparison.Ordinal)) { _selUserIdx = j; break; } }
                         EnsureLookups(app);
@@ -475,5 +622,84 @@ public sealed class ShiftPlanComponent
             }
             ImGui.EndTable();
         }
+    }
+
+    private static List<DateTime> GetEventDays(ShiftEntry[] entries)
+    {
+        var set = new HashSet<DateTime>();
+        for (int i = 0; i < entries.Length; i++)
+        {
+            var e = entries[i];
+            var start = e.StartAt.ToLocalTime();
+            var end = e.EndAt.ToLocalTime();
+            var dayStart = start.Date;
+            var dayEnd = end.Date;
+            if (end.TimeOfDay == TimeSpan.Zero && dayEnd > dayStart) dayEnd = dayEnd.AddDays(-1);
+            for (var d = dayStart; d <= dayEnd; d = d.AddDays(1))
+            {
+                set.Add(d);
+            }
+        }
+        var list = set.ToList();
+        list.Sort((a, b) => a.Date.CompareTo(b.Date));
+        return list;
+    }
+
+    private static DateTime? PickEventDay(List<DateTime> days)
+    {
+        if (days.Count == 0) return null;
+        var today = DateTime.Now.Date;
+        for (int i = 0; i < days.Count; i++)
+        {
+            if (days[i].Date == today) return days[i];
+        }
+        return days[0];
+    }
+
+    private static int CompareByCurrent(DateTimeOffset nowLocal, ShiftEntry a, ShiftEntry b)
+    {
+        var now = nowLocal.ToLocalTime();
+        var aStart = a.StartAt.ToLocalTime();
+        var aEnd = a.EndAt.ToLocalTime();
+        var bStart = b.StartAt.ToLocalTime();
+        var bEnd = b.EndAt.ToLocalTime();
+        var aCurrent = aStart <= now && aEnd > now;
+        var bCurrent = bStart <= now && bEnd > now;
+        if (aCurrent != bCurrent) return aCurrent ? -1 : 1;
+        var aPast = aEnd <= now;
+        var bPast = bEnd <= now;
+        if (aPast != bPast) return aPast ? 1 : -1;
+        return a.StartAt.CompareTo(b.StartAt);
+    }
+
+    private static string BuildWhoLabel(ShiftEntry e, StaffUser[] users)
+    {
+        string? uname = null;
+        if (!string.IsNullOrWhiteSpace(e.AssignedUid))
+        {
+            for (int i = 0; i < users.Length; i++)
+            {
+                var u = users[i];
+                if (string.Equals(u.Uid, e.AssignedUid, StringComparison.Ordinal))
+                {
+                    uname = u.Username;
+                    break;
+                }
+            }
+        }
+        var djLabel = string.IsNullOrWhiteSpace(e.DjName) ? null : ("DJ: " + e.DjName);
+        var who = !string.IsNullOrWhiteSpace(djLabel) ? djLabel : (!string.IsNullOrWhiteSpace(uname) ? uname : (string.IsNullOrWhiteSpace(e.AssignedUid) ? string.Empty : e.AssignedUid!));
+        return string.IsNullOrWhiteSpace(e.Job) ? who : (string.IsNullOrWhiteSpace(who) ? e.Job! : (who + " [" + e.Job + "]"));
+    }
+
+    private static string BuildShiftLabel(ShiftEntry e, string whoLabel)
+    {
+        var s = e.StartAt.ToLocalTime().ToString("HH:mm");
+        var ee = e.EndAt.ToLocalTime().ToString("HH:mm");
+        var title = e.Title ?? string.Empty;
+        if (string.IsNullOrWhiteSpace(title) && string.IsNullOrWhiteSpace(whoLabel)) return s + "-" + ee;
+        if (string.IsNullOrWhiteSpace(title)) return s + "-" + ee + " " + whoLabel;
+        if (string.IsNullOrWhiteSpace(whoLabel)) return s + "-" + ee + " " + title;
+        return s + "-" + ee + " " + title + " (" + whoLabel + ")";
     }
 }
