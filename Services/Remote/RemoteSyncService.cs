@@ -65,6 +65,7 @@ public sealed class RemoteSyncService : IDisposable
     private TaskCompletionSource<bool>? _pendingClubLogoUpdateTcs;
     private TaskCompletionSource<bool>? _pendingClubLogoDeleteTcs;
     private TaskCompletionSource<bool>? _pendingVipUpdateTcs;
+    private TaskCompletionSource<bool>? _pendingVipPurgeTcs;
     private TaskCompletionSource<string?>? _pendingRegenerateAccessKeyTcs;
     private TaskCompletionSource<bool>? _pendingRegisterClubTcs;
     private TaskCompletionSource<bool>? _pendingJoinClubTcs;
@@ -285,6 +286,28 @@ public sealed class RemoteSyncService : IDisposable
                 return ok;
             }
             catch (Exception ex) { _log?.Debug($"WS publish remove failed: {ex.Message}"); _pendingVipUpdateTcs = null; return false; }
+        }
+        return false;
+    }
+
+    public async Task<bool> PurgeExpiredVipAsync(string session)
+    {
+        if (_useWebSocket && _ws != null && _ws.State == WebSocketState.Open)
+        {
+            try
+            {
+                var tcs = new TaskCompletionSource<bool>();
+                _pendingVipPurgeTcs = tcs;
+                var payload = JsonSerializer.Serialize(new { type = "vip.purge.expired", token = session });
+                var seg = new ArraySegment<byte>(Encoding.UTF8.GetBytes(payload));
+                await _ws.SendAsync(seg, WebSocketMessageType.Text, true, CancellationToken.None);
+                using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(8));
+                await Task.WhenAny(tcs.Task, Task.Delay(Timeout.Infinite, cts.Token)).ConfigureAwait(false);
+                var ok = tcs.Task.IsCompleted && tcs.Task.Result;
+                _pendingVipPurgeTcs = null;
+                return ok;
+            }
+            catch (Exception ex) { _log?.Debug($"WS purge expired VIPs failed: {ex.Message}"); _pendingVipPurgeTcs = null; return false; }
         }
         return false;
     }
@@ -1462,6 +1485,18 @@ public sealed class RemoteSyncService : IDisposable
                     {
                         _pendingVipUpdateTcs?.TrySetResult(false);
                         _pendingVipUpdateTcs = null;
+                    }
+                    else if (type == "vip.purge.expired.ok")
+                    {
+                        _pendingVipPurgeTcs?.TrySetResult(true);
+                        _pendingVipPurgeTcs = null;
+                    }
+                    else if (type == "vip.purge.expired.fail")
+                    {
+                        _lastErrorMessage = null;
+                        try { if (root.TryGetProperty("message", out var m)) _lastErrorMessage = m.GetString(); } catch { }
+                        _pendingVipPurgeTcs?.TrySetResult(false);
+                        _pendingVipPurgeTcs = null;
                     }
                     else if (type == "job.add.ok")
                     {

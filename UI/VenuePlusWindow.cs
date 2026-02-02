@@ -77,7 +77,6 @@ public sealed class VenuePlusWindow : Window, IDisposable
         _app.JobsChanged += OnJobsChangedPanel;
         _app.JobRightsChanged += OnJobRightsChanged;
         _app.JobsChanged += OnJobsChangedStaffList;
-        _app.JobsChanged += OnJobsChangedSettingsPanel;
         _app.AutoLoginResultEvt += OnAutoLoginResult;
         _app.RememberStaffNeedsPasswordEvt += OnRememberStaffNeedsPassword;
         _app.ClubLogoChanged += OnClubLogoChanged;
@@ -483,7 +482,7 @@ public sealed class VenuePlusWindow : Window, IDisposable
                 ImGui.SameLine();
             }
             ImGui.BeginGroup();
-            var accessR = _app.AccessLoading ? "Loading..." : (_app.IsOwnerCurrentClub ? "Owner" : (_app.IsPowerStaff ? "Staff" : "Guest"));
+            var accessR = (_app.AccessLoading && !_app.HasStaffSession) ? "Loading..." : (_app.IsOwnerCurrentClub ? "Owner" : (_app.HasStaffSession ? "Staff" : "Guest"));
             ImGui.TextUnformatted($"Access: {accessR}");
             var jobsR = _app.CurrentStaffJobs;
             if (jobsR != null && jobsR.Length > 0)
@@ -829,7 +828,8 @@ public sealed class VenuePlusWindow : Window, IDisposable
                     ImGui.EndTabItem();
                 }
             }
-            if (ImGui.BeginTabItem("Venue Settings"))
+            var canViewSettings = _app.IsOwnerCurrentClub || (_app.HasStaffSession && _app.StaffCanManageVenueSettings);
+            if (canViewSettings && ImGui.BeginTabItem("Venue Settings"))
             {
                 ImGui.BeginChild("SettingsTabContent", new Vector2(0, ImGui.GetContentRegionAvail().Y), false);
                 _vipTable.CloseAddForm();
@@ -951,10 +951,6 @@ public sealed class VenuePlusWindow : Window, IDisposable
         _staffList.SetJobOptions(jobs);
     }
 
-    private void OnJobsChangedSettingsPanel(string[] jobs)
-    {
-        _settingsPanel.SetJobOptions(jobs);
-    }
 
     private void OnRememberStaffNeedsPassword()
     {

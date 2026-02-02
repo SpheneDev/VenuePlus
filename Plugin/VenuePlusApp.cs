@@ -263,7 +263,17 @@ public sealed class VenuePlusApp : IDisposable, IEventListener
 
     public void PurgeExpired()
     {
-        _vipService.PurgeExpired();
+        var canPurge = IsOwnerCurrentClub || (HasStaffSession && StaffCanRemoveVip);
+        if (!canPurge) return;
+        if (!_isPowerStaff || string.IsNullOrWhiteSpace(_staffToken))
+        {
+            _vipService.PurgeExpired();
+            return;
+        }
+        System.Threading.Tasks.Task.Run(async () =>
+        {
+            await _remote.PurgeExpiredVipAsync(_staffToken!);
+        });
     }
 
     public System.Collections.Generic.IReadOnlyCollection<VipEntry> GetActive()
@@ -360,6 +370,7 @@ public sealed class VenuePlusApp : IDisposable, IEventListener
     public bool StaffCanRemoveVip => _selfRights.TryGetValue("removeVip", out var b) && b;
     public bool StaffCanManageUsers => _selfRights.TryGetValue("manageUsers", out var b) && b;
     public bool StaffCanManageJobs => _selfRights.TryGetValue("manageJobs", out var b) && b;
+    public bool StaffCanManageVenueSettings => _selfRights.TryGetValue("manageVenueSettings", out var b) && b;
     public bool StaffCanEditVipDuration => _selfRights.TryGetValue("editVipDuration", out var b) && b;
     public bool StaffCanAddDj => _selfRights.TryGetValue("addDj", out var b) && b;
     public bool StaffCanRemoveDj => _selfRights.TryGetValue("removeDj", out var b) && b;
@@ -1837,6 +1848,7 @@ public sealed class VenuePlusApp : IDisposable, IEventListener
             ["removeVip"] = r.RemoveVip,
             ["manageUsers"] = r.ManageUsers,
             ["manageJobs"] = r.ManageJobs,
+            ["manageVenueSettings"] = r.ManageVenueSettings,
             ["editVipDuration"] = r.EditVipDuration,
             ["addDj"] = r.AddDj,
             ["removeDj"] = r.RemoveDj,
@@ -1856,6 +1868,7 @@ public sealed class VenuePlusApp : IDisposable, IEventListener
         bool addDj = false;
         bool removeDj = false;
         bool editShiftPlan = false;
+        bool manageVenueSettings = false;
         for (int i = 0; i < jobs.Length; i++)
         {
             var job = jobs[i];
@@ -1869,6 +1882,7 @@ public sealed class VenuePlusApp : IDisposable, IEventListener
                 addDj |= r.AddDj;
                 removeDj |= r.RemoveDj;
                 editShiftPlan |= r.EditShiftPlan;
+                manageVenueSettings |= r.ManageVenueSettings;
             }
         }
         _selfRights = new System.Collections.Generic.Dictionary<string, bool>
@@ -1877,6 +1891,7 @@ public sealed class VenuePlusApp : IDisposable, IEventListener
             ["removeVip"] = removeVip,
             ["manageUsers"] = manageUsers,
             ["manageJobs"] = manageJobs,
+            ["manageVenueSettings"] = manageVenueSettings,
             ["editVipDuration"] = editVipDuration,
             ["addDj"] = addDj,
             ["removeDj"] = removeDj,
@@ -2075,7 +2090,7 @@ public sealed class VenuePlusApp : IDisposable, IEventListener
     public string? CurrentStaffUid => _selfUid;
     public System.DateTimeOffset? CurrentStaffBirthday => _selfBirthday;
 
-    public async System.Threading.Tasks.Task<bool> UpdateJobRightsAsync(string name, bool addVip, bool removeVip, bool manageUsers, bool manageJobs, bool editVipDuration, bool addDj, bool removeDj, bool editShiftPlan, string colorHex = "#FFFFFF", string iconKey = "User", int rank = 1)
+    public async System.Threading.Tasks.Task<bool> UpdateJobRightsAsync(string name, bool addVip, bool removeVip, bool manageUsers, bool manageJobs, bool manageVenueSettings, bool editVipDuration, bool addDj, bool removeDj, bool editShiftPlan, string colorHex = "#FFFFFF", string iconKey = "User", int rank = 1)
     {
         var sess = _staffToken ?? string.Empty;
         if (string.IsNullOrWhiteSpace(sess)) return false;
@@ -2083,7 +2098,7 @@ public sealed class VenuePlusApp : IDisposable, IEventListener
         if (string.Equals(name, "Owner", System.StringComparison.Ordinal)) r = 10;
         else if (string.Equals(name, "Unassigned", System.StringComparison.Ordinal)) r = 0;
         else r = rank <= 0 ? 1 : (rank > 9 ? 9 : rank);
-        var info = new JobRightsInfo { AddVip = addVip, RemoveVip = removeVip, ManageUsers = manageUsers, ManageJobs = manageJobs, EditVipDuration = editVipDuration, AddDj = addDj, RemoveDj = removeDj, EditShiftPlan = editShiftPlan, Rank = r, ColorHex = colorHex ?? "#FFFFFF", IconKey = iconKey ?? "User" };
+        var info = new JobRightsInfo { AddVip = addVip, RemoveVip = removeVip, ManageUsers = manageUsers, ManageJobs = manageJobs, ManageVenueSettings = manageVenueSettings, EditVipDuration = editVipDuration, AddDj = addDj, RemoveDj = removeDj, EditShiftPlan = editShiftPlan, Rank = r, ColorHex = colorHex ?? "#FFFFFF", IconKey = iconKey ?? "User" };
         return await _remote.UpdateJobRightsAsync(name, info, sess);
     }
 

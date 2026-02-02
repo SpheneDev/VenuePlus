@@ -24,6 +24,7 @@ public sealed class JobsPanelComponent
     private bool _editRemoveVip;
     private bool _editManageUsers;
     private bool _editManageJobs;
+    private bool _editManageVenueSettings;
     private bool _editEditVipDuration;
     private bool _editAddDj;
     private bool _editRemoveDj;
@@ -34,6 +35,7 @@ public sealed class JobsPanelComponent
     private bool _addRemoveVip;
     private bool _addManageUsers;
     private bool _addManageJobs;
+    private bool _addManageVenueSettings;
     private bool _addEditVipDuration;
     private bool _addAddDj;
     private bool _addRemoveDj;
@@ -50,6 +52,8 @@ public sealed class JobsPanelComponent
     {
         if (!string.IsNullOrEmpty(_status)) ImGui.TextUnformatted(_status);
         ImGui.Spacing();
+        var isOwner = app.IsOwnerCurrentClub;
+        var actorRank = GetBestRank(app.GetJobRightsCache(), app.CurrentStaffJobs, isOwner);
         ImGui.PushItemWidth(260f);
         ImGui.InputTextWithHint("##roles_filter", "Search roles", ref _filter, 128);
         ImGui.PopItemWidth();
@@ -65,6 +69,7 @@ public sealed class JobsPanelComponent
             _addRemoveVip = false;
             _addManageUsers = false;
             _addManageJobs = false;
+            _addManageVenueSettings = false;
             _addEditShiftPlan = false;
             _addRank = 1;
             _addWindowOpen = true;
@@ -148,7 +153,13 @@ public sealed class JobsPanelComponent
                 var centerY = yBase + (rowH - ImGui.GetFrameHeight()) / 2f;
                 ImGui.SetCursorPosY(centerY);
                 var isOwnerJob = string.Equals(j, "Owner", System.StringComparison.Ordinal);
-                var disableEdit = isOwnerJob && !(app.IsOwnerCurrentClub || string.Equals(app.CurrentStaffJob, "Owner", System.StringComparison.Ordinal));
+                int rankEdit = 1;
+                if (_rights.TryGetValue(j, out var infoRankEdit)) rankEdit = infoRankEdit.Rank;
+                else if (string.Equals(j, "Owner", System.StringComparison.Ordinal)) rankEdit = 10;
+                else if (string.Equals(j, "Unassigned", System.StringComparison.Ordinal)) rankEdit = 0;
+                var isActorRole = HasJob(app.CurrentStaffJobs, j);
+                var higherRankEditBlocked = !isOwner && !isActorRole && rankEdit > actorRank;
+                var disableEdit = (isOwnerJob && !(app.IsOwnerCurrentClub || string.Equals(app.CurrentStaffJob, "Owner", System.StringComparison.Ordinal))) || higherRankEditBlocked;
                 ImGui.BeginDisabled(disableEdit);
                 if (ImGui.Button(FontAwesomeIcon.Cog.ToIconString() + $"##edit_{j}"))
                 {
@@ -158,6 +169,7 @@ public sealed class JobsPanelComponent
                     _editRemoveVip = GetRight(j, "removeVip");
                     _editManageUsers = GetRight(j, "manageUsers");
                     _editManageJobs = GetRight(j, "manageJobs");
+                    _editManageVenueSettings = GetRight(j, "manageVenueSettings");
                     _editEditVipDuration = GetRight(j, "editVipDuration");
                     _editAddDj = GetRight(j, "addDj");
                     _editRemoveDj = GetRight(j, "removeDj");
@@ -249,8 +261,13 @@ public sealed class JobsPanelComponent
                     if (ImGui.Checkbox("Add DJ", ref _addAddDj)) { }
                     if (ImGui.Checkbox("Remove DJ", ref _addRemoveDj)) { }
                     ImGui.TableSetColumnIndex(1);
-                    if (ImGui.Checkbox("Manage Users", ref _addManageUsers)) { }
+                    if (ImGui.Checkbox("Manage Staff", ref _addManageUsers)) { }
+                    ImGui.BeginDisabled(!isOwner);
                     if (ImGui.Checkbox("Manage Roles", ref _addManageJobs)) { }
+                    ImGui.EndDisabled();
+                    ImGui.BeginDisabled(!isOwner);
+                    if (ImGui.Checkbox("Manage Venue Settings", ref _addManageVenueSettings)) { }
+                    ImGui.EndDisabled();
                     if (ImGui.Checkbox("Edit VIP Duration", ref _addEditVipDuration)) { }
                     //if (ImGui.Checkbox("Edit Shift Plan", ref _addEditShiftPlan)) { }
                     ImGui.EndTable();
@@ -261,7 +278,12 @@ public sealed class JobsPanelComponent
                 ImGui.PushItemWidth(120f);
                 ImGui.InputInt("Role Rank", ref _addRank);
                 if (_addRank < 1) _addRank = 1;
-                if (_addRank > 9) _addRank = 9;
+                var maxRankAdd = 9;
+                if (!isOwner)
+                {
+                    maxRankAdd = actorRank <= 0 ? 1 : (actorRank > 9 ? 9 : actorRank);
+                }
+                if (_addRank > maxRankAdd) _addRank = maxRankAdd;
                 ImGui.PopItemWidth();
 
                 ImGui.Separator();
@@ -303,7 +325,7 @@ public sealed class JobsPanelComponent
                             var ok = await app.AddJobAsync(name);
                             if (ok)
                             {
-                                await app.UpdateJobRightsAsync(name, _addAddVip, _addRemoveVip, _addManageUsers, _addManageJobs, _addEditVipDuration, _addAddDj, _addRemoveDj, _addEditShiftPlan, _addColorHex, _addIconKey, _addRank);
+                                await app.UpdateJobRightsAsync(name, _addAddVip, _addRemoveVip, _addManageUsers, _addManageJobs, _addManageVenueSettings, _addEditVipDuration, _addAddDj, _addRemoveDj, _addEditShiftPlan, _addColorHex, _addIconKey, _addRank);
                                 _selectedJob = name;
                             }
                         });
@@ -371,8 +393,15 @@ public sealed class JobsPanelComponent
                     if (ImGui.Checkbox("Add DJ", ref _editAddDj)) { }
                     if (ImGui.Checkbox("Remove DJ", ref _editRemoveDj)) { }
                     ImGui.TableSetColumnIndex(1);
-                    if (ImGui.Checkbox("Manage Users", ref _editManageUsers)) { }
+                    if (ImGui.Checkbox("Manage Staff", ref _editManageUsers)) { }
+                    var canToggleManageJobs = isOwner || _editManageJobs;
+                    ImGui.BeginDisabled(!canToggleManageJobs);
                     if (ImGui.Checkbox("Manage Roles", ref _editManageJobs)) { }
+                    ImGui.EndDisabled();
+                    var canToggleManageVenueSettings = isOwner || _editManageVenueSettings;
+                    ImGui.BeginDisabled(!canToggleManageVenueSettings);
+                    if (ImGui.Checkbox("Manage Venue Settings", ref _editManageVenueSettings)) { }
+                    ImGui.EndDisabled();
                     if (ImGui.Checkbox("Edit VIP Duration", ref _editEditVipDuration)) { }
                     //if (ImGui.Checkbox("Edit Shift Plan", ref _editEditShiftPlan)) { }
                     ImGui.EndTable();
@@ -409,7 +438,12 @@ public sealed class JobsPanelComponent
                 if (!disableRank)
                 {
                     if (_editRank < 1) _editRank = 1;
-                    if (_editRank > 9) _editRank = 9;
+                    var maxRankEdit = 9;
+                    if (!isOwner)
+                    {
+                        maxRankEdit = actorRank <= 0 ? 1 : (actorRank > 9 ? 9 : actorRank);
+                    }
+                    if (_editRank > maxRankEdit) _editRank = maxRankEdit;
                 }
                 ImGui.PopItemWidth();
                 ImGui.EndDisabled();
@@ -422,6 +456,14 @@ public sealed class JobsPanelComponent
                 var startX = ImGui.GetCursorPosX();
                 var rightX = startX + ImGui.GetContentRegionAvail().X - totalW;
                 ImGui.SetCursorPosX(rightX);
+                var isActorRoleEdit = HasJob(app.CurrentStaffJobs, _openEditJob);
+                int existingRankEdit = _editRank;
+                if (_rights.TryGetValue(_openEditJob, out var infoRankCur)) existingRankEdit = infoRankCur.Rank;
+                else if (string.Equals(_openEditJob, "Owner", System.StringComparison.Ordinal)) existingRankEdit = 10;
+                else if (string.Equals(_openEditJob, "Unassigned", System.StringComparison.Ordinal)) existingRankEdit = 0;
+                var higherRankEditBlockedSave = !isOwner && !isActorRoleEdit && existingRankEdit > actorRank;
+                var disableSave = higherRankEditBlockedSave || (!isOwner && _editRank > actorRank);
+                ImGui.BeginDisabled(disableSave);
                 if (ImGui.Button("Save"))
                 {
                     var oldName = _openEditJob;
@@ -432,6 +474,7 @@ public sealed class JobsPanelComponent
                         SetRight(oldName, "removeVip", _editRemoveVip);
                         SetRight(oldName, "manageUsers", _editManageUsers);
                         SetRight(oldName, "manageJobs", _editManageJobs);
+                        SetRight(oldName, "manageVenueSettings", _editManageVenueSettings);
                         SetRight(oldName, "editVipDuration", _editEditVipDuration);
                         SetRight(oldName, "addDj", _editAddDj);
                         SetRight(oldName, "removeDj", _editRemoveDj);
@@ -448,7 +491,7 @@ public sealed class JobsPanelComponent
                             if (okAdd)
                             {
                                 var rankOld = (_rights.TryGetValue(oldName, out var infoOldR) ? infoOldR.Rank : 1);
-                                await app.UpdateJobRightsAsync(newName, _editAddVip, _editRemoveVip, _editManageUsers, _editManageJobs, _editEditVipDuration, _editAddDj, _editRemoveDj, _editEditShiftPlan, _editColorHex, _editIconKey, rankOld);
+                                await app.UpdateJobRightsAsync(newName, _editAddVip, _editRemoveVip, _editManageUsers, _editManageJobs, _editManageVenueSettings, _editEditVipDuration, _editAddDj, _editRemoveDj, _editEditShiftPlan, _editColorHex, _editIconKey, rankOld);
                                 var users = await app.ListStaffUsersDetailedAsync();
                                 if (users != null)
                                 {
@@ -469,6 +512,7 @@ public sealed class JobsPanelComponent
                         _editWindowOpen = false;
                     }
                 }
+                ImGui.EndDisabled();
                 if (ImGui.IsItemHovered()) { ImGui.BeginTooltip(); ImGui.TextUnformatted("Apply changes to this role"); ImGui.EndTooltip(); }
                 ImGui.SameLine();
                 if (ImGui.Button("Cancel"))
@@ -505,6 +549,7 @@ public sealed class JobsPanelComponent
                 if (!_pending.TryGetValue(keyName, out var set2) || !set2.Contains("removeVip")) { _rights[keyName].RemoveVip = incomingInfo.RemoveVip; }
                 if (!_pending.TryGetValue(keyName, out var set3) || !set3.Contains("manageUsers")) { _rights[keyName].ManageUsers = incomingInfo.ManageUsers; }
                 if (!_pending.TryGetValue(keyName, out var set4) || !set4.Contains("manageJobs")) { _rights[keyName].ManageJobs = incomingInfo.ManageJobs; }
+                if (!_pending.TryGetValue(keyName, out var set11) || !set11.Contains("manageVenueSettings")) { _rights[keyName].ManageVenueSettings = incomingInfo.ManageVenueSettings; }
                 if (!_pending.TryGetValue(keyName, out var set7) || !set7.Contains("editVipDuration")) { _rights[keyName].EditVipDuration = incomingInfo.EditVipDuration; }
                 if (!_pending.TryGetValue(keyName, out var set8) || !set8.Contains("addDj")) { _rights[keyName].AddDj = incomingInfo.AddDj; }
                 if (!_pending.TryGetValue(keyName, out var set9) || !set9.Contains("editShiftPlan")) { _rights[keyName].EditShiftPlan = incomingInfo.EditShiftPlan; }
@@ -534,6 +579,7 @@ public sealed class JobsPanelComponent
             "removeVip" => info.RemoveVip,
             "manageUsers" => info.ManageUsers,
             "manageJobs" => info.ManageJobs,
+            "manageVenueSettings" => info.ManageVenueSettings,
             "editVipDuration" => info.EditVipDuration,
             "addDj" => info.AddDj,
             "removeDj" => info.RemoveDj,
@@ -551,6 +597,7 @@ public sealed class JobsPanelComponent
             case "removeVip": info.RemoveVip = value; break;
             case "manageUsers": info.ManageUsers = value; break;
             case "manageJobs": info.ManageJobs = value; break;
+            case "manageVenueSettings": info.ManageVenueSettings = value; break;
             case "editVipDuration": info.EditVipDuration = value; break;
             case "addDj": info.AddDj = value; break;
             case "removeDj": info.RemoveDj = value; break;
@@ -564,6 +611,7 @@ public sealed class JobsPanelComponent
         MarkPending(job, "removeVip");
         MarkPending(job, "manageUsers");
         MarkPending(job, "manageJobs");
+        MarkPending(job, "manageVenueSettings");
         MarkPending(job, "editVipDuration");
         MarkPending(job, "addDj");
         MarkPending(job, "removeDj");
@@ -572,10 +620,14 @@ public sealed class JobsPanelComponent
         MarkPending(job, "iconKey");
         MarkPending(job, "rank");
         _status = string.Empty;
+        var isOwner = app.IsOwnerCurrentClub;
+        var actorRank = GetBestRank(app.GetJobRightsCache(), app.CurrentStaffJobs, isOwner);
+        var isActorRole = HasJob(app.CurrentStaffJobs, job);
         var addVal = GetRight(job, "addVip");
         var remVal = GetRight(job, "removeVip");
         var muVal = GetRight(job, "manageUsers");
         var mjVal = GetRight(job, "manageJobs");
+        var mvVal = GetRight(job, "manageVenueSettings");
         var edVal = GetRight(job, "editVipDuration");
         var addDjVal = GetRight(job, "addDj");
         var remDjVal = GetRight(job, "removeDj");
@@ -585,12 +637,69 @@ public sealed class JobsPanelComponent
             var color = (_rights.TryGetValue(job, out var info) ? info.ColorHex : "#FFFFFF");
             var icon = (_rights.TryGetValue(job, out var info2) ? info2.IconKey : "User");
             var rankCur = (_rights.TryGetValue(job, out var infoR) ? infoR.Rank : 1);
-            var ok = await app.UpdateJobRightsAsync(job, addVal, remVal, muVal, mjVal, edVal, addDjVal, remDjVal, editShiftVal, color, icon, rankCur);
+            if (!isOwner)
+            {
+                var maxRank = actorRank <= 0 ? 1 : (actorRank > 9 ? 9 : actorRank);
+                if (rankCur > maxRank) rankCur = maxRank;
+                if (!isActorRole && _rights.TryGetValue(job, out var infoExisting) && infoExisting.Rank > actorRank)
+                {
+                    _status = "Cannot modify higher-rank role";
+                    UnmarkPending(job, "addVip");
+                    UnmarkPending(job, "removeVip");
+                    UnmarkPending(job, "manageUsers");
+                    UnmarkPending(job, "manageJobs");
+                    UnmarkPending(job, "manageVenueSettings");
+                    UnmarkPending(job, "editVipDuration");
+                    UnmarkPending(job, "addDj");
+                    UnmarkPending(job, "removeDj");
+                    UnmarkPending(job, "editShiftPlan");
+                    UnmarkPending(job, "colorHex");
+                    UnmarkPending(job, "iconKey");
+                    UnmarkPending(job, "rank");
+                    return;
+                }
+                if (mjVal && (!(_rights.TryGetValue(job, out var infoExisting2) && infoExisting2.ManageJobs)))
+                {
+                    _status = "Cannot grant Manage Roles";
+                    UnmarkPending(job, "addVip");
+                    UnmarkPending(job, "removeVip");
+                    UnmarkPending(job, "manageUsers");
+                    UnmarkPending(job, "manageJobs");
+                    UnmarkPending(job, "manageVenueSettings");
+                    UnmarkPending(job, "editVipDuration");
+                    UnmarkPending(job, "addDj");
+                    UnmarkPending(job, "removeDj");
+                    UnmarkPending(job, "editShiftPlan");
+                    UnmarkPending(job, "colorHex");
+                    UnmarkPending(job, "iconKey");
+                    UnmarkPending(job, "rank");
+                    return;
+                }
+                if (mvVal && (!(_rights.TryGetValue(job, out var infoExisting3) && infoExisting3.ManageVenueSettings)))
+                {
+                    _status = "Cannot grant Manage Venue Settings";
+                    UnmarkPending(job, "addVip");
+                    UnmarkPending(job, "removeVip");
+                    UnmarkPending(job, "manageUsers");
+                    UnmarkPending(job, "manageJobs");
+                    UnmarkPending(job, "manageVenueSettings");
+                    UnmarkPending(job, "editVipDuration");
+                    UnmarkPending(job, "addDj");
+                    UnmarkPending(job, "removeDj");
+                    UnmarkPending(job, "editShiftPlan");
+                    UnmarkPending(job, "colorHex");
+                    UnmarkPending(job, "iconKey");
+                    UnmarkPending(job, "rank");
+                    return;
+                }
+            }
+            var ok = await app.UpdateJobRightsAsync(job, addVal, remVal, muVal, mjVal, mvVal, edVal, addDjVal, remDjVal, editShiftVal, color, icon, rankCur);
             _status = string.Empty;
             UnmarkPending(job, "addVip");
             UnmarkPending(job, "removeVip");
             UnmarkPending(job, "manageUsers");
             UnmarkPending(job, "manageJobs");
+            UnmarkPending(job, "manageVenueSettings");
             UnmarkPending(job, "editVipDuration");
             UnmarkPending(job, "addDj");
             UnmarkPending(job, "removeDj");
@@ -626,5 +735,34 @@ public sealed class JobsPanelComponent
     private void UnmarkPending(string job, string key)
     {
         if (_pending.TryGetValue(job, out var set)) { set.Remove(key); if (set.Count == 0) _pending.Remove(job); }
+    }
+
+    private static int GetBestRank(System.Collections.Generic.Dictionary<string, JobRightsInfo>? rightsMap, string[] jobs, bool isOwner)
+    {
+        if (isOwner) return 10;
+        if (rightsMap == null || jobs == null || jobs.Length == 0) return 0;
+        int best = 0;
+        for (int i = 0; i < jobs.Length; i++)
+        {
+            var job = jobs[i] ?? string.Empty;
+            if (string.Equals(job, "Owner", System.StringComparison.Ordinal)) { best = 10; break; }
+            if (string.Equals(job, "Unassigned", System.StringComparison.Ordinal)) { if (best < 0) best = 0; continue; }
+            if (rightsMap.TryGetValue(job, out var info))
+            {
+                var r = info.Rank;
+                if (r > best) best = r;
+            }
+        }
+        return best;
+    }
+
+    private static bool HasJob(string[] jobs, string jobName)
+    {
+        if (jobs == null || jobs.Length == 0) return false;
+        for (int i = 0; i < jobs.Length; i++)
+        {
+            if (string.Equals(jobs[i], jobName, System.StringComparison.Ordinal)) return true;
+        }
+        return false;
     }
 }
