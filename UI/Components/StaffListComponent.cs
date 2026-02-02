@@ -699,39 +699,44 @@ public sealed class StaffListComponent
                 });
                 currentDisplayArr = sorted;
             }
-            var currentName = FormatJobs(currentDisplayArr);
-                ImGui.PushItemWidth(160f);
-                var yBase = ImGui.GetCursorPosY();
-                ImGui.SetCursorPosY(yBase + (rowH - ImGui.GetFrameHeight()) / 2f);
-                var fontSize = ImGui.GetFontSize();
-                ImGui.PushFont(UiBuilder.IconFont);
-                ImGui.SetWindowFontScale(0.9f);
-                var iconH = ImGui.GetFrameHeight();
-                ImGui.SetWindowFontScale(1f);
-                ImGui.PopFont();
-                var padY = iconH > fontSize ? (iconH - fontSize) / 2f : ImGui.GetStyle().FramePadding.Y;
-                var origPadX = ImGui.GetStyle().FramePadding.X;
-                float padX = origPadX;
-                var rightsCachePre2 = app.GetJobRightsCache();
-                string iconPreviewText = string.Empty;
-                uint iconPreviewColor = 0u;
-                float iconW = 0f;
-            if (rightsCachePre2 != null && rightsCachePre2.TryGetValue(currentPrimary, out var infoPre2))
+            var yBase = ImGui.GetCursorPosY();
+            var cellStartX = ImGui.GetCursorPosX();
+            var cellWidth = ImGui.GetContentRegionAvail().X;
+            var centerYIcon = yBase + (rowH - ImGui.GetFrameHeight()) / 2f;
+            ImGui.SetCursorPosY(centerYIcon);
+            var rightsCachePre2 = app.GetJobRightsCache();
+            for (int i = 0; i < currentDisplayArr.Length; i++)
+            {
+                var jn = currentDisplayArr[i];
+                if (rightsCachePre2 != null && rightsCachePre2.TryGetValue(jn, out var infoPre2))
                 {
-                    iconPreviewText = VenuePlus.Helpers.IconDraw.ToIconStringFromKey(infoPre2.IconKey);
-                    iconPreviewColor = VenuePlus.Helpers.ColorUtil.HexToU32(infoPre2.ColorHex);
-                    ImGui.PushFont(UiBuilder.IconFont);
-                    ImGui.SetWindowFontScale(0.9f);
-                    iconW = ImGui.CalcTextSize(iconPreviewText).X;
-                    ImGui.SetWindowFontScale(1f);
-                    ImGui.PopFont();
-                    padX = origPadX + iconW + ImGui.GetStyle().ItemSpacing.X;
+                    var iconPre2 = VenuePlus.Helpers.IconDraw.ParseIcon(infoPre2.IconKey);
+                    var colPre2 = VenuePlus.Helpers.ColorUtil.HexToU32(infoPre2.ColorHex);
+                    IconDraw.IconText(iconPre2, 0.9f, colPre2);
                 }
-                ImGui.PushStyleVar(ImGuiStyleVar.FramePadding, new System.Numerics.Vector2(padX, padY));
-            var isOwnerJob = HasOwner(currentArr);
-                ImGui.BeginDisabled(!canAct || (isOwnerJob && !app.IsOwnerCurrentClub));
-                if (ImGui.BeginCombo($"##job_{u.Username}", currentName))
+                else
                 {
+                    ImGui.TextUnformatted(jn ?? string.Empty);
+                }
+                if (i + 1 < currentDisplayArr.Length) ImGui.SameLine(0f, 6f);
+            }
+            var styleCell = ImGui.GetStyle();
+            float comboW = ImGui.GetFrameHeight();
+            float infoW;
+            ImGui.PushFont(UiBuilder.IconFont);
+            ImGui.SetWindowFontScale(0.9f);
+            infoW = ImGui.CalcTextSize(FontAwesomeIcon.QuestionCircle.ToIconString()).X;
+            ImGui.SetWindowFontScale(1f);
+            ImGui.PopFont();
+            float totalW = comboW + styleCell.ItemSpacing.X + infoW;
+            ImGui.SameLine();
+            ImGui.SetCursorPosX(cellStartX + cellWidth - totalW);
+            ImGui.SetCursorPosY(centerYIcon);
+            ImGui.PushItemWidth(comboW);
+            var isOwnerJob = HasOwner(currentArr);
+            ImGui.BeginDisabled(!canAct || (isOwnerJob && !app.IsOwnerCurrentClub));
+            if (ImGui.BeginCombo($"##job_{u.Username}", string.Empty, ImGuiComboFlags.NoPreview))
+            {
                 if (currentArr.Length == 1 && Array.IndexOf(_jobOptions ?? Array.Empty<string>(), currentArr[0]) < 0)
                     {
                         bool selected = true;
@@ -773,28 +778,14 @@ public sealed class StaffListComponent
                     }
                     ImGui.EndCombo();
                 }
-                ImGui.EndDisabled();
-                var rectMin = ImGui.GetItemRectMin();
-                var rectMax = ImGui.GetItemRectMax();
-                ImGui.PopStyleVar();
-                if (!string.IsNullOrEmpty(iconPreviewText))
-                {
-                    var draw = ImGui.GetWindowDrawList();
-                    var itemH = rectMax.Y - rectMin.Y;
-                    ImGui.PushFont(UiBuilder.IconFont);
-                    ImGui.SetWindowFontScale(0.9f);
-                    var iconSizeY = ImGui.CalcTextSize(iconPreviewText).Y;
-                    var yIcon = rectMin.Y + (itemH - iconSizeY) / 2f;
-                    var xIcon = rectMin.X + origPadX;
-                    draw.AddText(new System.Numerics.Vector2(xIcon, yIcon), iconPreviewColor, iconPreviewText);
-                    ImGui.SetWindowFontScale(1f);
-                    ImGui.PopFont();
-                }
-                ImGui.PopItemWidth();
-                ImGui.SameLine();
-                var centerYIcon = yBase + (rowH - ImGui.GetFrameHeight()) / 2f;
-                ImGui.SetCursorPosY(centerYIcon);
-                IconDraw.IconText(Dalamud.Interface.FontAwesomeIcon.QuestionCircle);
+            ImGui.EndDisabled();
+            ImGui.PopItemWidth();
+            ImGui.SameLine(0f, styleCell.ItemSpacing.X);
+            ImGui.PushFont(UiBuilder.IconFont);
+            ImGui.SetWindowFontScale(0.9f);
+            IconDraw.IconText(Dalamud.Interface.FontAwesomeIcon.QuestionCircle);
+            ImGui.SetWindowFontScale(1f);
+            ImGui.PopFont();
                 if (ImGui.IsItemHovered())
                 {
                     ImGui.BeginTooltip();
