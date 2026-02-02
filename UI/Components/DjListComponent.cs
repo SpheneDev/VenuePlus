@@ -18,6 +18,8 @@ public sealed class DjListComponent
     private string _status = string.Empty;
     private bool _openAddForm;
     private string _editingName = string.Empty;
+    private int _pageIndex;
+    private string _pageFilter = string.Empty;
 
     public void OpenAddForm()
     {
@@ -124,6 +126,44 @@ public sealed class DjListComponent
         if (canRemoveDj) AddActionWidth(rmIcon);
         ImGui.PopFont();
 
+        if (!string.Equals(_pageFilter, _filter, StringComparison.Ordinal))
+        {
+            _pageFilter = _filter;
+            _pageIndex = 0;
+        }
+
+        if (_sortCol == 0)
+        {
+            list = _sortAsc ? list.OrderBy(e => e.DjName, StringComparer.Ordinal).ToArray()
+                             : list.OrderByDescending(e => e.DjName, StringComparer.Ordinal).ToArray();
+        }
+        else if (_sortCol == 1)
+        {
+            list = _sortAsc ? list.OrderBy(e => e.TwitchLink ?? string.Empty, StringComparer.Ordinal).ToArray()
+                             : list.OrderByDescending(e => e.TwitchLink ?? string.Empty, StringComparer.Ordinal).ToArray();
+        }
+
+        const int pageSize = 15;
+        var totalCount = list.Length;
+        var totalPages = Math.Max(1, (totalCount + pageSize - 1) / pageSize);
+        if (_pageIndex >= totalPages) _pageIndex = totalPages - 1;
+        if (_pageIndex < 0) _pageIndex = 0;
+        ImGui.BeginDisabled(_pageIndex <= 0);
+        if (ImGui.Button("Prev##dj_page_prev")) { _pageIndex--; }
+        ImGui.EndDisabled();
+        ImGui.SameLine();
+        ImGui.TextUnformatted($"Page {_pageIndex + 1} / {totalPages}");
+        ImGui.SameLine();
+        ImGui.BeginDisabled(_pageIndex >= totalPages - 1);
+        if (ImGui.Button("Next##dj_page_next")) { _pageIndex++; }
+        ImGui.EndDisabled();
+        ImGui.Separator();
+
+        var startIndex = _pageIndex * pageSize;
+        var pageCount = Math.Min(pageSize, Math.Max(0, totalCount - startIndex));
+        var pageItems = new DjEntry[pageCount];
+        if (pageCount > 0) Array.Copy(list, startIndex, pageItems, 0, pageCount);
+
         var flags = ImGuiTableFlags.RowBg | ImGuiTableFlags.Borders | ImGuiTableFlags.SizingStretchProp | ImGuiTableFlags.ScrollY | ImGuiTableFlags.Sortable | ImGuiTableFlags.NoSavedSettings;
         var showActions = actionsCount > 0;
         var widthActions = showActions ? actionsWidth + style.ItemSpacing.X * Math.Max(0, actionsCount - 1) : 0f;
@@ -143,18 +183,8 @@ public sealed class DjListComponent
                 ImGui.TableSetColumnIndex(2);
                 ImGui.TextUnformatted("Actions");
             }
-            if (_sortCol == 0)
-            {
-                list = _sortAsc ? list.OrderBy(e => e.DjName, StringComparer.Ordinal).ToArray()
-                                 : list.OrderByDescending(e => e.DjName, StringComparer.Ordinal).ToArray();
-            }
-            else if (_sortCol == 1)
-            {
-                list = _sortAsc ? list.OrderBy(e => e.TwitchLink ?? string.Empty, StringComparer.Ordinal).ToArray()
-                                 : list.OrderByDescending(e => e.TwitchLink ?? string.Empty, StringComparer.Ordinal).ToArray();
-            }
 
-            foreach (var e in list)
+            foreach (var e in pageItems)
             {
                 ImGui.TableNextRow();
                 var rowH = ImGui.GetFrameHeight();
