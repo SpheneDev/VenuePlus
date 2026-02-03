@@ -2174,6 +2174,17 @@ public sealed class VenuePlusApp : IDisposable, IEventListener
         return await _remote.DeleteUserAsync(username, staffSess);
     }
 
+    public async System.Threading.Tasks.Task<bool> DeleteCurrentUserAsync()
+    {
+        var staffSess = _staffToken ?? string.Empty;
+        var username = _staffUsername ?? string.Empty;
+        if (string.IsNullOrWhiteSpace(staffSess) || string.IsNullOrWhiteSpace(username)) return false;
+        var ok = await _remote.DeleteUserAsync(username, staffSess);
+        if (!ok) return false;
+        LogoutAll();
+        return true;
+    }
+
     public async System.Threading.Tasks.Task<string[]?> ListJobsAsync()
     {
         var sess = _staffToken ?? string.Empty;

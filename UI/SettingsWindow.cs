@@ -21,6 +21,9 @@ public sealed class SettingsWindow : Window, System.IDisposable
     private string _staffPassStatus = string.Empty;
     private string _recoveryCode = string.Empty;
     private string _recoveryStatus = string.Empty;
+    private string _deleteConfirmText = string.Empty;
+    private bool _deleteConfirmChecked;
+    private string _deleteAccountStatus = string.Empty;
     private string _birthdayInput = string.Empty;
     private string _birthdayStatus = string.Empty;
     private System.DateTimeOffset? _birthdaySnapshot;
@@ -445,6 +448,32 @@ public sealed class SettingsWindow : Window, System.IDisposable
             ImGui.SetWindowFontScale(1f);
             ImGui.PopFont();
         }
+        ImGui.Spacing();
+        ImGui.TextDisabled("Account Removal");
+        ImGui.SameLine();
+        DrawHelpIcon("Permanently deletes your account and logs you out.");
+        ImGui.Spacing();
+        ImGui.TextWrapped("This action cannot be undone.");
+        ImGui.InputTextWithHint("##delete_account_confirm", "Type DELETE to confirm", ref _deleteConfirmText, 16);
+        ImGui.Checkbox("I understand this cannot be undone", ref _deleteConfirmChecked);
+        var confirmReady = _deleteConfirmChecked && string.Equals(_deleteConfirmText, "DELETE", StringComparison.Ordinal);
+        ImGui.BeginDisabled(!confirmReady);
+        if (ImGui.Button("Delete Account"))
+        {
+            _deleteAccountStatus = "Submitting...";
+            System.Threading.Tasks.Task.Run(async () =>
+            {
+                var ok = await _app.DeleteCurrentUserAsync();
+                _deleteAccountStatus = ok ? "Account deleted" : (_app.GetLastServerMessage() ?? "Delete failed");
+                if (ok)
+                {
+                    _deleteConfirmText = string.Empty;
+                    _deleteConfirmChecked = false;
+                }
+            });
+        }
+        ImGui.EndDisabled();
+        if (!string.IsNullOrEmpty(_deleteAccountStatus)) ImGui.TextUnformatted(_deleteAccountStatus);
     }
 
     private void DrawSettingsLoginBehavior()
