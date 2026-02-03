@@ -1650,6 +1650,8 @@ public sealed class RemoteSyncService : IDisposable
                     }
                     else if (type == "login.fail")
                     {
+                        _lastErrorMessage = null;
+                        try { if (root.TryGetProperty("message", out var m)) _lastErrorMessage = m.GetString(); } catch { }
                         _pendingLoginTcs?.TrySetResult(null);
                         _pendingLoginTcs = null;
                     }

@@ -35,6 +35,11 @@ public sealed class VenuesListWindow : Window, IDisposable
             ImGui.TextUnformatted("Login to view your venues");
             return;
         }
+        if (_app.AccessLoading || !_app.ClubListsLoaded)
+        {
+            ImGui.TextUnformatted("Loading venues...");
+            return;
+        }
 
         var labelCur = string.IsNullOrWhiteSpace(_app.CurrentClubId) ? "--" : _app.CurrentClubId;
         ImGui.TextUnformatted($"Current Venue: {labelCur}");

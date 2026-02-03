@@ -60,6 +60,7 @@ public sealed class VenuePlusApp : IDisposable, IEventListener
     private bool _isDisposing;
     private string? _desiredClubId;
     private bool _clubListsLoaded;
+    private string? _remoteSyncedClubId;
     public event Action<VenuePlus.State.StaffUser[]>? UsersDetailsChanged;
     public event Action<string, string, string[]>? UserJobUpdatedEvt;
     public event Action<string[]>? JobsChanged;
@@ -392,6 +393,7 @@ public sealed class VenuePlusApp : IDisposable, IEventListener
     public string CurrentStaffJob => _selfJob;
     public string[] CurrentStaffJobs => _selfJobs;
     public bool AccessLoading => _accessLoading;
+    public bool ClubListsLoaded => _clubListsLoaded;
     public bool RememberStaffLogin
     {
         get
@@ -1668,11 +1670,6 @@ public sealed class VenuePlusApp : IDisposable, IEventListener
         _isServerAdmin = result.IsServerAdmin;
         SetClubId(result.PreferredClubId);
         if (!RemoteConnected) await ConnectRemoteAsync();
-        if (_remote.RemoteUseWebSocket && !string.IsNullOrWhiteSpace(CurrentClubId))
-        {
-            try { await _remote.SwitchClubAsync(CurrentClubId!); } catch { }
-            try { await _remote.RequestShiftSnapshotAsync(_staffToken); } catch { }
-        }
         _selfUid = result.SelfUid ?? _selfUid;
         _selfBirthday = result.SelfBirthday ?? _selfBirthday;
         _myClubs = result.MyClubs ?? _myClubs;
@@ -1772,11 +1769,14 @@ public sealed class VenuePlusApp : IDisposable, IEventListener
         _usersDetailsCache = null;
         _myClubs = null;
         _myCreatedClubs = null;
+        _clubListsLoaded = false;
         _accessLoading = false;
         _autoLoginAttempted = false;
         _selfUid = null;
         _selfBirthday = null;
         _vipService.SetActiveClub(null);
+        _remote.SetClubId(null);
+        _remoteSyncedClubId = null;
         _djService.Clear();
         _shiftService.Clear();
         
@@ -1986,8 +1986,7 @@ public sealed class VenuePlusApp : IDisposable, IEventListener
             try
             {
                 if (RemoteConnected) return true;
-                var clubId = CurrentClubId;
-                if (!string.IsNullOrWhiteSpace(clubId)) _remote.SetClubId(clubId);
+                _remote.SetClubId(null);
                 return await _remote.ConnectAsync(RemoteBaseUrlConst);
             }
             finally
@@ -2548,8 +2547,19 @@ public sealed class VenuePlusApp : IDisposable, IEventListener
     public void SetClubId(string? clubId)
     {
         _desiredClubId = clubId;
-        _vipService.SetActiveClub(clubId);
-        _remote.SetClubId(clubId);
+        var canSync = CanSyncClub(clubId);
+        if (canSync)
+        {
+            _vipService.SetActiveClub(clubId);
+            _remote.SetClubId(clubId);
+            _remoteSyncedClubId = clubId;
+        }
+        else
+        {
+            _vipService.SetActiveClub(null);
+            _remote.SetClubId(null);
+            _remoteSyncedClubId = null;
+        }
         if (string.IsNullOrWhiteSpace(clubId))
         {
             _selfJob = string.Empty;
@@ -2570,6 +2580,7 @@ public sealed class VenuePlusApp : IDisposable, IEventListener
         }
         _pluginConfigService.Save();
         _selfRightsLastFetch = System.DateTimeOffset.MinValue;
+        if (!canSync) { _accessLoading = false; return; }
         _accessLoading = true;
         var ct3 = _cts.Token;
         System.Threading.Tasks.Task.Run(async () =>
@@ -3094,8 +3105,6 @@ public sealed class VenuePlusApp : IDisposable, IEventListener
                 {
                     try
                     {
-                        var clubId = CurrentClubId;
-                        if (!string.IsNullOrWhiteSpace(clubId)) { try { await _remote.SwitchClubAsync(clubId!); } catch { } try { await _remote.RequestShiftSnapshotAsync(_staffToken); } catch { } }
                         var tRights = _remote.ListJobRightsAsync(_staffToken!);
                         var tUsers = _remote.ListUsersDetailedAsync(_staffToken!);
                         var tClubs = _remote.ListUserClubsAsync(_staffToken!);
@@ -3150,7 +3159,20 @@ public sealed class VenuePlusApp : IDisposable, IEventListener
             var next = (_myCreatedClubs != null && _myCreatedClubs.Length > 0) ? _myCreatedClubs[0] : ((_myClubs != null && _myClubs.Length > 0) ? _myClubs[0] : null);
             if (!string.Equals(cur, next, System.StringComparison.Ordinal)) SetClubId(next);
         }
-        else { }
+        else
+        {
+            if (!string.Equals(cur, _remoteSyncedClubId, System.StringComparison.Ordinal)) SetClubId(cur);
+        }
+    }
+
+    private bool CanSyncClub(string? clubId)
+    {
+        if (!HasStaffSession) return false;
+        if (!_clubListsLoaded) return false;
+        if (string.IsNullOrWhiteSpace(clubId)) return false;
+        if (_myCreatedClubs != null && System.Array.IndexOf(_myCreatedClubs, clubId) >= 0) return true;
+        if (_myClubs != null && System.Array.IndexOf(_myClubs, clubId) >= 0) return true;
+        return false;
     }
 
     public System.Threading.Tasks.Task RemoveMacroHotbarSlotAtAsync(int index)

@@ -509,6 +509,12 @@ public sealed class VenuePlusWindow : Window, IDisposable
         {
             _showUserSettingsPanel = false;
         }
+        else if (_app.AccessLoading || !_app.ClubListsLoaded)
+        {
+            ImGui.TextUnformatted("Loading venue data...");
+            ImGui.Separator();
+            ImGui.TextWrapped("Please wait while your venue list and permissions are loaded.");
+        }
         else if (string.IsNullOrWhiteSpace(_app.CurrentClubId))
         {
             ImGui.TextUnformatted("Welcome to Venue Plus");
@@ -1039,7 +1045,7 @@ public sealed class VenuePlusWindow : Window, IDisposable
             }
         }
         EnsureServerConnection();
-        if (_app.HasStaffSession) return;
+        if (_app.HasStaffSession && !_app.IsServerAdmin) return;
         if (_serverStatusHealthInFlight) return;
         if (_serverStatusHealthCheckedAt != System.DateTimeOffset.MinValue && _serverStatusHealthCheckedAt > now.AddSeconds(-5)) return;
         StartServerStatusHealthCheck(_app.GetServerBaseUrl());
