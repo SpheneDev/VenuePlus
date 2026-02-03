@@ -158,7 +158,8 @@ public sealed class JobsPanelComponent
                 var dy = (rowH - textH) / 2f;
                 ImGui.TableSetColumnIndex(0);
                 ImGui.SetCursorPosY(ImGui.GetCursorPosY() + dy);
-                if (_rights.TryGetValue(j, out var info0))
+                var jobLabel = j ?? string.Empty;
+                if (_rights.TryGetValue(jobLabel, out var info0))
                 {
                     ImGui.PushFont(UiBuilder.IconFont);
                     ImGui.PushStyleColor(ImGuiCol.Text, ColorUtil.HexToU32(info0.ColorHex));
@@ -169,12 +170,13 @@ public sealed class JobsPanelComponent
                     ImGui.PopFont();
                     ImGui.SameLine();
                 }
-                ImGui.TextUnformatted(j);
+                ImGui.TextUnformatted(jobLabel);
+                if (ImGui.IsItemHovered(ImGuiHoveredFlags.AllowWhenDisabled)) DrawRightsTooltip(jobLabel);
                 ImGui.TableSetColumnIndex(1);
                 int rankDisplay = 1;
-                if (_rights.TryGetValue(j, out var infoRank)) rankDisplay = infoRank.Rank;
-                else if (string.Equals(j, "Owner", System.StringComparison.Ordinal)) rankDisplay = 10;
-                else if (string.Equals(j, "Unassigned", System.StringComparison.Ordinal)) rankDisplay = 0;
+                if (_rights.TryGetValue(jobLabel, out var infoRank)) rankDisplay = infoRank.Rank;
+                else if (string.Equals(jobLabel, "Owner", System.StringComparison.Ordinal)) rankDisplay = 10;
+                else if (string.Equals(jobLabel, "Unassigned", System.StringComparison.Ordinal)) rankDisplay = 0;
                 ImGui.TextUnformatted(rankDisplay.ToString(System.Globalization.CultureInfo.InvariantCulture));
                 ImGui.TableSetColumnIndex(2);
                 ImGui.PushFont(UiBuilder.IconFont);
@@ -182,36 +184,36 @@ public sealed class JobsPanelComponent
                 var yBase = ImGui.GetCursorPosY();
                 var centerY = yBase + (rowH - ImGui.GetFrameHeight()) / 2f;
                 ImGui.SetCursorPosY(centerY);
-                var isOwnerJob = string.Equals(j, "Owner", System.StringComparison.Ordinal);
+                var isOwnerJob = string.Equals(jobLabel, "Owner", System.StringComparison.Ordinal);
                 int rankEdit = 1;
-                if (_rights.TryGetValue(j, out var infoRankEdit)) rankEdit = infoRankEdit.Rank;
-                else if (string.Equals(j, "Owner", System.StringComparison.Ordinal)) rankEdit = 10;
-                else if (string.Equals(j, "Unassigned", System.StringComparison.Ordinal)) rankEdit = 0;
-                var isActorRole = HasJob(app.CurrentStaffJobs, j);
+                if (_rights.TryGetValue(jobLabel, out var infoRankEdit)) rankEdit = infoRankEdit.Rank;
+                else if (string.Equals(jobLabel, "Owner", System.StringComparison.Ordinal)) rankEdit = 10;
+                else if (string.Equals(jobLabel, "Unassigned", System.StringComparison.Ordinal)) rankEdit = 0;
+                var isActorRole = HasJob(app.CurrentStaffJobs, jobLabel);
                 var higherRankEditBlocked = !isOwner && !isActorRole && rankEdit > actorRank;
                 var disableEdit = (isOwnerJob && !(app.IsOwnerCurrentClub || string.Equals(app.CurrentStaffJob, "Owner", System.StringComparison.Ordinal))) || higherRankEditBlocked;
                 ImGui.BeginDisabled(disableEdit);
-                if (ImGui.Button(FontAwesomeIcon.Cog.ToIconString() + $"##edit_{j}"))
+                if (ImGui.Button(FontAwesomeIcon.Cog.ToIconString() + $"##edit_{jobLabel}"))
                 {
-                    _openEditJob = j;
-                    _editJobNameInput = j;
-                    _editAddVip = GetRight(j, "addVip");
-                    _editRemoveVip = GetRight(j, "removeVip");
-                    _editManageUsers = GetRight(j, "manageUsers");
-                    _editManageJobs = GetRight(j, "manageJobs");
-                    _editManageVenueSettings = GetRight(j, "manageVenueSettings");
-                    _editEditVipDuration = GetRight(j, "editVipDuration");
-                    _editAddDj = GetRight(j, "addDj");
-                    _editRemoveDj = GetRight(j, "removeDj");
-                    _editEditShiftPlan = GetRight(j, "editShiftPlan");
-                    if (_rights.TryGetValue(j, out var infoInit))
+                    _openEditJob = jobLabel;
+                    _editJobNameInput = jobLabel;
+                    _editAddVip = GetRight(jobLabel, "addVip");
+                    _editRemoveVip = GetRight(jobLabel, "removeVip");
+                    _editManageUsers = GetRight(jobLabel, "manageUsers");
+                    _editManageJobs = GetRight(jobLabel, "manageJobs");
+                    _editManageVenueSettings = GetRight(jobLabel, "manageVenueSettings");
+                    _editEditVipDuration = GetRight(jobLabel, "editVipDuration");
+                    _editAddDj = GetRight(jobLabel, "addDj");
+                    _editRemoveDj = GetRight(jobLabel, "removeDj");
+                    _editEditShiftPlan = GetRight(jobLabel, "editShiftPlan");
+                    if (_rights.TryGetValue(jobLabel, out var infoInit))
                     {
                         _editColorHex = infoInit.ColorHex;
                         _editIconKey = infoInit.IconKey;
                         var rIn = infoInit.Rank;
                         int r;
-                        if (string.Equals(j, "Owner", System.StringComparison.Ordinal)) r = 10;
-                        else if (string.Equals(j, "Unassigned", System.StringComparison.Ordinal)) r = 0;
+                        if (string.Equals(jobLabel, "Owner", System.StringComparison.Ordinal)) r = 10;
+                        else if (string.Equals(jobLabel, "Unassigned", System.StringComparison.Ordinal)) r = 0;
                         else r = rIn <= 0 ? 1 : (rIn > 9 ? 9 : rIn);
                         _editRank = r;
                     }
@@ -230,9 +232,9 @@ public sealed class JobsPanelComponent
                 var canDelete = app.IsOwnerCurrentClub || (app.HasStaffSession && app.StaffCanManageJobs);
                 var disableDelete = isOwnerJob || !canDelete;
                 ImGui.BeginDisabled(disableDelete);
-                if (ImGui.Button(FontAwesomeIcon.Trash.ToIconString() + $"##del_{j}"))
+                if (ImGui.Button(FontAwesomeIcon.Trash.ToIconString() + $"##del_{jobLabel}"))
                 {
-                    var name = j;
+                    var name = jobLabel;
                     System.Threading.Tasks.Task.Run(async () =>
                     {
                         var ok = await app.DeleteJobAsync(name);
@@ -299,7 +301,7 @@ public sealed class JobsPanelComponent
                     if (ImGui.Checkbox("Manage Venue Settings", ref _addManageVenueSettings)) { }
                     ImGui.EndDisabled();
                     if (ImGui.Checkbox("Edit VIP Duration", ref _addEditVipDuration)) { }
-                    //if (ImGui.Checkbox("Edit Shift Plan", ref _addEditShiftPlan)) { }
+                    if (ImGui.Checkbox("Edit Shift Plan", ref _addEditShiftPlan)) { }
                     ImGui.EndTable();
                 }
 
@@ -433,7 +435,7 @@ public sealed class JobsPanelComponent
                     if (ImGui.Checkbox("Manage Venue Settings", ref _editManageVenueSettings)) { }
                     ImGui.EndDisabled();
                     if (ImGui.Checkbox("Edit VIP Duration", ref _editEditVipDuration)) { }
-                    //if (ImGui.Checkbox("Edit Shift Plan", ref _editEditShiftPlan)) { }
+                    if (ImGui.Checkbox("Edit Shift Plan", ref _editEditShiftPlan)) { }
                     ImGui.EndTable();
                 }
                 ImGui.EndDisabled();
@@ -616,6 +618,55 @@ public sealed class JobsPanelComponent
             "editShiftPlan" => info.EditShiftPlan,
             _ => false
         };
+    }
+
+    private void DrawRightsTooltip(string job)
+    {
+        if (string.IsNullOrWhiteSpace(job)) return;
+        var isOwner = string.Equals(job, "Owner", System.StringComparison.Ordinal);
+        var isUnassigned = string.Equals(job, "Unassigned", System.StringComparison.Ordinal);
+        if (!isOwner && !isUnassigned && !_rights.TryGetValue(job, out var info))
+        {
+            ImGui.BeginTooltip();
+            ImGui.TextUnformatted(job);
+            ImGui.Separator();
+            ImGui.TextUnformatted("No rights available");
+            ImGui.EndTooltip();
+            return;
+        }
+        bool addVip = isOwner || (!isUnassigned && _rights.TryGetValue(job, out var infoAdd) && infoAdd.AddVip);
+        bool removeVip = isOwner || (!isUnassigned && _rights.TryGetValue(job, out var infoRemove) && infoRemove.RemoveVip);
+        bool manageUsers = isOwner || (!isUnassigned && _rights.TryGetValue(job, out var infoUsers) && infoUsers.ManageUsers);
+        bool manageJobs = isOwner || (!isUnassigned && _rights.TryGetValue(job, out var infoJobs) && infoJobs.ManageJobs);
+        bool manageVenue = isOwner || (!isUnassigned && _rights.TryGetValue(job, out var infoVenue) && infoVenue.ManageVenueSettings);
+        bool editVipDuration = isOwner || (!isUnassigned && _rights.TryGetValue(job, out var infoVip) && infoVip.EditVipDuration);
+        bool addDj = isOwner || (!isUnassigned && _rights.TryGetValue(job, out var infoAddDj) && infoAddDj.AddDj);
+        bool removeDj = isOwner || (!isUnassigned && _rights.TryGetValue(job, out var infoRemDj) && infoRemDj.RemoveDj);
+        bool editShiftPlan = isOwner || (!isUnassigned && _rights.TryGetValue(job, out var infoShift) && infoShift.EditShiftPlan);
+        ImGui.BeginTooltip();
+        ImGui.TextUnformatted(job);
+        ImGui.Separator();
+        ImGui.TextUnformatted("Permissions");
+        DrawPermissionRow("Add VIP", addVip);
+        DrawPermissionRow("Remove VIP", removeVip);
+        DrawPermissionRow("Manage Staff", manageUsers);
+        DrawPermissionRow("Manage Roles", manageJobs);
+        DrawPermissionRow("Manage Venue Settings", manageVenue);
+        DrawPermissionRow("Edit VIP Duration", editVipDuration);
+        DrawPermissionRow("Add DJ", addDj);
+        DrawPermissionRow("Remove DJ", removeDj);
+        DrawPermissionRow("Edit Shift Plan", editShiftPlan);
+        ImGui.EndTooltip();
+    }
+
+    private static void DrawPermissionRow(string label, bool enabled)
+    {
+        var color = enabled ? new System.Numerics.Vector4(0.2f, 0.85f, 0.2f, 1f) : new System.Numerics.Vector4(0.9f, 0.25f, 0.25f, 1f);
+        ImGui.PushStyleColor(ImGuiCol.Text, color);
+        ImGui.TextUnformatted(enabled ? "✓" : "✕");
+        ImGui.PopStyleColor();
+        ImGui.SameLine();
+        ImGui.TextUnformatted(label);
     }
 
     private void SetRight(string job, string key, bool value)

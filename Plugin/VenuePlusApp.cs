@@ -1768,7 +1768,7 @@ public sealed class VenuePlusApp : IDisposable, IEventListener
 
     private void OnRemoteDisconnected()
     {
-        ClearAccessState();
+        _accessLoading = false;
     }
 
     public System.Threading.Tasks.Task<bool> SetRememberStaffLoginAsync(bool remember)

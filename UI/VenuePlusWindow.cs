@@ -576,7 +576,7 @@ public sealed class VenuePlusWindow : Window, IDisposable
             ImGui.TextUnformatted($"VIPs: {_statsVipCount}   Staff: {_statsStaffCount}   Online: {_statsStaffOnlineCount}/{_statsStaffCount}");
             ImGui.EndGroup();
             ImGui.Spacing();
-            var showShiftTab = false;
+            var showShiftTab = _app.HasStaffSession;
             if (ImGui.BeginTabBar("MainTabs"))
             {
             if (ImGui.BeginTabItem("VIPs"))
@@ -630,17 +630,6 @@ public sealed class VenuePlusWindow : Window, IDisposable
                 ImGui.EndChild();
                 ImGui.EndTabItem();
             }
-            if (showShiftTab && ImGui.BeginTabItem("Schedule"))
-            {
-                if (ImGui.IsItemActivated()) ResetStatusMessages();
-                ImGui.BeginChild("ShiftsTabContent", new Vector2(0, ImGui.GetContentRegionAvail().Y), false);
-                _vipTable.CloseAddForm();
-                _staffList.CloseInviteInline();
-                _djList.CloseAddForm();
-                _shiftPlan.Draw(_app);
-                ImGui.EndChild();
-                ImGui.EndTabItem();
-            }
             if (_app.HasStaffSession)
             {
                 if (ImGui.BeginTabItem("Staff"))
@@ -658,6 +647,17 @@ public sealed class VenuePlusWindow : Window, IDisposable
                     ImGui.EndChild();
                     ImGui.EndTabItem();
                 }
+            }
+            if (showShiftTab && ImGui.BeginTabItem("Schedule"))
+            {
+                if (ImGui.IsItemActivated()) ResetStatusMessages();
+                ImGui.BeginChild("ShiftsTabContent", new Vector2(0, ImGui.GetContentRegionAvail().Y), false);
+                _vipTable.CloseAddForm();
+                _staffList.CloseInviteInline();
+                _djList.CloseAddForm();
+                _shiftPlan.Draw(_app);
+                ImGui.EndChild();
+                ImGui.EndTabItem();
             }
             if (_app.HasStaffSession)
             {
