@@ -15,6 +15,8 @@ namespace VenuePlus.UI;
 
 public sealed class VenuePlusWindow : Window, IDisposable
 {
+    private const int StatusPollDelayMs = 120;
+    private const int StatusPollMaxTicks = 60;
     private readonly VenuePlusApp _app;
     private string _filter = string.Empty;
     private bool _disposed;
@@ -170,34 +172,12 @@ public sealed class VenuePlusWindow : Window, IDisposable
                     }
                     if (staffPassEnter && !string.IsNullOrWhiteSpace(_staffPassInput))
                     {
-                        _staffLoginStatus = "Submitting...";
-                        System.Threading.Tasks.Task.Run(async () =>
-                        {
-                            var ok = await _app.StaffLoginAsync(string.Empty, _staffPassInput);
-                            _staffLoginStatus = ok ? "Login successful" : "Login failed";
-                            if (ok)
-                            {
-                                _showStaffForm = false;
-                                _staffUserInput = string.Empty; _staffPassInput = string.Empty;
-                                _showRecoveryForm = false;
-                            }
-                        });
+                        StartStaffLoginWithPhases();
                     }
                     ImGui.BeginDisabled(!_app.RemoteConnected);
                     if (ImGui.Button("Login", new Vector2(-1f, 0)))
                     {
-                        _staffLoginStatus = "Submitting...";
-                        System.Threading.Tasks.Task.Run(async () =>
-                        {
-                            var ok = await _app.StaffLoginAsync(string.Empty, _staffPassInput);
-                            _staffLoginStatus = ok ? "Login successful" : "Login failed";
-                            if (ok)
-                            {
-                                _showStaffForm = false;
-                                _staffUserInput = string.Empty; _staffPassInput = string.Empty;
-                                _showRecoveryForm = false;
-                            }
-                        });
+                        StartStaffLoginWithPhases();
                     }
                     if (ImGui.IsItemHovered()) { ImGui.BeginTooltip(); ImGui.TextUnformatted("Login with entered credentials"); ImGui.EndTooltip(); }
                     ImGui.EndDisabled();
@@ -215,17 +195,7 @@ public sealed class VenuePlusWindow : Window, IDisposable
                     ImGui.BeginDisabled(!_currentCharExists || !_app.RemoteConnected);
                     if (ImGui.Button("Login current character"))
                     {
-                        _staffLoginStatus = "Submitting...";
-                        System.Threading.Tasks.Task.Run(async () =>
-                        {
-                            var ok = await _app.StaffLoginAsync(string.Empty, _staffPassInput);
-                            _staffLoginStatus = ok ? "Login successful" : "Login failed";
-                            if (ok)
-                            {
-                                _showStaffForm = false;
-                                _staffUserInput = string.Empty; _staffPassInput = string.Empty;
-                            }
-                        });
+                        StartStaffLoginWithPhases();
                     }
                     ImGui.EndDisabled();
                     if (ImGui.IsItemHovered()) { ImGui.BeginTooltip(); ImGui.TextUnformatted("Login using current character"); ImGui.EndTooltip(); }
@@ -924,6 +894,36 @@ public sealed class VenuePlusWindow : Window, IDisposable
             _showStaffForm = false;
             _currentCharExists = true;
         }
+    }
+
+    private void StartStaffLoginWithPhases()
+    {
+        var pass = _staffPassInput;
+        if (string.IsNullOrWhiteSpace(pass)) return;
+        _staffLoginStatus = "Authenticating...";
+        System.Threading.Tasks.Task.Run(async () =>
+        {
+            var ok = await _app.StaffLoginAsync(string.Empty, pass);
+            if (!ok)
+            {
+                _staffLoginStatus = "Login failed";
+                return;
+            }
+            if (_app.AccessLoading)
+            {
+                _staffLoginStatus = "Loading profile...";
+                for (int i = 0; i < StatusPollMaxTicks; i++)
+                {
+                    await System.Threading.Tasks.Task.Delay(StatusPollDelayMs);
+                    if (!_app.AccessLoading) break;
+                }
+            }
+            _staffLoginStatus = "Login successful";
+            _showStaffForm = false;
+            _staffUserInput = string.Empty;
+            _staffPassInput = string.Empty;
+            _showRecoveryForm = false;
+        });
     }
 
     

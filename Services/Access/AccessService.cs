@@ -247,7 +247,7 @@ internal sealed class AccessService
         public bool RemoteUseWebSocket { get; init; }
     }
 
-    public async System.Threading.Tasks.Task<StaffLoginResult?> StaffLoginAsync(string usernameFinal, string password, string currentCharacterKey, string? currentClubId)
+    public async System.Threading.Tasks.Task<StaffLoginResult?> StaffLoginAsync(string usernameFinal, string password, string currentCharacterKey, string? currentClubId, bool fastMode = false)
     {
         if (_remote is null) return null;
         var token = await _remote.StaffLoginAsync(usernameFinal, password);
@@ -255,6 +255,26 @@ internal sealed class AccessService
         Configuration.CharacterProfile? profAuto = null;
         if (!string.IsNullOrWhiteSpace(currentCharacterKey)) _pluginConfigService.Current.ProfilesByCharacter.TryGetValue(currentCharacterKey, out profAuto);
         var clubPref = (!string.IsNullOrWhiteSpace(currentCharacterKey) && profAuto != null) ? profAuto.RemoteClubId : _pluginConfigService.Current.RemoteClubId;
+        var useWs = _remote.RemoteUseWebSocket;
+        if (fastMode && useWs)
+        {
+            try
+            {
+                if (!string.IsNullOrWhiteSpace(currentClubId))
+                {
+                    try { await _remote.SwitchClubAsync(currentClubId!); } catch { }
+                    try { await _remote.RequestShiftSnapshotAsync(token); } catch { }
+                }
+            }
+            catch { }
+            return new StaffLoginResult
+            {
+                Token = token,
+                Username = usernameFinal,
+                PreferredClubId = clubPref,
+                RemoteUseWebSocket = useWs
+            };
+        }
         string? selfUid = null;
         DateTimeOffset? selfBirthday = null;
         string[]? myClubs = null;
@@ -264,7 +284,6 @@ internal sealed class AccessService
         string? logo = null;
         string? selfJob = null;
         System.Collections.Generic.Dictionary<string, bool>? selfRights = null;
-        var useWs = _remote.RemoteUseWebSocket;
         try
         {
             if (useWs && !string.IsNullOrWhiteSpace(currentClubId))

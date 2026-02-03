@@ -6,6 +6,8 @@ namespace VenuePlus.UI.Modals;
 
 public sealed class RegisterModal
 {
+    private const int StatusPollDelayMs = 120;
+    private const int StatusPollMaxTicks = 60;
     private bool _open;
     private string _password = string.Empty;
     private string _status = string.Empty;
@@ -54,20 +56,45 @@ public sealed class RegisterModal
                 ImGui.BeginDisabled(!canRegister);
                 if (ImGui.Button("Register"))
                 {
-                    _status = "Submitting...";
+                    _status = "Registering account...";
                     _recoveryCode = string.Empty;
                     _showRecovery = false;
                     _recoveryCopied = false;
                     _registrationComplete = false;
                     _copyStatus = string.Empty;
-                    var n = name; var w = world; var p = _password;
+                    var n = info.HasValue ? info.Value.name : string.Empty;
+                    var w = info.HasValue ? info.Value.world : string.Empty;
+                    var p = _password;
                     System.Threading.Tasks.Task.Run(async () =>
                     {
-                        var result = await app.RegisterCharacterAsync(n, w, p);
-                        _status = result.LoginOk ? "Registration successful" : "Registration failed";
-                        _recoveryCode = result.RecoveryCode ?? string.Empty;
-                        _showRecovery = result.LoginOk && !string.IsNullOrWhiteSpace(_recoveryCode);
-                        _registrationComplete = result.LoginOk;
+                        var recovery = await app.RegisterOnlyAsync(n, w, p);
+                        if (string.IsNullOrWhiteSpace(recovery))
+                        {
+                            _status = "Registration failed";
+                            return;
+                        }
+                        _recoveryCode = recovery;
+                        _showRecovery = true;
+                        _status = "Logging in...";
+                        var username = n + "@" + w;
+                        var ok = await app.StaffLoginAsync(username, p);
+                        if (!ok)
+                        {
+                            _status = "Registration complete, login failed";
+                            return;
+                        }
+                        _registrationComplete = true;
+                        _password = string.Empty;
+                        if (app.AccessLoading)
+                        {
+                            _status = "Loading profile...";
+                            for (int i = 0; i < StatusPollMaxTicks; i++)
+                            {
+                                await System.Threading.Tasks.Task.Delay(StatusPollDelayMs);
+                                if (!app.AccessLoading) break;
+                            }
+                        }
+                        _status = "Registration complete";
                     });
                 }
                 ImGui.EndDisabled();

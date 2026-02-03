@@ -585,7 +585,7 @@ public sealed class SettingsWindow : Window, System.IDisposable
             ImGui.BeginDisabled(!confirmReady);
             if (ImGui.Button("Delete Account"))
             {
-                _deleteAccountStatus = "Submitting...";
+                _deleteAccountStatus = "Deleting account...";
                 System.Threading.Tasks.Task.Run(async () =>
                 {
                     var ok = await _app.DeleteCurrentUserAsync();

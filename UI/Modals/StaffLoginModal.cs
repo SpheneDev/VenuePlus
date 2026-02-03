@@ -5,6 +5,8 @@ namespace VenuePlus.UI.Modals;
 
 public sealed class StaffLoginModal
 {
+    private const int StatusPollDelayMs = 120;
+    private const int StatusPollMaxTicks = 60;
     private string _staffPassInput = string.Empty;
     private bool _rememberStaff;
     private string _status = string.Empty;
@@ -44,12 +46,21 @@ public sealed class StaffLoginModal
                     app.SetAutoLoginEnabledAsync(true).GetAwaiter().GetResult();
                     app.SetRememberStaffLoginAsync(true).GetAwaiter().GetResult();
                 }
-                _status = "Submitting...";
+                _status = "Authenticating...";
                 System.Threading.Tasks.Task.Run(async () =>
                 {
                     var ok = await app.StaffLoginAsync(string.Empty, _staffPassInput);
                     if (ok)
                     {
+                        if (app.AccessLoading)
+                        {
+                            _status = "Loading profile...";
+                            for (int i = 0; i < StatusPollMaxTicks; i++)
+                            {
+                                await System.Threading.Tasks.Task.Delay(StatusPollDelayMs);
+                                if (!app.AccessLoading) break;
+                            }
+                        }
                         _staffPassInput = string.Empty;
                         _closeRequested = true;
                         _status = string.Empty;
@@ -79,4 +90,3 @@ public sealed class StaffLoginModal
         }
     }
 }
-

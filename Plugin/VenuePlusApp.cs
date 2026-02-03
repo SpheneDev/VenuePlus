@@ -1646,7 +1646,7 @@ public sealed class VenuePlusApp : IDisposable, IEventListener
         {
             SetClubId(clubBeforeLogin);
         }
-        var result = await _accessService.StaffLoginAsync(usernameFinal, password, GetCurrentCharacterKey(), CurrentClubId);
+        var result = await _accessService.StaffLoginAsync(usernameFinal, password, GetCurrentCharacterKey(), CurrentClubId, _remote.RemoteUseWebSocket);
         if (result is null || string.IsNullOrWhiteSpace(result.Token)) return false;
         _isPowerStaff = true;
         _staffToken = result.Token;
@@ -1686,6 +1686,10 @@ public sealed class VenuePlusApp : IDisposable, IEventListener
         EnsureSelfRights();
         EnsureValidClubAfterListFetch();
         _accessLoading = false;
+        if (_remote.RemoteUseWebSocket)
+        {
+            StartPostLoginWarmup(usernameFinal);
+        }
         var keySave = GetCurrentCharacterKey();
         Configuration.CharacterProfile? profSave = null;
         if (!string.IsNullOrWhiteSpace(keySave)) _pluginConfigService.Current.ProfilesByCharacter.TryGetValue(keySave, out profSave);
@@ -2185,6 +2189,68 @@ public sealed class VenuePlusApp : IDisposable, IEventListener
         return true;
     }
 
+    private void StartPostLoginWarmup(string usernameFinal)
+    {
+        var staffSession = _staffToken ?? string.Empty;
+        if (string.IsNullOrWhiteSpace(staffSession)) return;
+        _accessLoading = true;
+        var ct = _cts.Token;
+        System.Threading.Tasks.Task.Run(async () =>
+        {
+            if (ct.IsCancellationRequested) { _accessLoading = false; return; }
+            try
+            {
+                var tRights = _remote.GetSelfRightsAsync(staffSession);
+                var tProfile = _remote.GetSelfProfileAsync(staffSession);
+                var tBirthday = _remote.GetSelfBirthdayAsync(staffSession);
+                var tJobRights = _remote.ListJobRightsAsync(staffSession);
+                var tUsersDet = _remote.ListUsersDetailedAsync(staffSession);
+                var tMyClubs = _remote.ListUserClubsAsync(staffSession);
+                var tMyCreated = _remote.ListCreatedClubsAsync(staffSession);
+                var tLogo = _remote.GetClubLogoAsync(staffSession);
+                try { await System.Threading.Tasks.Task.WhenAll(new System.Threading.Tasks.Task[] { tRights, tProfile, tBirthday, tJobRights, tUsersDet, tMyClubs, tMyCreated, tLogo }); } catch { }
+                try
+                {
+                    var r = tRights.IsCompleted ? tRights.Result : (System.ValueTuple<string, System.Collections.Generic.Dictionary<string, bool>>?)null;
+                    if (r.HasValue)
+                    {
+                        _selfJob = r.Value.Item1;
+                        _selfRights = r.Value.Item2 ?? new System.Collections.Generic.Dictionary<string, bool>();
+                    }
+                }
+                catch { }
+                try
+                {
+                    var p = tProfile.IsCompleted ? tProfile.Result : (System.ValueTuple<string, string>?)null;
+                    if (p.HasValue && string.Equals(p.Value.Item1, usernameFinal, System.StringComparison.Ordinal))
+                    {
+                        _selfUid = string.IsNullOrWhiteSpace(p.Value.Item2) ? _selfUid : p.Value.Item2;
+                    }
+                }
+                catch { }
+                try { _selfBirthday = tBirthday.IsCompleted ? tBirthday.Result : _selfBirthday; } catch { }
+                try { if (tMyClubs.IsCompleted && tMyClubs.Result != null) _myClubs = tMyClubs.Result; } catch { }
+                try { if (tMyCreated.IsCompleted && tMyCreated.Result != null) _myCreatedClubs = tMyCreated.Result; } catch { }
+                try
+                {
+                    var logo = tLogo.IsCompleted ? tLogo.Result : null;
+                    if (!string.IsNullOrWhiteSpace(logo))
+                    {
+                        _clubService.SetCurrentClubLogo(CurrentClubId, logo);
+                        try { ClubLogoChanged?.Invoke(logo); } catch { }
+                    }
+                }
+                catch { }
+                _clubListsLoaded = (_myClubs != null) || (_myCreatedClubs != null);
+                _selfJobs = NormalizeJobs(_selfJobs.Length == 0 ? (_selfJob.Length > 0 ? new[] { _selfJob } : Array.Empty<string>()) : _selfJobs, _selfJob);
+                EnsureSelfRights();
+                EnsureValidClubAfterListFetch();
+            }
+            catch { }
+            finally { _accessLoading = false; }
+        });
+    }
+
     public async System.Threading.Tasks.Task<string[]?> ListJobsAsync()
     {
         var sess = _staffToken ?? string.Empty;
@@ -2355,6 +2421,12 @@ public sealed class VenuePlusApp : IDisposable, IEventListener
         var username = name + "@" + world;
         var loginOk = await StaffLoginAsync(username, password);
         return (loginOk, recoveryCode);
+    }
+
+    public async System.Threading.Tasks.Task<string?> RegisterOnlyAsync(string name, string world, string password)
+    {
+        if (string.IsNullOrWhiteSpace(name) || string.IsNullOrWhiteSpace(world)) return null;
+        return await _remote.RegisterAsync(name, world, password);
     }
 
     public (string name, string world)? GetCurrentCharacter()
