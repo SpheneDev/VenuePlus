@@ -113,6 +113,11 @@ public sealed class VenuePlusWindow : Window, IDisposable
         ResetStatusMessages();
     }
 
+    public override bool DrawConditions()
+    {
+        return !_app.IsBetweenAreas;
+    }
+
     public override void Draw()
     {
         _app.UpdateCurrentCharacterCache();

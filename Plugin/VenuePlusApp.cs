@@ -75,6 +75,8 @@ public sealed class VenuePlusApp : IDisposable, IEventListener
     public event Action? OpenWhisperRequested;
     public event Action? OpenMacroHotbarRequested;
 
+    public bool IsBetweenAreas => _condition[ConditionFlag.BetweenAreas] || _condition[ConditionFlag.BetweenAreas51];
+
     public VenuePlusApp(string? vipDataPath = null, string? pluginConfigPath = null, IPluginLog? log = null, IClientState? clientState = null, IObjectTable? objectTable = null, ICondition? condition = null)
     {
         _log = log;
