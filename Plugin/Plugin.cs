@@ -52,7 +52,7 @@ public sealed class Plugin : IDalamudPlugin
     private readonly IFramework _framework;
     private readonly NotificationService _notificationService;
 
-    public Plugin(IDalamudPluginInterface pluginInterface, IContextMenu contextMenu, ICommandManager commandManager, IPluginLog pluginLog, IClientState clientState, IObjectTable objectTable, Dalamud.Plugin.Services.ITextureProvider textureProvider, ITargetManager targetManager, INamePlateGui namePlateGui, IToastGui toastGui, IChatGui chatGui, IFramework framework, INotificationManager notificationManager)
+    public Plugin(IDalamudPluginInterface pluginInterface, IContextMenu contextMenu, ICommandManager commandManager, IPluginLog pluginLog, IClientState clientState, IObjectTable objectTable, Dalamud.Plugin.Services.ITextureProvider textureProvider, ITargetManager targetManager, INamePlateGui namePlateGui, IToastGui toastGui, IChatGui chatGui, IFramework framework, INotificationManager notificationManager, ICondition condition)
     {
         _pluginInterface = pluginInterface;
         _log = pluginLog;
@@ -63,7 +63,7 @@ public sealed class Plugin : IDalamudPlugin
         _framework = framework;
         var dataPath = Path.Combine(pluginInterface.ConfigDirectory.FullName, "venueplus.data.json");
         var settingsPath = Path.Combine(pluginInterface.ConfigDirectory.FullName, "venueplus.settings.json");
-        _app = new VenuePlusApp(dataPath, settingsPath, _log, _clientState, _objectTable);
+        _app = new VenuePlusApp(dataPath, settingsPath, _log, _clientState, _objectTable, condition);
 
         _contextMenu = contextMenu;
         _commandManager = commandManager;

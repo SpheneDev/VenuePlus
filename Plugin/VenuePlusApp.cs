@@ -7,6 +7,7 @@ using VenuePlus.Helpers;
 using VenuePlus.Configuration;
 using System.Numerics;
 using Dalamud.Plugin.Services;
+using Dalamud.Game.ClientState.Conditions;
 
 namespace VenuePlus.Plugin;
 
@@ -22,6 +23,7 @@ public sealed class VenuePlusApp : IDisposable, IEventListener
     private readonly IPluginLog? _log;
     private readonly IClientState _clientState;
     private readonly IObjectTable _objectTable;
+    private readonly ICondition _condition;
     private string _currentCharName = string.Empty;
     private string _currentCharWorld = string.Empty;
     private bool _wasLoggedIn;
@@ -73,11 +75,12 @@ public sealed class VenuePlusApp : IDisposable, IEventListener
     public event Action? OpenWhisperRequested;
     public event Action? OpenMacroHotbarRequested;
 
-    public VenuePlusApp(string? vipDataPath = null, string? pluginConfigPath = null, IPluginLog? log = null, IClientState? clientState = null, IObjectTable? objectTable = null)
+    public VenuePlusApp(string? vipDataPath = null, string? pluginConfigPath = null, IPluginLog? log = null, IClientState? clientState = null, IObjectTable? objectTable = null, ICondition? condition = null)
     {
         _log = log;
         _clientState = clientState!;
         _objectTable = objectTable!;
+        _condition = condition!;
         var config = new ConfigurationService(vipDataPath);
         _vipService = new VipService(config);
         _autoPurge = new AutoPurgeService(_vipService);
@@ -2448,11 +2451,16 @@ public sealed class VenuePlusApp : IDisposable, IEventListener
     {
         var prev = _wasLoggedIn;
         var isLoggedIn = _clientState.IsLoggedIn;
-        if (prev && !isLoggedIn)
+        if (!isLoggedIn)
         {
-            OnCharacterLoggedOut();
+            var betweenAreas = _condition[ConditionFlag.BetweenAreas] || _condition[ConditionFlag.BetweenAreas51];
+            if (betweenAreas) return;
+            if (prev) OnCharacterLoggedOut();
+            _currentCharName = string.Empty;
+            _currentCharWorld = string.Empty;
+            _wasLoggedIn = false;
+            return;
         }
-        if (!isLoggedIn) { _currentCharName = string.Empty; _currentCharWorld = string.Empty; _wasLoggedIn = false; return; }
         var player = _objectTable.LocalPlayer;
         if (player == null) { _currentCharName = string.Empty; _currentCharWorld = string.Empty; return; }
         _currentCharName = player.Name.TextValue;
