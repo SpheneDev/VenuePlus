@@ -119,8 +119,9 @@ public sealed class SettingsWindow : Window, System.IDisposable
                     {
                         try
                         {
-                            using var http = new HttpClient();
-                            var bytes = await http.GetByteArrayAsync("https://raw.githubusercontent.com/SpheneDev/repo/refs/heads/main/images/venueplus.png");
+                            var raw = VenuePlus.Helpers.VImages.GetDefaultVenueLogoBase64Raw();
+                            var bytes = string.IsNullOrWhiteSpace(raw) ? Array.Empty<byte>() : Convert.FromBase64String(raw);
+                            if (bytes.Length == 0) return;
                             var tex = await _textureProvider.CreateFromImageAsync(bytes);
                             _aboutTex = tex;
                         }
