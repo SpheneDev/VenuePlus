@@ -3038,9 +3038,9 @@ public sealed class VenuePlusApp : IDisposable, IEventListener
                         var tLogo = _remote.GetClubLogoAsync(_staffToken!);
                         try { await System.Threading.Tasks.Task.WhenAll(new System.Threading.Tasks.Task[] { tRights, tUsers, tClubs, tCreated, tLogo }); } catch { }
                         try { _jobRightsCache = tRights.IsCompleted ? (tRights.Result ?? _jobRightsCache) : _jobRightsCache; } catch { }
-                        try { _usersDetailsCache = tUsers.IsCompleted ? tUsers.Result : _usersDetailsCache; } catch { }
-                        try { _myClubs = tClubs.IsCompleted ? tClubs.Result : _myClubs; } catch { }
-                        try { _myCreatedClubs = tCreated.IsCompleted ? tCreated.Result : _myCreatedClubs; } catch { }
+                        try { _usersDetailsCache = tUsers.IsCompleted ? (tUsers.Result ?? _usersDetailsCache) : _usersDetailsCache; } catch { }
+                        try { _myClubs = tClubs.IsCompleted ? (tClubs.Result ?? _myClubs) : _myClubs; } catch { }
+                        try { _myCreatedClubs = tCreated.IsCompleted ? (tCreated.Result ?? _myCreatedClubs) : _myCreatedClubs; } catch { }
                         _clubListsLoaded = (_myClubs != null) || (_myCreatedClubs != null);
                         try
                         {

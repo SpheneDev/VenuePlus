@@ -291,13 +291,13 @@ public sealed class Plugin : IDalamudPlugin
     private void OnVipListCommand(string command, string args)
     {
         _log.Debug("/venueplus invoked");
-        _window.IsOpen = true;
+        _window.IsOpen = !_window.IsOpen;
     }
 
     private void OnVPlusCommand(string command, string args)
     {
         _log.Debug("/v+ invoked");
-        _window.IsOpen = true;
+        _window.IsOpen = !_window.IsOpen;
     }
 
     private void OnWhisperCommand(string command, string args)
