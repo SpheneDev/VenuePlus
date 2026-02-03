@@ -9,6 +9,7 @@ public sealed class StaffLoginModal
     private const int StatusPollMaxTicks = 60;
     private string _staffPassInput = string.Empty;
     private bool _rememberStaff;
+    private bool _pendingAutoLoginEnable;
     private string _status = string.Empty;
     private bool _closeRequested;
 
@@ -36,10 +37,18 @@ public sealed class StaffLoginModal
             ImGui.InputText("Password", ref _staffPassInput, 64, ImGuiInputTextFlags.Password);
             ImGui.Checkbox("Remember Login Password", ref _rememberStaff);
             var autoEnabled = app.AutoLoginEnabled;
-            if (ImGui.Checkbox("Enable Auto Login", ref autoEnabled))
+            if (autoEnabled) _pendingAutoLoginEnable = false;
+            if (autoEnabled)
             {
-                app.SetAutoLoginEnabledAsync(autoEnabled).GetAwaiter().GetResult();
-                if (autoEnabled) app.SetRememberStaffLoginAsync(true).GetAwaiter().GetResult();
+                ImGui.TextUnformatted("Auto Login active");
+            }
+            else
+            {
+                var autoCheck = _pendingAutoLoginEnable;
+                if (ImGui.Checkbox("Enable Auto Login", ref autoCheck))
+                {
+                    _pendingAutoLoginEnable = autoCheck;
+                }
             }
             ImGui.BeginDisabled(!app.RemoteConnected || !info.HasValue);
             if (ImGui.Button("Login"))
@@ -48,17 +57,18 @@ public sealed class StaffLoginModal
                 {
                     app.SetRememberStaffLoginAsync(true).GetAwaiter().GetResult();
                 }
-                if (autoEnabled)
-                {
-                    app.SetAutoLoginEnabledAsync(true).GetAwaiter().GetResult();
-                    app.SetRememberStaffLoginAsync(true).GetAwaiter().GetResult();
-                }
                 _status = "Authenticating...";
                 System.Threading.Tasks.Task.Run(async () =>
                 {
                     var ok = await app.StaffLoginAsync(string.Empty, _staffPassInput);
                     if (ok)
                     {
+                        if (_pendingAutoLoginEnable)
+                        {
+                            await app.SetAutoLoginEnabledAsync(true);
+                            await app.SetRememberStaffLoginAsync(true);
+                            _pendingAutoLoginEnable = false;
+                        }
                         if (app.AccessLoading)
                         {
                             _status = "Loading profile...";

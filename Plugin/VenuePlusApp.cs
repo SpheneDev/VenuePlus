@@ -442,7 +442,7 @@ public sealed class VenuePlusApp : IDisposable, IEventListener
 
     private bool ShouldAttemptAutoLogin()
     {
-        return !_autoLoginSuppressedByStatusCheck && !_autoLoginSuppressedByMaintenance && !_autoLoginSuppressedByOffline;
+        return !_autoLoginSuppressedByStatusCheck && !_autoLoginSuppressedByOffline;
     }
 
     public bool ShowVipNameplateHook => _pluginConfigService.Current.ShowVipNameplateHook;
@@ -1884,7 +1884,6 @@ public sealed class VenuePlusApp : IDisposable, IEventListener
                     var lastMsg = GetLastServerMessage();
                     var maintenance = !string.IsNullOrWhiteSpace(lastMsg) && lastMsg.IndexOf("Maintenance mode active", System.StringComparison.OrdinalIgnoreCase) >= 0;
                     if (maintenance) { MarkAutoLoginMaintenanceBlocked(); }
-                    if (_np5.ShowLoginFailed && !maintenance) { try { _notifier?.ShowInfo("Login failed"); } catch { } }
                 }
             }
             _autoLoginAttempted = staffOk;

@@ -970,7 +970,6 @@ public sealed class SettingsWindow : Window, System.IDisposable
         {
             ImGui.TextDisabled("Login results and password prompts.");
             var s1 = prefs.ShowLoginSuccess; if (ImGui.Checkbox("Show login success", ref s1)) { prefs.ShowLoginSuccess = s1; _app.SavePluginConfig(); }
-            var s2 = prefs.ShowLoginFailed; if (ImGui.Checkbox("Show login failed", ref s2)) { prefs.ShowLoginFailed = s2; _app.SavePluginConfig(); }
             var s3 = prefs.ShowPasswordRequired; if (ImGui.Checkbox("Show password required", ref s3)) { prefs.ShowPasswordRequired = s3; _app.SavePluginConfig(); }
         }
         if (ImGui.CollapsingHeader("Roles & Ownership", ImGuiTreeNodeFlags.DefaultOpen))

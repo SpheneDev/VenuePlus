@@ -46,6 +46,8 @@ public sealed class VenuePlusWindow : Window, IDisposable
     private string _adminLoginStatus = string.Empty;
     private string _staffLoginStatus = string.Empty;
     private bool _showRecoveryForm;
+    private bool _manualLoginMode;
+    private bool _pendingAutoLoginEnable;
     private string _resetRecoveryCode = string.Empty;
     private string _resetPassword = string.Empty;
     private string _resetStatus = string.Empty;
@@ -119,6 +121,8 @@ public sealed class VenuePlusWindow : Window, IDisposable
         {
             _showStaffForm = true;
             _showRecoveryForm = false;
+            _manualLoginMode = !_app.AutoLoginEnabled;
+            _pendingAutoLoginEnable = false;
             var info = _app.GetCurrentCharacter();
             if (info.HasValue) _staffUserInput = info.Value.name + "@" + info.Value.world;
             _currentCharExistsLastCheck = System.DateTimeOffset.MinValue;
@@ -204,105 +208,138 @@ public sealed class VenuePlusWindow : Window, IDisposable
                     ImGui.TextUnformatted("Homeworld:");
                     ImGui.SameLine();
                     ImGui.TextUnformatted(infoCur.Value.world);
-                    var autoEnabled = _app.AutoLoginEnabled;
-                    if (ImGui.Checkbox("Enable Auto Login", ref autoEnabled))
+                    EnsureServerStatus();
+                    var serverStatus = GetServerStatus();
+                    if (serverStatus != ServerStatus.Online && !_app.IsServerAdmin)
                     {
-                        _app.SetAutoLoginEnabledAsync(autoEnabled).GetAwaiter().GetResult();
-                        if (autoEnabled) _app.SetRememberStaffLoginAsync(true).GetAwaiter().GetResult();
-                    }
-                    if (autoEnabled)
-                    {
-                        ImGui.TextUnformatted("Auto Login active");
+                        var statusText = serverStatus switch
+                        {
+                            ServerStatus.Maintenance => "Server is in maintenance. Login is not possible right now.",
+                            ServerStatus.Offline => "Server is offline. Login is not possible right now.",
+                            _ => "Server status is being checked. Login fields will appear once online."
+                        };
+                        ImGui.Spacing();
+                        ImGui.TextWrapped(statusText);
                     }
                     else
                     {
-                        ImGui.PushItemWidth(-1f);
-                        ImGui.InputTextWithHint("##staff_pass", "Password", ref _staffPassInput, 64, ImGuiInputTextFlags.Password);
-                        var staffPassEnter = ImGui.IsItemFocused() && ImGui.IsKeyPressed(ImGuiKey.Enter);
-                        ImGui.PopItemWidth();
-                        if (staffPassEnter && !string.IsNullOrWhiteSpace(_staffPassInput))
+                        var autoEnabled = _app.AutoLoginEnabled;
+                        if (autoEnabled) _pendingAutoLoginEnable = false;
+                        if (!autoEnabled) _manualLoginMode = true;
+                        var showManualLogin = _manualLoginMode;
+                        if (showManualLogin)
+                        {
+                            ImGui.PushItemWidth(-1f);
+                            ImGui.InputTextWithHint("##staff_pass", "Password", ref _staffPassInput, 64, ImGuiInputTextFlags.Password);
+                            var staffPassEnter = ImGui.IsItemFocused() && ImGui.IsKeyPressed(ImGuiKey.Enter);
+                            ImGui.PopItemWidth();
+                            if (staffPassEnter && !string.IsNullOrWhiteSpace(_staffPassInput))
+                            {
+                                StartStaffLoginWithPhases();
+                            }
+                            if (autoEnabled)
+                            {
+                                ImGui.TextUnformatted("Auto Login active");
+                            }
+                            else
+                            {
+                                var autoCheck = _pendingAutoLoginEnable;
+                                if (ImGui.Checkbox("Enable Auto Login", ref autoCheck))
+                                {
+                                    _pendingAutoLoginEnable = autoCheck;
+                                }
+                            }
+                        }
+                        else
+                        {
+                            ImGui.TextUnformatted("Auto Login active");
+                        }
+                        ImGui.BeginDisabled(!_app.RemoteConnected);
+                        if (ImGui.Button(showManualLogin ? "Login" : "Login Manual", new Vector2(-1f, 0)))
+                        {
+                            if (!showManualLogin)
+                            {
+                                _manualLoginMode = true;
+                            }
+                            else
+                            {
+                                StartStaffLoginWithPhases();
+                            }
+                        }
+                        if (ImGui.IsItemHovered()) { ImGui.BeginTooltip(); ImGui.TextUnformatted("Login with entered credentials"); ImGui.EndTooltip(); }
+                        ImGui.EndDisabled();
+                        ImGui.SameLine();
+                        ImGui.PushFont(UiBuilder.IconFont);
+                        ImGui.SetWindowFontScale(0.9f);
+                        if (ImGui.Button(FontAwesomeIcon.Cog.ToIconString() + "##open_settings_icon"))
+                        {
+                            _app.OpenSettingsWindow();
+                        }
+                        ImGui.SetWindowFontScale(1f);
+                        ImGui.PopFont();
+                        if (ImGui.IsItemHovered()) { ImGui.BeginTooltip(); ImGui.TextUnformatted("Open Settings"); ImGui.EndTooltip(); }
+                        ImGui.SameLine();
+                        ImGui.BeginDisabled(_currentCharExists != true || !_app.RemoteConnected);
+                        if (ImGui.Button("Login current character"))
                         {
                             StartStaffLoginWithPhases();
                         }
-                    }
-                    ImGui.BeginDisabled(!_app.RemoteConnected);
-                    if (ImGui.Button("Login", new Vector2(-1f, 0)))
-                    {
-                        StartStaffLoginWithPhases();
-                    }
-                    if (ImGui.IsItemHovered()) { ImGui.BeginTooltip(); ImGui.TextUnformatted("Login with entered credentials"); ImGui.EndTooltip(); }
-                    ImGui.EndDisabled();
-                    ImGui.SameLine();
-                    ImGui.PushFont(UiBuilder.IconFont);
-                    ImGui.SetWindowFontScale(0.9f);
-                    if (ImGui.Button(FontAwesomeIcon.Cog.ToIconString() + "##open_settings_icon"))
-                    {
-                        _app.OpenSettingsWindow();
-                    }
-                    ImGui.SetWindowFontScale(1f);
-                    ImGui.PopFont();
-                    if (ImGui.IsItemHovered()) { ImGui.BeginTooltip(); ImGui.TextUnformatted("Open Settings"); ImGui.EndTooltip(); }
-                    ImGui.SameLine();
-                    ImGui.BeginDisabled(_currentCharExists != true || !_app.RemoteConnected);
-                    if (ImGui.Button("Login current character"))
-                    {
-                        StartStaffLoginWithPhases();
-                    }
-                    ImGui.EndDisabled();
-                    if (ImGui.IsItemHovered()) { ImGui.BeginTooltip(); ImGui.TextUnformatted("Login using current character"); ImGui.EndTooltip(); }
-                    if (!string.IsNullOrEmpty(_staffLoginStatus)) ImGui.TextUnformatted(_staffLoginStatus);
-                    ImGui.Spacing();
-                    if (!_showRecoveryForm)
-                    {
-                        if (ImGui.Button("Forgot Password", new Vector2(-1f, 0)))
-                        {
-                            _showRecoveryForm = true;
-                            _resetStatus = string.Empty;
-                        }
-                        if (ImGui.IsItemHovered()) { ImGui.BeginTooltip(); ImGui.TextUnformatted("Use a recovery code to reset your password"); ImGui.EndTooltip(); }
-                    }
-                    if (_showRecoveryForm)
-                    {
-                        ImGui.Separator();
-                        ImGui.TextUnformatted("Password Recovery");
-                        ImGui.TextWrapped("Use a recovery code to reset the password.");
-                        ImGui.TextWrapped("Generate a recovery code in Account Settings.");
-                        ImGui.Spacing();
-                        var recoverInfo = _app.GetCurrentCharacter();
-                        var recoverUser = recoverInfo.HasValue ? recoverInfo.Value.name + "@" + recoverInfo.Value.world : string.Empty;
-                        ImGui.TextUnformatted("Recovery Account:");
-                        ImGui.SameLine();
-                        ImGui.TextUnformatted(!string.IsNullOrWhiteSpace(recoverUser) ? recoverUser : "--");
-                        ImGui.PushItemWidth(-1f);
-                        ImGui.InputTextWithHint("##reset_recovery_code", "Recovery Code", ref _resetRecoveryCode, 32);
-                        ImGui.InputTextWithHint("##reset_password", "New Password", ref _resetPassword, 64, ImGuiInputTextFlags.Password);
-                        ImGui.PopItemWidth();
-                    ImGui.BeginDisabled(!_app.RemoteConnected || string.IsNullOrWhiteSpace(recoverUser) || _currentCharExists != true);
-                        if (ImGui.Button("Reset Password", new Vector2(-1f, 0)))
-                        {
-                            _resetStatus = "Submitting...";
-                            var user = recoverUser;
-                            var code = _resetRecoveryCode;
-                            var pass = _resetPassword;
-                            System.Threading.Tasks.Task.Run(async () =>
-                            {
-                                var ok = await _app.ResetPasswordByRecoveryCodeAsync(user, code, pass);
-                                _resetStatus = ok ? "Password reset" : "Reset failed";
-                                if (ok)
-                                {
-                                    _resetPassword = string.Empty;
-                                    _resetRecoveryCode = string.Empty;
-                                }
-                            });
-                        }
                         ImGui.EndDisabled();
-                        if (!string.IsNullOrWhiteSpace(_resetStatus)) ImGui.TextUnformatted(_resetStatus);
-                        if (ImGui.Button("Cancel Recovery", new Vector2(-1f, 0)))
+                        if (ImGui.IsItemHovered()) { ImGui.BeginTooltip(); ImGui.TextUnformatted("Login using current character"); ImGui.EndTooltip(); }
+                        if (!string.IsNullOrEmpty(_staffLoginStatus)) ImGui.TextUnformatted(_staffLoginStatus);
+                        ImGui.Spacing();
+                        if (!_showRecoveryForm)
                         {
-                            _showRecoveryForm = false;
-                            _resetStatus = string.Empty;
-                            _resetPassword = string.Empty;
-                            _resetRecoveryCode = string.Empty;
+                            if (ImGui.Button("Forgot Password", new Vector2(-1f, 0)))
+                            {
+                                _showRecoveryForm = true;
+                                _resetStatus = string.Empty;
+                            }
+                            if (ImGui.IsItemHovered()) { ImGui.BeginTooltip(); ImGui.TextUnformatted("Use a recovery code to reset your password"); ImGui.EndTooltip(); }
+                        }
+                        if (_showRecoveryForm)
+                        {
+                            ImGui.Separator();
+                            ImGui.TextUnformatted("Password Recovery");
+                            ImGui.TextWrapped("Use a recovery code to reset the password.");
+                            ImGui.TextWrapped("Generate a recovery code in Account Settings.");
+                            ImGui.Spacing();
+                            var recoverInfo = _app.GetCurrentCharacter();
+                            var recoverUser = recoverInfo.HasValue ? recoverInfo.Value.name + "@" + recoverInfo.Value.world : string.Empty;
+                            ImGui.TextUnformatted("Recovery Account:");
+                            ImGui.SameLine();
+                            ImGui.TextUnformatted(!string.IsNullOrWhiteSpace(recoverUser) ? recoverUser : "--");
+                            ImGui.PushItemWidth(-1f);
+                            ImGui.InputTextWithHint("##reset_recovery_code", "Recovery Code", ref _resetRecoveryCode, 32);
+                            ImGui.InputTextWithHint("##reset_password", "New Password", ref _resetPassword, 64, ImGuiInputTextFlags.Password);
+                            ImGui.PopItemWidth();
+                            ImGui.BeginDisabled(!_app.RemoteConnected || string.IsNullOrWhiteSpace(recoverUser) || _currentCharExists != true);
+                            if (ImGui.Button("Reset Password", new Vector2(-1f, 0)))
+                            {
+                                _resetStatus = "Submitting...";
+                                var user = recoverUser;
+                                var code = _resetRecoveryCode;
+                                var pass = _resetPassword;
+                                System.Threading.Tasks.Task.Run(async () =>
+                                {
+                                    var ok = await _app.ResetPasswordByRecoveryCodeAsync(user, code, pass);
+                                    _resetStatus = ok ? "Password reset" : "Reset failed";
+                                    if (ok)
+                                    {
+                                        _resetPassword = string.Empty;
+                                        _resetRecoveryCode = string.Empty;
+                                    }
+                                });
+                            }
+                            ImGui.EndDisabled();
+                            if (!string.IsNullOrWhiteSpace(_resetStatus)) ImGui.TextUnformatted(_resetStatus);
+                            if (ImGui.Button("Cancel Recovery", new Vector2(-1f, 0)))
+                            {
+                                _showRecoveryForm = false;
+                                _resetStatus = string.Empty;
+                                _resetPassword = string.Empty;
+                                _resetRecoveryCode = string.Empty;
+                            }
                         }
                     }
                 }
@@ -994,6 +1031,12 @@ public sealed class VenuePlusWindow : Window, IDisposable
             {
                 _staffLoginStatus = "Login failed";
                 return;
+            }
+            if (_pendingAutoLoginEnable)
+            {
+                await _app.SetAutoLoginEnabledAsync(true);
+                await _app.SetRememberStaffLoginAsync(true);
+                _pendingAutoLoginEnable = false;
             }
             if (_app.AccessLoading)
             {
