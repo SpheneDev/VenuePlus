@@ -124,7 +124,10 @@ public sealed class VenuePlusApp : IDisposable, IEventListener
                     }
                 }
                 catch (System.Threading.Tasks.TaskCanceledException) { break; }
-                catch { }
+                catch (Exception ex)
+                {
+                    try { _log?.Warning($"[AutoLogin] monitor error ({ex.GetType().Name}): {ex.Message}"); } catch { }
+                }
             }
         }, ctMon);
     }
@@ -383,6 +386,14 @@ public sealed class VenuePlusApp : IDisposable, IEventListener
     public bool IsPowerStaff => _isPowerStaff;
     public bool HasStaffSession => _isPowerStaff && !string.IsNullOrWhiteSpace(_staffToken);
     public bool IsServerAdmin => _isServerAdmin;
+    public bool IsServerAdminOrKnown
+    {
+        get
+        {
+            if (_isServerAdmin) return true;
+            return _accessService.GetLastKnownServerAdmin(GetCurrentCharacterKey());
+        }
+    }
     public string CurrentStaffUsername => _staffUsername ?? string.Empty;
     public bool StaffCanAddVip => _selfRights.TryGetValue("addVip", out var b) && b;
     public bool StaffCanRemoveVip => _selfRights.TryGetValue("removeVip", out var b) && b;
@@ -1698,6 +1709,7 @@ public sealed class VenuePlusApp : IDisposable, IEventListener
         _staffToken = result.Token;
         _staffUsername = result.Username;
         _isServerAdmin = result.IsServerAdmin;
+        _accessService.SetLastKnownServerAdmin(GetCurrentCharacterKey(), _isServerAdmin);
         SetClubId(result.PreferredClubId);
         if (!RemoteConnected) await ConnectRemoteAsync();
         _selfUid = result.SelfUid ?? _selfUid;
@@ -2311,6 +2323,7 @@ public sealed class VenuePlusApp : IDisposable, IEventListener
                     {
                         _selfUid = string.IsNullOrWhiteSpace(p.Value.Item2) ? _selfUid : p.Value.Item2;
                         _isServerAdmin = p.Value.Item3;
+                        _accessService.SetLastKnownServerAdmin(GetCurrentCharacterKey(), _isServerAdmin);
                     }
                 }
                 catch { }

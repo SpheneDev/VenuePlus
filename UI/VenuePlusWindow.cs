@@ -210,7 +210,7 @@ public sealed class VenuePlusWindow : Window, IDisposable
                     ImGui.TextUnformatted(infoCur.Value.world);
                     EnsureServerStatus();
                     var serverStatus = GetServerStatus();
-                    if (serverStatus != ServerStatus.Online && !_app.IsServerAdmin)
+                    if (serverStatus != ServerStatus.Online && !_app.IsServerAdminOrKnown)
                     {
                         var statusText = serverStatus switch
                         {

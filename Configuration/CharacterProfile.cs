@@ -7,4 +7,5 @@ public sealed class CharacterProfile
     public bool RememberStaffLogin { get; set; }
     public string? SavedStaffUsername { get; set; }
     public string? SavedStaffPasswordEnc { get; set; }
+    public bool LastKnownServerAdmin { get; set; }
 }

@@ -194,6 +194,25 @@ internal sealed class AccessService
         _pluginConfigService.Current.AutoLoginEnabled = enabled;
         _pluginConfigService.Save();
     }
+
+    public bool GetLastKnownServerAdmin(string currentCharacterKey)
+    {
+        if (string.IsNullOrWhiteSpace(currentCharacterKey)) return false;
+        return _pluginConfigService.Current.ProfilesByCharacter.TryGetValue(currentCharacterKey, out var prof) && prof.LastKnownServerAdmin;
+    }
+
+    public void SetLastKnownServerAdmin(string currentCharacterKey, bool isAdmin)
+    {
+        if (string.IsNullOrWhiteSpace(currentCharacterKey)) return;
+        if (!_pluginConfigService.Current.ProfilesByCharacter.TryGetValue(currentCharacterKey, out var prof))
+        {
+            prof = new Configuration.CharacterProfile();
+            _pluginConfigService.Current.ProfilesByCharacter[currentCharacterKey] = prof;
+        }
+        if (prof.LastKnownServerAdmin == isAdmin) return;
+        prof.LastKnownServerAdmin = isAdmin;
+        _pluginConfigService.Save();
+    }
     public sealed class AutoLoginInfo
     {
         public bool Enabled { get; init; }
