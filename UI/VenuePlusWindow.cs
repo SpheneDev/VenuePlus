@@ -204,19 +204,26 @@ public sealed class VenuePlusWindow : Window, IDisposable
                     ImGui.TextUnformatted("Homeworld:");
                     ImGui.SameLine();
                     ImGui.TextUnformatted(infoCur.Value.world);
-                    ImGui.PushItemWidth(-1f);
-                    ImGui.InputTextWithHint("##staff_pass", "Password", ref _staffPassInput, 64, ImGuiInputTextFlags.Password);
-                    var staffPassEnter = ImGui.IsItemFocused() && ImGui.IsKeyPressed(ImGuiKey.Enter);
-                    ImGui.PopItemWidth();
                     var autoEnabled = _app.AutoLoginEnabled;
                     if (ImGui.Checkbox("Enable Auto Login", ref autoEnabled))
                     {
                         _app.SetAutoLoginEnabledAsync(autoEnabled).GetAwaiter().GetResult();
                         if (autoEnabled) _app.SetRememberStaffLoginAsync(true).GetAwaiter().GetResult();
                     }
-                    if (staffPassEnter && !string.IsNullOrWhiteSpace(_staffPassInput))
+                    if (autoEnabled)
                     {
-                        StartStaffLoginWithPhases();
+                        ImGui.TextUnformatted("Auto Login active");
+                    }
+                    else
+                    {
+                        ImGui.PushItemWidth(-1f);
+                        ImGui.InputTextWithHint("##staff_pass", "Password", ref _staffPassInput, 64, ImGuiInputTextFlags.Password);
+                        var staffPassEnter = ImGui.IsItemFocused() && ImGui.IsKeyPressed(ImGuiKey.Enter);
+                        ImGui.PopItemWidth();
+                        if (staffPassEnter && !string.IsNullOrWhiteSpace(_staffPassInput))
+                        {
+                            StartStaffLoginWithPhases();
+                        }
                     }
                     ImGui.BeginDisabled(!_app.RemoteConnected);
                     if (ImGui.Button("Login", new Vector2(-1f, 0)))
