@@ -1023,10 +1023,15 @@ public sealed class VenuePlusWindow : Window, IDisposable
         if (_serverStatusLastCheck != System.DateTimeOffset.MinValue && _serverStatusLastCheck > now.AddSeconds(-5)) return;
         _serverStatusLastCheck = now;
         _serverStatusCheckInFlight = true;
+        _app.SetAutoLoginStatusCheckInFlight(true);
         System.Threading.Tasks.Task.Run(async () =>
         {
             try { await _app.ConnectRemoteAsync(); }
-            finally { _serverStatusCheckInFlight = false; }
+            finally
+            {
+                _serverStatusCheckInFlight = false;
+                _app.SetAutoLoginStatusCheckInFlight(_serverStatusCheckInFlight || _serverStatusHealthInFlight);
+            }
         });
     }
 
@@ -1042,9 +1047,14 @@ public sealed class VenuePlusWindow : Window, IDisposable
                 _serverStatusHealthOk = false;
                 _serverStatusMaintenanceActive = null;
                 _serverStatusHealthCheckedAt = now;
+                _app.SetAutoLoginServerOnline(false);
+                _app.SetAutoLoginStatusCheckInFlight(_serverStatusCheckInFlight || _serverStatusHealthInFlight);
             }
         }
         EnsureServerConnection();
+        _app.SetAutoLoginMaintenanceActive(_serverStatusMaintenanceActive);
+        _app.SetAutoLoginServerOnline(_serverStatusHealthOk);
+        _app.SetAutoLoginStatusCheckInFlight(_serverStatusCheckInFlight || _serverStatusHealthInFlight);
         if (_app.HasStaffSession && !_app.IsServerAdmin) return;
         if (_serverStatusHealthInFlight) return;
         if (_serverStatusHealthCheckedAt != System.DateTimeOffset.MinValue && _serverStatusHealthCheckedAt > now.AddSeconds(-5)) return;
@@ -1065,6 +1075,7 @@ public sealed class VenuePlusWindow : Window, IDisposable
         if (string.IsNullOrWhiteSpace(baseUrl)) return;
         if (_serverStatusHealthInFlight) return;
         _serverStatusHealthInFlight = true;
+        _app.SetAutoLoginStatusCheckInFlight(_serverStatusCheckInFlight || _serverStatusHealthInFlight);
         _serverStatusHealthStartedAt = System.DateTimeOffset.UtcNow;
         System.Threading.Tasks.Task.Run(async () =>
         {
@@ -1084,16 +1095,20 @@ public sealed class VenuePlusWindow : Window, IDisposable
                 _serverStatusHealthOk = ok;
                 _serverStatusMaintenanceActive = maintenance;
                 _serverStatusHealthCheckedAt = System.DateTimeOffset.UtcNow;
+                _app.SetAutoLoginServerOnline(ok);
+                _app.SetAutoLoginMaintenanceActive(maintenance);
             }
             catch
             {
                 _serverStatusHealthOk = false;
                 _serverStatusMaintenanceActive = null;
                 _serverStatusHealthCheckedAt = System.DateTimeOffset.UtcNow;
+                _app.SetAutoLoginServerOnline(false);
             }
             finally
             {
                 _serverStatusHealthInFlight = false;
+                _app.SetAutoLoginStatusCheckInFlight(_serverStatusCheckInFlight || _serverStatusHealthInFlight);
             }
         });
     }

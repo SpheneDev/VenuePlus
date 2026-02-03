@@ -50,6 +50,9 @@ public sealed class VenuePlusApp : IDisposable, IEventListener
     private string[]? _myCreatedClubs;
     private bool _accessLoading;
     private bool _autoLoginAttempted;
+    private bool _autoLoginSuppressedByStatusCheck;
+    private bool _autoLoginSuppressedByMaintenance;
+    private bool _autoLoginSuppressedByOffline;
     private readonly DjService _djService = new();
     private readonly ShiftService _shiftService = new();
     private readonly System.Threading.SemaphoreSlim _connectGate = new(1, 1);
@@ -114,7 +117,7 @@ public sealed class VenuePlusApp : IDisposable, IEventListener
                 {
                     await System.Threading.Tasks.Task.Delay(5000, ctMon);
                     if (ctMon.IsCancellationRequested) break;
-                    if (AutoLoginEnabled && RemoteConnected && !HasStaffSession)
+                    if (AutoLoginEnabled && RemoteConnected && !HasStaffSession && ShouldAttemptAutoLogin())
                     {
                         try { _log?.Debug($"[AutoLogin] monitor tick: enabled={AutoLoginEnabled} connected={RemoteConnected} hasSession={HasStaffSession} attempted={_autoLoginAttempted}"); } catch { }
                         await TryAutoLoginAsync();
@@ -413,6 +416,33 @@ public sealed class VenuePlusApp : IDisposable, IEventListener
                 return p.AutoLoginEnabled;
             return _pluginConfigService.Current.AutoLoginEnabled;
         }
+    }
+
+    public void SetAutoLoginStatusCheckInFlight(bool inFlight)
+    {
+        _autoLoginSuppressedByStatusCheck = inFlight;
+    }
+
+    public void SetAutoLoginMaintenanceActive(bool? active)
+    {
+        if (!active.HasValue) return;
+        _autoLoginSuppressedByMaintenance = active.Value;
+    }
+
+    public void SetAutoLoginServerOnline(bool? online)
+    {
+        if (!online.HasValue) return;
+        _autoLoginSuppressedByOffline = !online.Value;
+    }
+
+    public void MarkAutoLoginMaintenanceBlocked()
+    {
+        _autoLoginSuppressedByMaintenance = true;
+    }
+
+    private bool ShouldAttemptAutoLogin()
+    {
+        return !_autoLoginSuppressedByStatusCheck && !_autoLoginSuppressedByMaintenance && !_autoLoginSuppressedByOffline;
     }
 
     public bool ShowVipNameplateHook => _pluginConfigService.Current.ShowVipNameplateHook;
@@ -1821,6 +1851,7 @@ public sealed class VenuePlusApp : IDisposable, IEventListener
             if (_isDisposing || !_clientState.IsLoggedIn) { return; }
             await _autoLoginGate.WaitAsync();
             if (_autoLoginAttempted) { return; }
+            if (!ShouldAttemptAutoLogin()) { return; }
             _accessLoading = true;
             var keyAuto = GetCurrentCharacterKey();
             var info = _accessService.GetAutoLoginInfo(keyAuto);
@@ -1829,7 +1860,7 @@ public sealed class VenuePlusApp : IDisposable, IEventListener
                 SetClubId(info.PreferredClubId);
             }
             var connected = RemoteConnected || await ConnectRemoteAsync();
-            if (!connected) { AutoLoginResultEvt?.Invoke(false, false); var _np = GetNotificationPreferences(); if (_np.ShowLoginFailed) { try { _notifier?.ShowInfo("Staff login failed"); } catch { } } return; }
+            if (!connected) { AutoLoginResultEvt?.Invoke(false, false); return; }
             if (HasStaffSession) { AutoLoginResultEvt?.Invoke(IsOwnerCurrentClub, true); var _np = GetNotificationPreferences(); if (_np.ShowLoginSuccess) { try { _notifier?.ShowInfo("Logged in to staff session"); } catch { } } return; }
             var staffOk = false;
             var attempted = info.Enabled && info.Remembered && !string.IsNullOrWhiteSpace(info.SavedUsername) && !string.IsNullOrWhiteSpace(info.DecryptedPassword);
@@ -1850,7 +1881,10 @@ public sealed class VenuePlusApp : IDisposable, IEventListener
                 }
                 else
                 {
-                    if (_np5.ShowLoginFailed) { try { _notifier?.ShowInfo("Login failed"); } catch { } }
+                    var lastMsg = GetLastServerMessage();
+                    var maintenance = !string.IsNullOrWhiteSpace(lastMsg) && lastMsg.IndexOf("Maintenance mode active", System.StringComparison.OrdinalIgnoreCase) >= 0;
+                    if (maintenance) { MarkAutoLoginMaintenanceBlocked(); }
+                    if (_np5.ShowLoginFailed && !maintenance) { try { _notifier?.ShowInfo("Login failed"); } catch { } }
                 }
             }
             _autoLoginAttempted = staffOk;
