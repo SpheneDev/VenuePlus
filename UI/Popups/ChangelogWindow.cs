@@ -4,6 +4,8 @@ using System.Numerics;
 using System.Threading.Tasks;
 using Dalamud.Bindings.ImGui;
 using Dalamud.Interface.Windowing;
+using Dalamud.Interface.Textures.TextureWraps;
+using Dalamud.Plugin.Services;
 using VenuePlus.Plugin;
 using VenuePlus.Services;
 using VenuePlus.Helpers;
@@ -15,14 +17,18 @@ public sealed class ChangelogWindow : Window, System.IDisposable
     private readonly VenuePlusApp _app;
     private readonly ChangelogService _service;
     private readonly string _currentVersion;
+    private readonly ITextureProvider _textureProvider;
     private System.Collections.Generic.List<ChangelogEntry>? _entries;
     private Task? _fetchTask;
+    private IDalamudTextureWrap? _logoTex;
+    private bool _logoRequested;
 
-    public ChangelogWindow(VenuePlusApp app, ChangelogService service, string currentVersion) : base("Changelog")
+    public ChangelogWindow(VenuePlusApp app, ChangelogService service, string currentVersion, ITextureProvider textureProvider) : base("Changelog")
     {
         _app = app;
         _service = service;
         _currentVersion = currentVersion;
+        _textureProvider = textureProvider;
         Size = new Vector2(860f, 520f);
         SizeCondition = ImGuiCond.FirstUseEver;
         SizeConstraints = new WindowSizeConstraints
@@ -50,6 +56,20 @@ public sealed class ChangelogWindow : Window, System.IDisposable
         {
             ImGui.TextUnformatted("Loading changelog...");
             return;
+        }
+
+        EnsureLogoTexture();
+        if (_logoTex != null)
+        {
+            var available = ImGui.GetContentRegionAvail().X;
+            var logoSize = MathF.Min(128f, available);
+            if (logoSize > 0f)
+            {
+                var xImg = (available - logoSize) / 2f;
+                ImGui.SetCursorPosX(ImGui.GetCursorPosX() + xImg);
+                ImGui.Image(_logoTex.Handle, new Vector2(logoSize, logoSize));
+                ImGui.Spacing();
+            }
         }
 
         ImGui.BeginChild("chlog_scroll", new Vector2(0, ImGui.GetContentRegionAvail().Y), false);
@@ -160,5 +180,29 @@ public sealed class ChangelogWindow : Window, System.IDisposable
 
     public void Dispose()
     {
+        try { _logoTex?.Dispose(); } catch { }
+        _logoTex = null;
+    }
+
+    private void EnsureLogoTexture()
+    {
+        if (_logoTex != null || _logoRequested) return;
+        _logoRequested = true;
+        var base64 = VImages.GetDefaultVenueLogoBase64Raw();
+        if (string.IsNullOrWhiteSpace(base64)) return;
+        try
+        {
+            var bytes = Convert.FromBase64String(base64);
+            Task.Run(async () =>
+            {
+                try
+                {
+                    var tex = await _textureProvider.CreateFromImageAsync(bytes);
+                    _logoTex = tex;
+                }
+                catch { }
+            });
+        }
+        catch { }
     }
 }

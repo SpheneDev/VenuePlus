@@ -82,7 +82,7 @@ public sealed class Plugin : IDalamudPlugin
         _venuesListWindow = new VenuesListWindow(_app, _textureProvider);
         _currentVersion = typeof(Plugin).Assembly.GetName().Version?.ToString() ?? "0.0.0.0";
         _changelogService = new ChangelogService();
-        _changelogWindow = new ChangelogWindow(_app, _changelogService, _currentVersion);
+        _changelogWindow = new ChangelogWindow(_app, _changelogService, _currentVersion, _textureProvider);
         _updatePromptWindow = new UpdatePromptWindow(_app);
         _windowSystem.AddWindow(_window);
         _windowSystem.AddWindow(_settingsWindow);

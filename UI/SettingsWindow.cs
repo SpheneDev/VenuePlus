@@ -1,6 +1,7 @@
 using System;
 using System.Numerics;
 using System.Globalization;
+using System.Collections.Generic;
 using Dalamud.Bindings.ImGui;
 using Dalamud.Interface.Windowing;
 using VenuePlus.Plugin;
@@ -23,6 +24,14 @@ public sealed class SettingsWindow : Window, System.IDisposable
     private string _recoveryStatus = string.Empty;
     private string _deleteConfirmText = string.Empty;
     private bool _deleteConfirmChecked;
+    private bool _deleteOwnerWarningChecked;
+    private readonly Dictionary<string, VenuePlus.State.StaffUser[]> _ownerTransferUsersByClub = new(StringComparer.Ordinal);
+    private string _ownerTransferSelectedClub = string.Empty;
+    private string _ownerTransferSelectedUser = string.Empty;
+    private string _ownerTransferStatus = string.Empty;
+    private string _ownerTransferUserFilter = string.Empty;
+    private bool _ownerTransferLoading;
+    private string _ownerTransferLoadingClub = string.Empty;
     private string _deleteAccountStatus = string.Empty;
     private string _birthdayInput = string.Empty;
     private string _birthdayStatus = string.Empty;
@@ -211,38 +220,51 @@ public sealed class SettingsWindow : Window, System.IDisposable
         var staffJob = string.IsNullOrWhiteSpace(_app.CurrentStaffJob) ? "—" : _app.CurrentStaffJob;
         var uidDisplay = string.IsNullOrWhiteSpace(_app.CurrentStaffUid) ? "—" : _app.CurrentStaffUid;
 
-        ImGui.TextUnformatted("Account Information");
-        ImGui.Separator();
-        ImGui.Spacing();
-        ImGui.Columns(2, "acc-info", false);
-        ImGui.SetColumnWidth(0, 160f);
-        ImGui.TextUnformatted("Character");
-        ImGui.NextColumn();
-        ImGui.TextUnformatted(name);
-        ImGui.NextColumn();
-        ImGui.TextUnformatted("Home World");
-        ImGui.NextColumn();
-        ImGui.TextUnformatted(world);
-        ImGui.NextColumn();
-        ImGui.TextUnformatted("Suggested Username");
-        ImGui.NextColumn();
-        ImGui.TextUnformatted(suggested);
-        ImGui.NextColumn();
-        ImGui.TextUnformatted("User UID");
-        ImGui.NextColumn();
-        ImGui.TextUnformatted(uidDisplay);
-        ImGui.SameLine();
-        ImGui.PushFont(UiBuilder.IconFont);
-        ImGui.SetWindowFontScale(0.9f);
-        if (ImGui.Button(FontAwesomeIcon.Copy.ToIconString() + "##copy_uid_settings"))
+        var ownedVenues = _app.GetMyCreatedClubs() ?? Array.Empty<string>();
+        if (ownedVenues.Length == 0)
         {
-            if (!string.IsNullOrWhiteSpace(uidDisplay)) ImGui.SetClipboardText(uidDisplay);
+            _deleteOwnerWarningChecked = false;
+            _ownerTransferSelectedClub = string.Empty;
+            _ownerTransferSelectedUser = string.Empty;
         }
-        ImGui.SetWindowFontScale(1f);
-        ImGui.PopFont();
-        ImGui.Columns(1);
-        ImGui.Separator();
-        ImGui.Spacing();
+
+        var transparentHeader = new Vector4(0f, 0f, 0f, 0f);
+        ImGui.PushStyleColor(ImGuiCol.Header, transparentHeader);
+        ImGui.PushStyleColor(ImGuiCol.HeaderHovered, transparentHeader);
+        ImGui.PushStyleColor(ImGuiCol.HeaderActive, transparentHeader);
+
+        if (ImGui.CollapsingHeader("Account Information", ImGuiTreeNodeFlags.DefaultOpen))
+        {
+            ImGui.Spacing();
+            ImGui.Columns(2, "acc-info", false);
+            ImGui.SetColumnWidth(0, 160f);
+            ImGui.TextUnformatted("Character");
+            ImGui.NextColumn();
+            ImGui.TextUnformatted(name);
+            ImGui.NextColumn();
+            ImGui.TextUnformatted("Home World");
+            ImGui.NextColumn();
+            ImGui.TextUnformatted(world);
+            ImGui.NextColumn();
+            ImGui.TextUnformatted("Suggested Username");
+            ImGui.NextColumn();
+            ImGui.TextUnformatted(suggested);
+            ImGui.NextColumn();
+            ImGui.TextUnformatted("User UID");
+            ImGui.NextColumn();
+            ImGui.TextUnformatted(uidDisplay);
+            ImGui.SameLine();
+            ImGui.PushFont(UiBuilder.IconFont);
+            ImGui.SetWindowFontScale(0.9f);
+            if (ImGui.Button(FontAwesomeIcon.Copy.ToIconString() + "##copy_uid_settings"))
+            {
+                if (!string.IsNullOrWhiteSpace(uidDisplay)) ImGui.SetClipboardText(uidDisplay);
+            }
+            ImGui.SetWindowFontScale(1f);
+            ImGui.PopFont();
+            ImGui.Columns(1);
+            ImGui.Spacing();
+        }
         var currentBirthday = _app.CurrentStaffBirthday;
         if (!_birthdayDirty && _birthdaySnapshot != currentBirthday)
         {
@@ -266,214 +288,495 @@ public sealed class SettingsWindow : Window, System.IDisposable
                 _birthdayInput = string.Empty;
             }
         }
-        ImGui.TextDisabled("Profile");
-        ImGui.SameLine();
-        DrawHelpIcon("Set your birthday to show in staff lists.");
-        ImGui.Spacing();
-        ImGui.TextDisabled("Select day and month. Year is optional.");
-        ImGui.Spacing();
-        var monthNames = new[]
+        if (ImGui.CollapsingHeader("Profile", ImGuiTreeNodeFlags.None))
         {
-            "January", "February", "March", "April", "May", "June",
-            "July", "August", "September", "October", "November", "December"
-        };
-        var monthIndex = _birthdayMonth - 1;
-        if (monthIndex < 0) monthIndex = 0;
-        if (monthIndex > 11) monthIndex = 11;
-        ImGui.PushItemWidth(140f);
-        if (ImGui.Combo("##birthday_month", ref monthIndex, monthNames, monthNames.Length))
-        {
-            _birthdayMonth = monthIndex + 1;
-            _birthdayDirty = true;
-        }
-        ImGui.PopItemWidth();
-        ImGui.SameLine();
-        var yearForDays = 2000;
-        if (!string.IsNullOrWhiteSpace(_birthdayYearInput) && int.TryParse(_birthdayYearInput, out var parsedYear) && parsedYear >= 1 && parsedYear <= 9999)
-        {
-            yearForDays = parsedYear;
-        }
-        var maxDay = DateTime.DaysInMonth(yearForDays, _birthdayMonth);
-        if (_birthdayDay > maxDay) _birthdayDay = maxDay;
-        if (_birthdayDay < 1) _birthdayDay = 1;
-        var dayLabels = new string[maxDay];
-        for (int i = 0; i < maxDay; i++) dayLabels[i] = (i + 1).ToString(CultureInfo.InvariantCulture);
-        var dayIndex = _birthdayDay - 1;
-        ImGui.PushItemWidth(90f);
-        if (ImGui.Combo("##birthday_day", ref dayIndex, dayLabels, dayLabels.Length))
-        {
-            _birthdayDay = dayIndex + 1;
-            _birthdayDirty = true;
-        }
-        ImGui.PopItemWidth();
-        ImGui.SameLine();
-        ImGui.PushItemWidth(80f);
-        var yearText = _birthdayYearInput;
-        if (ImGui.InputTextWithHint("##birthday_year", "Year", ref yearText, 4))
-        {
-            _birthdayYearInput = yearText;
-            _birthdayDirty = true;
-        }
-        ImGui.PopItemWidth();
-        ImGui.SameLine();
-        if (ImGui.Button("Save Birthday"))
-        {
-            _birthdayStatus = "Submitting...";
-            System.Threading.Tasks.Task.Run(async () =>
+            ImGui.Spacing();
+            ImGui.TextDisabled("Set your birthday to show in staff lists.");
+            ImGui.Spacing();
+            ImGui.TextDisabled("Select day and month. Year is optional.");
+            ImGui.Spacing();
+            var monthNames = new[]
             {
-                System.DateTimeOffset? bday = null;
-                var yearTextLocal = _birthdayYearInput?.Trim() ?? string.Empty;
-                var yearValue = 2000;
-                if (!string.IsNullOrWhiteSpace(yearTextLocal))
+                "January", "February", "March", "April", "May", "June",
+                "July", "August", "September", "October", "November", "December"
+            };
+            var monthIndex = _birthdayMonth - 1;
+            if (monthIndex < 0) monthIndex = 0;
+            if (monthIndex > 11) monthIndex = 11;
+            ImGui.PushItemWidth(140f);
+            if (ImGui.Combo("##birthday_month", ref monthIndex, monthNames, monthNames.Length))
+            {
+                _birthdayMonth = monthIndex + 1;
+                _birthdayDirty = true;
+            }
+            ImGui.PopItemWidth();
+            ImGui.SameLine();
+            var yearForDays = 2000;
+            if (!string.IsNullOrWhiteSpace(_birthdayYearInput) && int.TryParse(_birthdayYearInput, out var parsedYear) && parsedYear >= 1 && parsedYear <= 9999)
+            {
+                yearForDays = parsedYear;
+            }
+            var maxDay = DateTime.DaysInMonth(yearForDays, _birthdayMonth);
+            if (_birthdayDay > maxDay) _birthdayDay = maxDay;
+            if (_birthdayDay < 1) _birthdayDay = 1;
+            var dayLabels = new string[maxDay];
+            for (int i = 0; i < maxDay; i++) dayLabels[i] = (i + 1).ToString(CultureInfo.InvariantCulture);
+            var dayIndex = _birthdayDay - 1;
+            ImGui.PushItemWidth(90f);
+            if (ImGui.Combo("##birthday_day", ref dayIndex, dayLabels, dayLabels.Length))
+            {
+                _birthdayDay = dayIndex + 1;
+                _birthdayDirty = true;
+            }
+            ImGui.PopItemWidth();
+            ImGui.SameLine();
+            ImGui.PushItemWidth(80f);
+            var yearText = _birthdayYearInput;
+            if (ImGui.InputTextWithHint("##birthday_year", "Year", ref yearText, 4))
+            {
+                _birthdayYearInput = yearText;
+                _birthdayDirty = true;
+            }
+            ImGui.PopItemWidth();
+            ImGui.SameLine();
+            if (ImGui.Button("Save Birthday"))
+            {
+                _birthdayStatus = "Submitting...";
+                System.Threading.Tasks.Task.Run(async () =>
                 {
-                    if (!int.TryParse(yearTextLocal, out yearValue) || yearValue < 1 || yearValue > 9999)
+                    System.DateTimeOffset? bday = null;
+                    var yearTextLocal = _birthdayYearInput?.Trim() ?? string.Empty;
+                    var yearValue = 2000;
+                    if (!string.IsNullOrWhiteSpace(yearTextLocal))
                     {
-                        _birthdayStatus = "Invalid year. Use 1 to 9999 or leave empty.";
+                        if (!int.TryParse(yearTextLocal, out yearValue) || yearValue < 1 || yearValue > 9999)
+                        {
+                            _birthdayStatus = "Invalid year. Use 1 to 9999 or leave empty.";
+                            return;
+                        }
+                    }
+                    try
+                    {
+                        var normalized = new DateTime(yearValue, _birthdayMonth, _birthdayDay, 0, 0, 0, DateTimeKind.Utc);
+                        bday = new System.DateTimeOffset(normalized, TimeSpan.Zero);
+                    }
+                    catch
+                    {
+                        _birthdayStatus = "Invalid date.";
                         return;
                     }
-                }
-                try
-                {
-                    var normalized = new DateTime(yearValue, _birthdayMonth, _birthdayDay, 0, 0, 0, DateTimeKind.Utc);
-                    bday = new System.DateTimeOffset(normalized, TimeSpan.Zero);
-                }
-                catch
-                {
-                    _birthdayStatus = "Invalid date.";
-                    return;
-                }
-                var ok = await _app.SetSelfBirthdayAsync(bday);
-                _birthdayStatus = ok ? "Birthday updated" : "Update failed";
-                if (ok)
-                {
-                    _birthdayDirty = false;
-                    _birthdaySnapshot = bday;
-                    if (bday.HasValue)
+                    var ok = await _app.SetSelfBirthdayAsync(bday);
+                    _birthdayStatus = ok ? "Birthday updated" : "Update failed";
+                    if (ok)
                     {
-                        var bdayVal = bday.Value.UtcDateTime;
-                        _birthdayMonth = bdayVal.Month;
-                        _birthdayDay = bdayVal.Day;
-                        _birthdayYearInput = bdayVal.Year == 2000 ? string.Empty : bdayVal.Year.ToString(CultureInfo.InvariantCulture);
-                        _birthdayInput = bdayVal.Year == 2000
-                            ? bdayVal.ToString("MM-dd", CultureInfo.InvariantCulture)
-                            : bdayVal.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+                        _birthdayDirty = false;
+                        _birthdaySnapshot = bday;
+                        if (bday.HasValue)
+                        {
+                            var bdayVal = bday.Value.UtcDateTime;
+                            _birthdayMonth = bdayVal.Month;
+                            _birthdayDay = bdayVal.Day;
+                            _birthdayYearInput = bdayVal.Year == 2000 ? string.Empty : bdayVal.Year.ToString(CultureInfo.InvariantCulture);
+                            _birthdayInput = bdayVal.Year == 2000
+                                ? bdayVal.ToString("MM-dd", CultureInfo.InvariantCulture)
+                                : bdayVal.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+                        }
+                        else
+                        {
+                            _birthdayInput = string.Empty;
+                        }
+                    }
+                });
+            }
+            ImGui.SameLine();
+            if (ImGui.Button("Clear Birthday"))
+            {
+                _birthdayStatus = "Submitting...";
+                System.Threading.Tasks.Task.Run(async () =>
+                {
+                    var ok = await _app.SetSelfBirthdayAsync(null);
+                    _birthdayStatus = ok ? "Birthday cleared" : "Update failed";
+                    if (ok)
+                    {
+                        _birthdayDirty = false;
+                        _birthdaySnapshot = null;
+                        _birthdayInput = string.Empty;
+                        var now = DateTime.UtcNow;
+                        _birthdayMonth = now.Month;
+                        _birthdayDay = now.Day;
+                        _birthdayYearInput = string.Empty;
+                    }
+                });
+            }
+            if (!string.IsNullOrEmpty(_birthdayStatus)) ImGui.TextUnformatted(_birthdayStatus);
+            ImGui.Spacing();
+        }
+
+        if (ImGui.CollapsingHeader("Security", ImGuiTreeNodeFlags.None))
+        {
+            ImGui.Spacing();
+            ImGui.TextDisabled("Change your login password.");
+            ImGui.SameLine();
+            DrawHelpIcon("Change your login password.");
+            ImGui.Spacing();
+            ImGui.PushItemWidth(150f);
+            ImGui.InputTextWithHint("##change_login_password_settings", "Change Login Password", ref _staffNewPassword, 64, ImGuiInputTextFlags.Password);
+            ImGui.PopItemWidth();
+            ImGui.SameLine();
+            if (ImGui.Button("Save Password"))
+            {
+                _staffPassStatus = "Submitting...";
+                var text = _staffNewPassword;
+                System.Threading.Tasks.Task.Run(async () =>
+                {
+                    var ok = await _app.StaffSetOwnPasswordAsync(text);
+                    _staffPassStatus = ok ? "Password updated" : "Update failed";
+                    if (ok) _staffNewPassword = string.Empty;
+                });
+            }
+            ImGui.SameLine();
+            DrawHelpIcon("Updates the password used to login.");
+            if (!string.IsNullOrEmpty(_staffPassStatus)) ImGui.TextUnformatted(_staffPassStatus);
+            ImGui.Spacing();
+        }
+
+        if (ImGui.CollapsingHeader("Recovery", ImGuiTreeNodeFlags.None))
+        {
+            ImGui.Spacing();
+            ImGui.TextDisabled("Generate a recovery code to reset your password.");
+            ImGui.SameLine();
+            DrawHelpIcon("Generate a recovery code to reset your password.");
+            ImGui.Spacing();
+            if (ImGui.Button("Generate Recovery Code"))
+            {
+                _recoveryStatus = "Submitting...";
+                System.Threading.Tasks.Task.Run(async () =>
+                {
+                    var code = await _app.GenerateRecoveryCodeAsync();
+                    if (!string.IsNullOrWhiteSpace(code))
+                    {
+                        _recoveryCode = code;
+                        _recoveryStatus = "Recovery code generated";
                     }
                     else
                     {
-                        _birthdayInput = string.Empty;
+                        _recoveryStatus = "Generation failed";
+                    }
+                });
+            }
+            ImGui.SameLine();
+            DrawHelpIcon("Use the code in Password Recovery to reset your password.");
+            if (!string.IsNullOrEmpty(_recoveryStatus)) ImGui.TextUnformatted(_recoveryStatus);
+            if (!string.IsNullOrWhiteSpace(_recoveryCode))
+            {
+                ImGui.TextUnformatted(_recoveryCode);
+                ImGui.SameLine();
+                ImGui.PushFont(UiBuilder.IconFont);
+                ImGui.SetWindowFontScale(0.9f);
+                if (ImGui.Button(FontAwesomeIcon.Copy.ToIconString() + "##copy_recovery_code"))
+                {
+                    ImGui.SetClipboardText(_recoveryCode);
+                }
+                ImGui.SetWindowFontScale(1f);
+                ImGui.PopFont();
+            }
+            ImGui.Spacing();
+        }
+
+        if (ImGui.CollapsingHeader("Owner Transfer", ImGuiTreeNodeFlags.None))
+        {
+            ImGui.Spacing();
+            ImGui.TextDisabled("Transfer venue ownership before deleting your account.");
+            ImGui.SameLine();
+            DrawHelpIcon("Transfer venue ownership before deleting your account.");
+            ImGui.Spacing();
+            if (ownedVenues.Length == 0)
+            {
+                ImGui.TextUnformatted("You do not own any venues.");
+            }
+            else
+            {
+                ImGui.TextWrapped("Select a venue and choose a new owner.");
+                ImGui.Spacing();
+                for (int i = 0; i < ownedVenues.Length; i++)
+                {
+                    var clubId = ownedVenues[i];
+                    var hasUsers = _ownerTransferUsersByClub.TryGetValue(clubId, out var usersForClub);
+                    var eligibleCount = hasUsers ? GetEligibleOwnerTransferUsersCount(usersForClub ?? Array.Empty<VenuePlus.State.StaffUser>()) : 0;
+                    var canPick = !_ownerTransferLoading && (!hasUsers || eligibleCount > 0);
+                    var label = string.Equals(clubId, _ownerTransferSelectedClub, StringComparison.Ordinal) ? (clubId + " (selected)") : clubId;
+                    ImGui.BeginDisabled(!canPick);
+                    if (ImGui.Button(label))
+                    {
+                        _ownerTransferSelectedClub = clubId;
+                        _ownerTransferSelectedUser = string.Empty;
+                        _ownerTransferUserFilter = string.Empty;
+                        if (!hasUsers) RequestOwnerTransferUsers(clubId);
+                    }
+                    ImGui.EndDisabled();
+                    if (hasUsers && eligibleCount == 0)
+                    {
+                        ImGui.SameLine();
+                        ImGui.TextDisabled("No other staff members");
                     }
                 }
-            });
-        }
-        ImGui.SameLine();
-        if (ImGui.Button("Clear Birthday"))
-        {
-            _birthdayStatus = "Submitting...";
-            System.Threading.Tasks.Task.Run(async () =>
-            {
-                var ok = await _app.SetSelfBirthdayAsync(null);
-                _birthdayStatus = ok ? "Birthday cleared" : "Update failed";
-                if (ok)
+                if (_ownerTransferLoading)
                 {
-                    _birthdayDirty = false;
-                    _birthdaySnapshot = null;
-                    _birthdayInput = string.Empty;
-                    var now = DateTime.UtcNow;
-                    _birthdayMonth = now.Month;
-                    _birthdayDay = now.Day;
-                    _birthdayYearInput = string.Empty;
+                    var loadingLabel = string.IsNullOrWhiteSpace(_ownerTransferLoadingClub) ? "Loading staff list..." : $"Loading staff list for {_ownerTransferLoadingClub}...";
+                    ImGui.TextUnformatted(loadingLabel);
                 }
-            });
-        }
-        if (!string.IsNullOrEmpty(_birthdayStatus)) ImGui.TextUnformatted(_birthdayStatus);
-        ImGui.Spacing();
-        ImGui.TextDisabled("Security");
-        ImGui.SameLine();
-        DrawHelpIcon("Change your login password.");
-        ImGui.Spacing();
-
-        ImGui.PushItemWidth(150f);
-        ImGui.InputTextWithHint("##change_login_password_settings", "Change Login Password", ref _staffNewPassword, 64, ImGuiInputTextFlags.Password);
-        ImGui.PopItemWidth();
-        ImGui.SameLine();
-        if (ImGui.Button("Save Password"))
-        {
-            _staffPassStatus = "Submitting...";
-            var text = _staffNewPassword;
-            System.Threading.Tasks.Task.Run(async () =>
-            {
-                var ok = await _app.StaffSetOwnPasswordAsync(text);
-                _staffPassStatus = ok ? "Password updated" : "Update failed";
-                if (ok) _staffNewPassword = string.Empty;
-            });
-        }
-        ImGui.SameLine();
-        DrawHelpIcon("Updates the password used to login.");
-        if (!string.IsNullOrEmpty(_staffPassStatus)) ImGui.TextUnformatted(_staffPassStatus);
-        ImGui.Spacing();
-        ImGui.TextDisabled("Recovery");
-        ImGui.SameLine();
-        DrawHelpIcon("Generate a recovery code to reset your password.");
-        ImGui.Spacing();
-        if (ImGui.Button("Generate Recovery Code"))
-        {
-            _recoveryStatus = "Submitting...";
-            System.Threading.Tasks.Task.Run(async () =>
-            {
-                var code = await _app.GenerateRecoveryCodeAsync();
-                if (!string.IsNullOrWhiteSpace(code))
+                if (!string.IsNullOrWhiteSpace(_ownerTransferSelectedClub) && _ownerTransferUsersByClub.TryGetValue(_ownerTransferSelectedClub, out var selectedUsers))
                 {
-                    _recoveryCode = code;
-                    _recoveryStatus = "Recovery code generated";
+                    var eligibleUsers = GetEligibleOwnerTransferUsers(selectedUsers ?? Array.Empty<VenuePlus.State.StaffUser>(), _ownerTransferUserFilter);
+                    ImGui.Spacing();
+                    ImGui.TextUnformatted($"Venue: {_ownerTransferSelectedClub}");
+                    ImGui.PushItemWidth(200f);
+                    ImGui.InputTextWithHint("##owner_transfer_filter", "Search by username", ref _ownerTransferUserFilter, 128);
+                    ImGui.PopItemWidth();
+                    if (eligibleUsers.Length == 0)
+                    {
+                        ImGui.TextDisabled("No eligible users found.");
+                    }
+                    else
+                    {
+                        for (int i = 0; i < eligibleUsers.Length; i++)
+                        {
+                            var uname = eligibleUsers[i].Username ?? string.Empty;
+                            var selected = string.Equals(uname, _ownerTransferSelectedUser, StringComparison.Ordinal);
+                            if (ImGui.Selectable(uname, selected))
+                            {
+                                _ownerTransferSelectedUser = uname;
+                                TriggerOwnerTransfer(_ownerTransferSelectedClub, uname);
+                            }
+                        }
+                    }
                 }
-                else
-                {
-                    _recoveryStatus = "Generation failed";
-                }
-            });
-        }
-        ImGui.SameLine();
-        DrawHelpIcon("Use the code in Password Recovery to reset your password.");
-        if (!string.IsNullOrEmpty(_recoveryStatus)) ImGui.TextUnformatted(_recoveryStatus);
-        if (!string.IsNullOrWhiteSpace(_recoveryCode))
-        {
-            ImGui.TextUnformatted(_recoveryCode);
-            ImGui.SameLine();
-            ImGui.PushFont(UiBuilder.IconFont);
-            ImGui.SetWindowFontScale(0.9f);
-            if (ImGui.Button(FontAwesomeIcon.Copy.ToIconString() + "##copy_recovery_code"))
-            {
-                ImGui.SetClipboardText(_recoveryCode);
+                if (!string.IsNullOrEmpty(_ownerTransferStatus)) ImGui.TextUnformatted(_ownerTransferStatus);
             }
-            ImGui.SetWindowFontScale(1f);
-            ImGui.PopFont();
+            ImGui.Spacing();
         }
-        ImGui.Spacing();
-        ImGui.TextDisabled("Account Removal");
-        ImGui.SameLine();
-        DrawHelpIcon("Permanently deletes your account and logs you out.");
-        ImGui.Spacing();
-        ImGui.TextWrapped("This action cannot be undone.");
-        ImGui.InputTextWithHint("##delete_account_confirm", "Type DELETE to confirm", ref _deleteConfirmText, 16);
-        ImGui.Checkbox("I understand this cannot be undone", ref _deleteConfirmChecked);
-        var confirmReady = _deleteConfirmChecked && string.Equals(_deleteConfirmText, "DELETE", StringComparison.Ordinal);
-        ImGui.BeginDisabled(!confirmReady);
-        if (ImGui.Button("Delete Account"))
+
+        if (ImGui.CollapsingHeader("Account Removal", ImGuiTreeNodeFlags.None))
         {
-            _deleteAccountStatus = "Submitting...";
-            System.Threading.Tasks.Task.Run(async () =>
+            ImGui.Spacing();
+            ImGui.TextDisabled("Permanently deletes your account and logs you out.");
+            ImGui.SameLine();
+            DrawHelpIcon("Permanently deletes your account and logs you out.");
+            ImGui.Spacing();
+            ImGui.TextWrapped("This action cannot be undone.");
+            if (ownedVenues.Length > 0)
             {
-                var ok = await _app.DeleteCurrentUserAsync();
-                _deleteAccountStatus = ok ? "Account deleted" : (_app.GetLastServerMessage() ?? "Delete failed");
-                if (ok)
+                ImGui.Spacing();
+                var warnCol = VenuePlus.Helpers.ColorUtil.HexToVec4("#FF5E5B");
+                ImGui.TextColored(warnCol, "Owner Warning");
+                ImGui.TextWrapped("Deleting your account will also delete any venues you own.");
+                ImGui.TextWrapped("If any of these venues has other members, transfer ownership or delete the venue before you continue.");
+                ImGui.TextWrapped("Deletion proceeds without regard to other members.");
+                ImGui.Spacing();
+                ImGui.TextUnformatted($"Owned venues: {ownedVenues.Length}");
+                ImGui.TextWrapped("Use Owner Transfer above to pick a venue and assign a new owner.");
+                ImGui.Spacing();
+                ImGui.Checkbox("I have transferred ownership or accept deletion of my venues", ref _deleteOwnerWarningChecked);
+                ImGui.Spacing();
+            }
+            ImGui.InputTextWithHint("##delete_account_confirm", "Type DELETE to confirm", ref _deleteConfirmText, 16);
+            ImGui.Checkbox("I understand this cannot be undone", ref _deleteConfirmChecked);
+            var confirmReady = _deleteConfirmChecked && string.Equals(_deleteConfirmText, "DELETE", StringComparison.Ordinal) && (ownedVenues.Length == 0 || _deleteOwnerWarningChecked);
+            ImGui.BeginDisabled(!confirmReady);
+            if (ImGui.Button("Delete Account"))
+            {
+                _deleteAccountStatus = "Submitting...";
+                System.Threading.Tasks.Task.Run(async () =>
                 {
-                    _deleteConfirmText = string.Empty;
-                    _deleteConfirmChecked = false;
-                }
-            });
+                    var ok = await _app.DeleteCurrentUserAsync();
+                    _deleteAccountStatus = ok ? "Account deleted" : (_app.GetLastServerMessage() ?? "Delete failed");
+                    if (ok)
+                    {
+                        _deleteConfirmText = string.Empty;
+                        _deleteConfirmChecked = false;
+                        _deleteOwnerWarningChecked = false;
+                    }
+                });
+            }
+            ImGui.EndDisabled();
+            if (!string.IsNullOrEmpty(_deleteAccountStatus)) ImGui.TextUnformatted(_deleteAccountStatus);
+            ImGui.Spacing();
         }
-        ImGui.EndDisabled();
-        if (!string.IsNullOrEmpty(_deleteAccountStatus)) ImGui.TextUnformatted(_deleteAccountStatus);
+
+        ImGui.PopStyleColor(3);
+    }
+
+    private void RequestOwnerTransferUsers(string clubId)
+    {
+        if (string.IsNullOrWhiteSpace(clubId)) return;
+        if (_ownerTransferLoading) return;
+        _ownerTransferLoading = true;
+        _ownerTransferLoadingClub = clubId;
+        _ownerTransferStatus = "Loading staff list...";
+        System.Threading.Tasks.Task.Run(async () =>
+        {
+            var previousClub = _app.CurrentClubId;
+            if (!string.Equals(previousClub, clubId, StringComparison.Ordinal))
+            {
+                _app.SetClubId(clubId);
+            }
+            await WaitForClubAsync(clubId);
+            var users = await _app.FetchStaffUsersDetailedAsync();
+            _ownerTransferUsersByClub[clubId] = users ?? Array.Empty<VenuePlus.State.StaffUser>();
+            if (!string.Equals(previousClub, clubId, StringComparison.Ordinal) && !string.IsNullOrWhiteSpace(previousClub))
+            {
+                _app.SetClubId(previousClub);
+            }
+            _ownerTransferLoading = false;
+            _ownerTransferLoadingClub = string.Empty;
+            _ownerTransferStatus = users == null ? "No staff data available" : $"Loaded {users.Length} users";
+        });
+    }
+
+    private void TriggerOwnerTransfer(string clubId, string username)
+    {
+        if (string.IsNullOrWhiteSpace(clubId) || string.IsNullOrWhiteSpace(username)) return;
+        if (_ownerTransferLoading) return;
+        _ownerTransferLoading = true;
+        _ownerTransferStatus = "Transferring owner...";
+        System.Threading.Tasks.Task.Run(async () =>
+        {
+            var previousClub = _app.CurrentClubId;
+            if (!string.Equals(previousClub, clubId, StringComparison.Ordinal))
+            {
+                _app.SetClubId(clubId);
+            }
+            await WaitForClubAsync(clubId);
+            if (!_ownerTransferUsersByClub.TryGetValue(clubId, out var users)) users = Array.Empty<VenuePlus.State.StaffUser>();
+            var target = FindStaffUser(users, username);
+            var selfName = _app.CurrentStaffUsername;
+            var selfUser = FindStaffUser(users, selfName);
+            if (target == null)
+            {
+                _ownerTransferStatus = "User not found";
+                _ownerTransferLoading = false;
+                if (!string.Equals(previousClub, clubId, StringComparison.Ordinal) && !string.IsNullOrWhiteSpace(previousClub)) _app.SetClubId(previousClub);
+                return;
+            }
+            var targetJobs = AddOwnerJob(BuildJobsFromUser(target));
+            var okTarget = await _app.UpdateStaffUserJobsAsync(target.Username, targetJobs);
+            if (!okTarget)
+            {
+                _ownerTransferStatus = _app.GetLastServerMessage() ?? "Owner transfer failed";
+                _ownerTransferLoading = false;
+                if (!string.Equals(previousClub, clubId, StringComparison.Ordinal) && !string.IsNullOrWhiteSpace(previousClub)) _app.SetClubId(previousClub);
+                return;
+            }
+            if (selfUser != null)
+            {
+                var selfJobs = RemoveOwnerJob(BuildJobsFromUser(selfUser));
+                var okSelf = await _app.UpdateStaffUserJobsAsync(selfUser.Username, selfJobs);
+                _ownerTransferStatus = okSelf ? "Owner transferred" : (_app.GetLastServerMessage() ?? "Owner transferred, self role not updated");
+            }
+            else
+            {
+                _ownerTransferStatus = "Owner transferred";
+            }
+            _ownerTransferLoading = false;
+            if (!string.Equals(previousClub, clubId, StringComparison.Ordinal) && !string.IsNullOrWhiteSpace(previousClub)) _app.SetClubId(previousClub);
+        });
+    }
+
+    private async System.Threading.Tasks.Task WaitForClubAsync(string clubId)
+    {
+        var start = System.DateTime.UtcNow;
+        while ((System.DateTime.UtcNow - start).TotalSeconds < 5)
+        {
+            if (string.Equals(_app.CurrentClubId, clubId, StringComparison.Ordinal) && !_app.AccessLoading) return;
+            await System.Threading.Tasks.Task.Delay(100);
+        }
+    }
+
+    private int GetEligibleOwnerTransferUsersCount(VenuePlus.State.StaffUser[] users)
+    {
+        var selfName = _app.CurrentStaffUsername;
+        var count = 0;
+        for (int i = 0; i < users.Length; i++)
+        {
+            var u = users[i];
+            if (u == null) continue;
+            var uname = u.Username ?? string.Empty;
+            if (string.IsNullOrWhiteSpace(uname)) continue;
+            if (u.IsManual) continue;
+            if (string.Equals(uname, selfName, StringComparison.Ordinal)) continue;
+            count++;
+        }
+        return count;
+    }
+
+    private VenuePlus.State.StaffUser[] GetEligibleOwnerTransferUsers(VenuePlus.State.StaffUser[] users, string filter)
+    {
+        var selfName = _app.CurrentStaffUsername;
+        var list = new List<VenuePlus.State.StaffUser>();
+        var f = filter?.Trim() ?? string.Empty;
+        for (int i = 0; i < users.Length; i++)
+        {
+            var u = users[i];
+            if (u == null) continue;
+            var uname = u.Username ?? string.Empty;
+            if (string.IsNullOrWhiteSpace(uname)) continue;
+            if (u.IsManual) continue;
+            if (string.Equals(uname, selfName, StringComparison.Ordinal)) continue;
+            if (!string.IsNullOrWhiteSpace(f) && uname.IndexOf(f, StringComparison.OrdinalIgnoreCase) < 0) continue;
+            list.Add(u);
+        }
+        return list.ToArray();
+    }
+
+    private static VenuePlus.State.StaffUser? FindStaffUser(VenuePlus.State.StaffUser[] users, string username)
+    {
+        if (users == null || string.IsNullOrWhiteSpace(username)) return null;
+        for (int i = 0; i < users.Length; i++)
+        {
+            var u = users[i];
+            if (u == null) continue;
+            if (string.Equals(u.Username, username, StringComparison.Ordinal)) return u;
+        }
+        return null;
+    }
+
+    private static string[] BuildJobsFromUser(VenuePlus.State.StaffUser user)
+    {
+        if (user == null) return new[] { "Unassigned" };
+        var jobs = user.Jobs ?? Array.Empty<string>();
+        if (jobs.Length > 0) return jobs;
+        if (!string.IsNullOrWhiteSpace(user.Job)) return new[] { user.Job };
+        return new[] { "Unassigned" };
+    }
+
+    private static string[] AddOwnerJob(string[] jobs)
+    {
+        var set = new HashSet<string>(StringComparer.Ordinal);
+        for (int i = 0; i < jobs.Length; i++)
+        {
+            var j = jobs[i];
+            if (!string.IsNullOrWhiteSpace(j)) set.Add(j);
+        }
+        set.Add("Owner");
+        if (set.Count == 0) set.Add("Owner");
+        var result = new string[set.Count];
+        set.CopyTo(result);
+        return result;
+    }
+
+    private static string[] RemoveOwnerJob(string[] jobs)
+    {
+        var set = new HashSet<string>(StringComparer.Ordinal);
+        for (int i = 0; i < jobs.Length; i++)
+        {
+            var j = jobs[i];
+            if (string.Equals(j, "Owner", StringComparison.Ordinal)) continue;
+            if (!string.IsNullOrWhiteSpace(j)) set.Add(j);
+        }
+        if (set.Count == 0) set.Add("Unassigned");
+        var result = new string[set.Count];
+        set.CopyTo(result);
+        return result;
     }
 
     private void DrawSettingsLoginBehavior()
