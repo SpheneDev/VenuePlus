@@ -49,6 +49,8 @@ public sealed class VenuePlusWindow : Window, IDisposable
     private string _birthdayFilter = string.Empty;
     private string _birthdayStatus = string.Empty;
     private System.DateTimeOffset _birthdayLastRefresh;
+    private System.DateTimeOffset _serverStatusLastCheck;
+    private bool _serverStatusCheckInFlight;
     private VenuePlus.State.StaffUser[] _birthdayUsers = Array.Empty<VenuePlus.State.StaffUser>();
     private string? _birthdayClubId;
     private int _birthdayPageIndex;
@@ -364,16 +366,27 @@ public sealed class VenuePlusWindow : Window, IDisposable
         var btnH = ImGui.GetFrameHeight();
         var spacingY = style.ItemSpacing.Y;
         var textH = ImGui.GetTextLineHeightWithSpacing();
-        var bottomH = textH + spacingY + btnH;
+        var bottomH = textH * 3f + spacingY + btnH;
         var offsetY = MathF.Max(0f, ImGui.GetContentRegionAvail().Y - bottomH);
         ImGui.SetCursorPosY(ImGui.GetCursorPosY() + offsetY);
+        EnsureServerConnection();
         ImGui.TextUnformatted("Server Status:");
         ImGui.SameLine();
-        var statusTextL = _app.RemoteConnected ? "Online" : "Offline";
-        var statusColorL = _app.RemoteConnected ? new System.Numerics.Vector4(0.2f, 0.85f, 0.2f, 1f) : new System.Numerics.Vector4(0.9f, 0.25f, 0.25f, 1f);
+        var statusTextL = _app.RemoteConnected ? "Online" : (_serverStatusCheckInFlight ? "Checking..." : "Offline");
+        var statusColorL = _app.RemoteConnected
+            ? new System.Numerics.Vector4(0.2f, 0.85f, 0.2f, 1f)
+            : (_serverStatusCheckInFlight ? new System.Numerics.Vector4(0.95f, 0.75f, 0.2f, 1f) : new System.Numerics.Vector4(0.9f, 0.25f, 0.25f, 1f));
         ImGui.PushStyleColor(ImGuiCol.Text, statusColorL);
         ImGui.TextUnformatted(statusTextL);
         ImGui.PopStyleColor();
+        var serverTimeText = System.DateTimeOffset.UtcNow.ToString("HH:mm");
+        var systemTimeText = System.DateTimeOffset.Now.ToString("HH:mm");
+        ImGui.TextUnformatted("Server Time:");
+        ImGui.SameLine();
+        ImGui.TextUnformatted(serverTimeText);
+        ImGui.TextUnformatted("Your Local Time:");
+        ImGui.SameLine();
+        ImGui.TextUnformatted(systemTimeText);
         ImGui.Spacing();
         var availX = ImGui.GetContentRegionAvail().X;
         var spacingX = style.ItemSpacing.X;
@@ -948,6 +961,21 @@ public sealed class VenuePlusWindow : Window, IDisposable
         _birthdayStatus = string.Empty;
         _settingsPanel.ResetStatusMessages();
         _jobsPanel.ResetStatusMessages();
+    }
+
+    private void EnsureServerConnection()
+    {
+        if (_app.RemoteConnected) return;
+        if (_serverStatusCheckInFlight) return;
+        var now = System.DateTimeOffset.UtcNow;
+        if (_serverStatusLastCheck != System.DateTimeOffset.MinValue && _serverStatusLastCheck > now.AddSeconds(-5)) return;
+        _serverStatusLastCheck = now;
+        _serverStatusCheckInFlight = true;
+        System.Threading.Tasks.Task.Run(async () =>
+        {
+            try { await _app.ConnectRemoteAsync(); }
+            finally { _serverStatusCheckInFlight = false; }
+        });
     }
 
     
