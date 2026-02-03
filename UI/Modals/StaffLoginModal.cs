@@ -53,20 +53,21 @@ public sealed class StaffLoginModal
             ImGui.BeginDisabled(!app.RemoteConnected || !info.HasValue);
             if (ImGui.Button("Login"))
             {
-                if (_rememberStaff)
-                {
-                    app.SetRememberStaffLoginAsync(true).GetAwaiter().GetResult();
-                }
                 _status = "Authenticating...";
+                var pass = _staffPassInput;
                 System.Threading.Tasks.Task.Run(async () =>
                 {
-                    var ok = await app.StaffLoginAsync(string.Empty, _staffPassInput);
+                    var ok = await app.StaffLoginAsync(string.Empty, pass);
                     if (ok)
                     {
+                        if (_rememberStaff)
+                        {
+                            await app.RememberStaffLoginWithPasswordAsync(pass);
+                        }
                         if (_pendingAutoLoginEnable)
                         {
                             await app.SetAutoLoginEnabledAsync(true);
-                            await app.SetRememberStaffLoginAsync(true);
+                            await app.RememberStaffLoginWithPasswordAsync(pass);
                             _pendingAutoLoginEnable = false;
                         }
                         if (app.AccessLoading)

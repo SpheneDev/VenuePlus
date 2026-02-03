@@ -1035,7 +1035,7 @@ public sealed class VenuePlusWindow : Window, IDisposable
             if (_pendingAutoLoginEnable)
             {
                 await _app.SetAutoLoginEnabledAsync(true);
-                await _app.SetRememberStaffLoginAsync(true);
+                await _app.RememberStaffLoginWithPasswordAsync(pass);
                 _pendingAutoLoginEnable = false;
             }
             if (_app.AccessLoading)

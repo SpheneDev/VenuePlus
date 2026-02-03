@@ -1848,6 +1848,16 @@ public sealed class VenuePlusApp : IDisposable, IEventListener
         return System.Threading.Tasks.Task.FromResult(true);
     }
 
+    public System.Threading.Tasks.Task<bool> RememberStaffLoginWithPasswordAsync(string password)
+    {
+        if (!_isPowerStaff || string.IsNullOrWhiteSpace(password)) return System.Threading.Tasks.Task.FromResult(false);
+        var username = !string.IsNullOrWhiteSpace(_staffUsername) ? _staffUsername : GetCurrentCharacterKey();
+        if (string.IsNullOrWhiteSpace(username)) return System.Threading.Tasks.Task.FromResult(false);
+        _accessService.PersistSavedStaffCredentials(GetCurrentCharacterKey(), username, password);
+        _accessService.SetRememberStaffLogin(GetCurrentCharacterKey(), true, _isPowerStaff);
+        return System.Threading.Tasks.Task.FromResult(true);
+    }
+
     public System.Threading.Tasks.Task<bool> SetAutoLoginEnabledAsync(bool enabled)
     {
         _accessService.SetAutoLoginEnabled(GetCurrentCharacterKey(), enabled);
