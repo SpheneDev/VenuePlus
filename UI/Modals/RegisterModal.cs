@@ -49,7 +49,15 @@ public sealed class RegisterModal
                 ImGui.TextUnformatted("Homeworld:");
                 ImGui.SameLine();
                 ImGui.TextUnformatted(world);
-                ImGui.BeginDisabled(_registrationComplete);
+                if (!info.HasValue)
+                {
+                    ImGui.Spacing();
+                    ImGui.TextUnformatted("No character detected.");
+                    ImGui.TextWrapped("Please log in with a character first.");
+                    ImGui.Spacing();
+                }
+                var canEditPassword = !_registrationComplete && info.HasValue;
+                ImGui.BeginDisabled(!canEditPassword);
                 ImGui.InputText("Password", ref _password, 64, ImGuiInputTextFlags.Password);
                 ImGui.EndDisabled();
                 var canRegister = info.HasValue && !string.IsNullOrWhiteSpace(_password) && app.RemoteConnected && !_registrationComplete;

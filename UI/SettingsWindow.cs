@@ -22,7 +22,6 @@ public sealed class SettingsWindow : Window, System.IDisposable
     private string _staffPassStatus = string.Empty;
     private string _recoveryCode = string.Empty;
     private string _recoveryStatus = string.Empty;
-    private string _deleteConfirmText = string.Empty;
     private bool _deleteConfirmChecked;
     private bool _deleteOwnerWarningChecked;
     private readonly Dictionary<string, VenuePlus.State.StaffUser[]> _ownerTransferUsersByClub = new(StringComparer.Ordinal);
@@ -55,6 +54,16 @@ public sealed class SettingsWindow : Window, System.IDisposable
         };
     }
 
+    public override void OnOpen()
+    {
+        ResetStatusMessages();
+    }
+
+    public override void OnClose()
+    {
+        ResetStatusMessages();
+    }
+
     public override void Draw()
     {
         var req = _app.ConsumeRequestedSettingsTab();
@@ -64,20 +73,24 @@ public sealed class SettingsWindow : Window, System.IDisposable
         {
             if (ImGui.BeginTabItem("Settings", ImGuiTabItemFlags.None))
             {
+                if (ImGui.IsItemActivated()) ResetStatusMessages();
                 if (ImGui.BeginTabBar("SettingsInnerTabs"))
                 {
                     if (ImGui.BeginTabItem("Login Behavior"))
                     {
+                        if (ImGui.IsItemActivated()) ResetStatusMessages();
                         DrawSettingsLoginBehavior();
                         ImGui.EndTabItem();
                     }
                     if (ImGui.BeginTabItem("Appearance"))
                     {
+                        if (ImGui.IsItemActivated()) ResetStatusMessages();
                         DrawSettingsAppearance();
                         ImGui.EndTabItem();
                     }
                     if (ImGui.BeginTabItem("Notifications"))
                     {
+                        if (ImGui.IsItemActivated()) ResetStatusMessages();
                         DrawSettingsNotifications();
                         ImGui.EndTabItem();
                     }
@@ -89,12 +102,14 @@ public sealed class SettingsWindow : Window, System.IDisposable
             var accFlags = _selectAccountOnOpen ? ImGuiTabItemFlags.SetSelected : ImGuiTabItemFlags.None;
             if (ImGui.BeginTabItem("Account Settings", accFlags))
             {
+                if (ImGui.IsItemActivated()) ResetStatusMessages();
                 DrawAccountSettings();
                 ImGui.EndTabItem();
             }
 
             if (ImGui.BeginTabItem("About"))
             {
+                if (ImGui.IsItemActivated()) ResetStatusMessages();
                 var ver = typeof(VenuePlus.Plugin.Plugin).Assembly.GetName().Version?.ToString() ?? "unknown";
                 var availX = ImGui.GetContentRegionAvail().X;
                 if (_aboutTex == null && !_aboutRequested)
@@ -201,6 +216,17 @@ public sealed class SettingsWindow : Window, System.IDisposable
             
             ImGui.EndTabBar();
         }
+    }
+
+    private void ResetStatusMessages()
+    {
+        _rememberStatus = string.Empty;
+        _autoStatus = string.Empty;
+        _staffPassStatus = string.Empty;
+        _recoveryStatus = string.Empty;
+        _ownerTransferStatus = string.Empty;
+        _deleteAccountStatus = string.Empty;
+        _birthdayStatus = string.Empty;
     }
 
     private void DrawAccountSettings()
@@ -579,10 +605,11 @@ public sealed class SettingsWindow : Window, System.IDisposable
                 ImGui.Checkbox("I have transferred ownership or accept deletion of my venues", ref _deleteOwnerWarningChecked);
                 ImGui.Spacing();
             }
-            ImGui.InputTextWithHint("##delete_account_confirm", "Type DELETE to confirm", ref _deleteConfirmText, 16);
             ImGui.Checkbox("I understand this cannot be undone", ref _deleteConfirmChecked);
-            var confirmReady = _deleteConfirmChecked && string.Equals(_deleteConfirmText, "DELETE", StringComparison.Ordinal) && (ownedVenues.Length == 0 || _deleteOwnerWarningChecked);
+            var confirmReady = _deleteConfirmChecked && (ownedVenues.Length == 0 || _deleteOwnerWarningChecked);
             ImGui.BeginDisabled(!confirmReady);
+            var ctrlPressed = ImGui.IsKeyDown(ImGuiKey.LeftCtrl) || ImGui.IsKeyDown(ImGuiKey.RightCtrl);
+            ImGui.BeginDisabled(!ctrlPressed);
             if (ImGui.Button("Delete Account"))
             {
                 _deleteAccountStatus = "Deleting account...";
@@ -592,11 +619,17 @@ public sealed class SettingsWindow : Window, System.IDisposable
                     _deleteAccountStatus = ok ? "Account deleted" : (_app.GetLastServerMessage() ?? "Delete failed");
                     if (ok)
                     {
-                        _deleteConfirmText = string.Empty;
                         _deleteConfirmChecked = false;
                         _deleteOwnerWarningChecked = false;
                     }
                 });
+            }
+            ImGui.EndDisabled();
+            if (ImGui.IsItemHovered(ImGuiHoveredFlags.AllowWhenDisabled))
+            {
+                ImGui.BeginTooltip();
+                ImGui.TextUnformatted(ctrlPressed ? "Permanently delete your account" : "Hold Ctrl to confirm");
+                ImGui.EndTooltip();
             }
             ImGui.EndDisabled();
             if (!string.IsNullOrEmpty(_deleteAccountStatus)) ImGui.TextUnformatted(_deleteAccountStatus);

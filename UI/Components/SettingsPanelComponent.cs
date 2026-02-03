@@ -25,6 +25,15 @@ public sealed class SettingsPanelComponent
     private string _joinPassword = string.Empty;
     private string _joinPasswordStatus = string.Empty;
 
+    public void ResetStatusMessages()
+    {
+        _staffPassStatus = string.Empty;
+        _dissolveStatus = string.Empty;
+        _logoUploadStatus = string.Empty;
+        _joinPasswordStatus = string.Empty;
+        _dissolveConfirm = false;
+    }
+
     public void Draw(VenuePlusApp app)
     {
         var canView = app.IsOwnerCurrentClub || (app.HasStaffSession && app.StaffCanManageVenueSettings);
@@ -211,6 +220,8 @@ public sealed class SettingsPanelComponent
         {
             ImGui.TextUnformatted("Confirm: This action cannot be undone.");
             ImGui.SameLine();
+            var ctrlPressed = ImGui.IsKeyDown(ImGuiKey.LeftCtrl) || ImGui.IsKeyDown(ImGuiKey.RightCtrl);
+            ImGui.BeginDisabled(!ctrlPressed);
             if (ImGui.Button("Confirm"))
             {
                 _dissolveStatus = "Submitting...";
@@ -221,7 +232,13 @@ public sealed class SettingsPanelComponent
                     _dissolveConfirm = false;
                 });
             }
-            if (ImGui.IsItemHovered(ImGuiHoveredFlags.AllowWhenDisabled)) { ImGui.BeginTooltip(); ImGui.TextUnformatted("Permanently delete this venue"); ImGui.EndTooltip(); }
+            ImGui.EndDisabled();
+            if (ImGui.IsItemHovered(ImGuiHoveredFlags.AllowWhenDisabled))
+            {
+                ImGui.BeginTooltip();
+                ImGui.TextUnformatted(ctrlPressed ? "Permanently delete this venue" : "Hold Ctrl to confirm");
+                ImGui.EndTooltip();
+            }
             ImGui.SameLine();
             if (ImGui.Button("Cancel"))
             {

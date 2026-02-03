@@ -50,6 +50,11 @@ public sealed class JobsPanelComponent
     private int _pageIndex;
     private string _pageFilter = string.Empty;
 
+    public void ResetStatusMessages()
+    {
+        _status = string.Empty;
+    }
+
     public void Draw(VenuePlusApp app)
     {
         if (!string.IsNullOrEmpty(_status)) ImGui.TextUnformatted(_status);

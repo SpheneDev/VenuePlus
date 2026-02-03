@@ -95,6 +95,7 @@ public sealed class VenuePlusWindow : Window, IDisposable
         _ = _app.TryAutoLoginAsync();
         _staffLastRefresh = System.DateTimeOffset.MinValue;
         _app.EnsureSelfRights();
+        ResetStatusMessages();
         if (!_app.HasStaffSession)
         {
             _showStaffForm = true;
@@ -107,7 +108,7 @@ public sealed class VenuePlusWindow : Window, IDisposable
 
     public override void OnClose()
     {
-        
+        ResetStatusMessages();
     }
 
     public override void Draw()
@@ -150,16 +151,22 @@ public sealed class VenuePlusWindow : Window, IDisposable
             if (_showStaffForm)
             {
                 var bw2 = ImGui.CalcTextSize("Back").X + style.FramePadding.X * 2f;
-                if (_currentCharExists)
+                var infoCur = _app.GetCurrentCharacter();
+                if (!infoCur.HasValue)
+                {
+                    ImGui.TextUnformatted("No character detected.");
+                    ImGui.TextWrapped("Please log in with a character first.");
+                    ImGui.Spacing();
+                }
+                else if (_currentCharExists)
                 {
                     ImGui.Spacing();
-                    var infoCur = _app.GetCurrentCharacter();
                     ImGui.TextUnformatted("Character:");
                     ImGui.SameLine();
-                    ImGui.TextUnformatted(infoCur.HasValue ? infoCur.Value.name : "--");
+                    ImGui.TextUnformatted(infoCur.Value.name);
                     ImGui.TextUnformatted("Homeworld:");
                     ImGui.SameLine();
-                    ImGui.TextUnformatted(infoCur.HasValue ? infoCur.Value.world : "--");
+                    ImGui.TextUnformatted(infoCur.Value.world);
                     ImGui.PushItemWidth(-1f);
                     ImGui.InputTextWithHint("##staff_pass", "Password", ref _staffPassInput, 64, ImGuiInputTextFlags.Password);
                     var staffPassEnter = ImGui.IsItemFocused() && ImGui.IsKeyPressed(ImGuiKey.Enter);
@@ -561,6 +568,7 @@ public sealed class VenuePlusWindow : Window, IDisposable
             {
             if (ImGui.BeginTabItem("VIPs"))
             {
+                if (ImGui.IsItemActivated()) ResetStatusMessages();
                 ImGui.BeginChild("VipTabContent", new Vector2(0, ImGui.GetContentRegionAvail().Y), false);
                 _djList.CloseAddForm();
                 _staffList.CloseInviteInline();
@@ -611,6 +619,7 @@ public sealed class VenuePlusWindow : Window, IDisposable
             }
             if (showShiftTab && ImGui.BeginTabItem("Schedule"))
             {
+                if (ImGui.IsItemActivated()) ResetStatusMessages();
                 ImGui.BeginChild("ShiftsTabContent", new Vector2(0, ImGui.GetContentRegionAvail().Y), false);
                 _vipTable.CloseAddForm();
                 _staffList.CloseInviteInline();
@@ -623,6 +632,7 @@ public sealed class VenuePlusWindow : Window, IDisposable
             {
                 if (ImGui.BeginTabItem("Staff"))
                 {
+                    if (ImGui.IsItemActivated()) ResetStatusMessages();
                     ImGui.BeginChild("StaffTabContent", new Vector2(0, ImGui.GetContentRegionAvail().Y), false);
                     _vipTable.CloseAddForm();
                     _djList.CloseAddForm();
@@ -640,6 +650,7 @@ public sealed class VenuePlusWindow : Window, IDisposable
             {
                 if (ImGui.BeginTabItem("DJs"))
                 {
+                    if (ImGui.IsItemActivated()) ResetStatusMessages();
                     ImGui.BeginChild("DjsTabContent", new Vector2(0, ImGui.GetContentRegionAvail().Y), false);
                     _vipTable.CloseAddForm();
                     _staffList.CloseInviteInline();
@@ -652,6 +663,7 @@ public sealed class VenuePlusWindow : Window, IDisposable
             {
                 if (ImGui.BeginTabItem("Birthdays"))
                 {
+                    if (ImGui.IsItemActivated()) ResetStatusMessages();
                     ImGui.BeginChild("BirthdayTabContent", new Vector2(0, ImGui.GetContentRegionAvail().Y), false);
                     _vipTable.CloseAddForm();
                     _djList.CloseAddForm();
@@ -836,6 +848,7 @@ public sealed class VenuePlusWindow : Window, IDisposable
             {
                 if (ImGui.BeginTabItem("Roles"))
                 {
+                    if (ImGui.IsItemActivated()) ResetStatusMessages();
                     ImGui.BeginChild("RolesTabContent", new Vector2(0, ImGui.GetContentRegionAvail().Y), false);
                     _vipTable.CloseAddForm();
                     _djList.CloseAddForm();
@@ -848,6 +861,7 @@ public sealed class VenuePlusWindow : Window, IDisposable
             var canViewSettings = _app.IsOwnerCurrentClub || (_app.HasStaffSession && _app.StaffCanManageVenueSettings);
             if (canViewSettings && ImGui.BeginTabItem("Venue Settings"))
             {
+                if (ImGui.IsItemActivated()) ResetStatusMessages();
                 ImGui.BeginChild("SettingsTabContent", new Vector2(0, ImGui.GetContentRegionAvail().Y), false);
                 _vipTable.CloseAddForm();
                 _djList.CloseAddForm();
@@ -924,6 +938,16 @@ public sealed class VenuePlusWindow : Window, IDisposable
             _staffPassInput = string.Empty;
             _showRecoveryForm = false;
         });
+    }
+
+    private void ResetStatusMessages()
+    {
+        _adminLoginStatus = string.Empty;
+        _staffLoginStatus = string.Empty;
+        _resetStatus = string.Empty;
+        _birthdayStatus = string.Empty;
+        _settingsPanel.ResetStatusMessages();
+        _jobsPanel.ResetStatusMessages();
     }
 
     

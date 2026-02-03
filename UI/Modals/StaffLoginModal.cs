@@ -26,6 +26,13 @@ public sealed class StaffLoginModal
             ImGui.TextUnformatted("Homeworld:");
             ImGui.SameLine();
             ImGui.TextUnformatted(world);
+            if (!info.HasValue)
+            {
+                ImGui.Spacing();
+                ImGui.TextUnformatted("No character detected.");
+                ImGui.TextWrapped("Please log in with a character first.");
+                ImGui.Spacing();
+            }
             ImGui.InputText("Password", ref _staffPassInput, 64, ImGuiInputTextFlags.Password);
             ImGui.Checkbox("Remember Login Password", ref _rememberStaff);
             var autoEnabled = app.AutoLoginEnabled;
@@ -34,7 +41,7 @@ public sealed class StaffLoginModal
                 app.SetAutoLoginEnabledAsync(autoEnabled).GetAwaiter().GetResult();
                 if (autoEnabled) app.SetRememberStaffLoginAsync(true).GetAwaiter().GetResult();
             }
-            ImGui.BeginDisabled(!app.RemoteConnected);
+            ImGui.BeginDisabled(!app.RemoteConnected || !info.HasValue);
             if (ImGui.Button("Login"))
             {
                 if (_rememberStaff)
