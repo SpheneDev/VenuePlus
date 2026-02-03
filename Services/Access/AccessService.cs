@@ -235,6 +235,7 @@ internal sealed class AccessService
         public string Username { get; init; } = string.Empty;
         public string? SelfUid { get; init; }
         public DateTimeOffset? SelfBirthday { get; init; }
+        public bool IsServerAdmin { get; init; }
         public string[]? MyClubs { get; init; }
         public string[]? MyCreatedClubs { get; init; }
         public System.Collections.Generic.Dictionary<string, JobRightsInfo>? JobRightsCache { get; init; }
@@ -284,6 +285,7 @@ internal sealed class AccessService
         string? logo = null;
         string? selfJob = null;
         System.Collections.Generic.Dictionary<string, bool>? selfRights = null;
+        var isServerAdmin = false;
         try
         {
             if (useWs && !string.IsNullOrWhiteSpace(currentClubId))
@@ -314,10 +316,11 @@ internal sealed class AccessService
                 catch { }
                 try
                 {
-                    var p = tProfile.IsCompleted ? tProfile.Result : (System.ValueTuple<string, string>?)null;
+                    var p = tProfile.IsCompleted ? tProfile.Result : (System.ValueTuple<string, string, bool>?)null;
                     if (p.HasValue && string.Equals(p.Value.Item1, usernameFinal, StringComparison.Ordinal))
                     {
                         selfUid = string.IsNullOrWhiteSpace(p.Value.Item2) ? null : p.Value.Item2;
+                        isServerAdmin = p.Value.Item3;
                     }
                 }
                 catch { }
@@ -345,6 +348,7 @@ internal sealed class AccessService
                     if (prof.HasValue && string.Equals(prof.Value.Username, usernameFinal, StringComparison.Ordinal))
                     {
                         selfUid = string.IsNullOrWhiteSpace(prof.Value.Uid) ? null : prof.Value.Uid;
+                        isServerAdmin = prof.Value.IsServerAdmin;
                     }
                 }
                 catch { }
@@ -361,6 +365,7 @@ internal sealed class AccessService
             Username = usernameFinal,
             SelfUid = selfUid,
             SelfBirthday = selfBirthday,
+            IsServerAdmin = isServerAdmin,
             MyClubs = myClubs,
             MyCreatedClubs = myCreated,
             JobRightsCache = jobRights,

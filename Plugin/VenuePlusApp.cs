@@ -28,6 +28,7 @@ public sealed class VenuePlusApp : IDisposable, IEventListener
     private string _currentCharWorld = string.Empty;
     private bool _wasLoggedIn;
     private bool _isPowerStaff;
+    private bool _isServerAdmin;
     private string? _staffToken;
     private string? _staffUsername;
     private System.Collections.Generic.Dictionary<string, bool> _selfRights = new();
@@ -72,6 +73,7 @@ public sealed class VenuePlusApp : IDisposable, IEventListener
     public event Action? OpenVenuesListRequested;
     public event Action? OpenChangelogRequested;
     public event Action? OpenQolToolsRequested;
+    public event Action? OpenAdminPanelRequested;
     public event Action? OpenWhisperRequested;
     public event Action? OpenMacroHotbarRequested;
 
@@ -151,6 +153,12 @@ public sealed class VenuePlusApp : IDisposable, IEventListener
     public void OpenQolToolsWindow()
     {
         try { OpenQolToolsRequested?.Invoke(); } catch { }
+    }
+
+    public void OpenAdminPanelWindow()
+    {
+        if (!IsServerAdmin) return;
+        try { OpenAdminPanelRequested?.Invoke(); } catch { }
     }
 
     public event System.Action? OpenMacroHotbarManagerRequested;
@@ -370,6 +378,7 @@ public sealed class VenuePlusApp : IDisposable, IEventListener
     
     public bool IsPowerStaff => _isPowerStaff;
     public bool HasStaffSession => _isPowerStaff && !string.IsNullOrWhiteSpace(_staffToken);
+    public bool IsServerAdmin => _isServerAdmin;
     public string CurrentStaffUsername => _staffUsername ?? string.Empty;
     public bool StaffCanAddVip => _selfRights.TryGetValue("addVip", out var b) && b;
     public bool StaffCanRemoveVip => _selfRights.TryGetValue("removeVip", out var b) && b;
@@ -1656,6 +1665,7 @@ public sealed class VenuePlusApp : IDisposable, IEventListener
         _isPowerStaff = true;
         _staffToken = result.Token;
         _staffUsername = result.Username;
+        _isServerAdmin = result.IsServerAdmin;
         SetClubId(result.PreferredClubId);
         if (!RemoteConnected) await ConnectRemoteAsync();
         if (_remote.RemoteUseWebSocket && !string.IsNullOrWhiteSpace(CurrentClubId))
@@ -1749,6 +1759,7 @@ public sealed class VenuePlusApp : IDisposable, IEventListener
     private void ClearAccessState()
     {
         _isPowerStaff = false;
+        _isServerAdmin = false;
         _staffToken = null;
         _staffUsername = null;
         _selfRights = new System.Collections.Generic.Dictionary<string, bool>();
@@ -1774,6 +1785,10 @@ public sealed class VenuePlusApp : IDisposable, IEventListener
     private void OnRemoteDisconnected()
     {
         _accessLoading = false;
+        if (HasStaffSession)
+        {
+            ClearAccessState();
+        }
     }
 
     public System.Threading.Tasks.Task<bool> SetRememberStaffLoginAsync(bool remember)
@@ -2010,6 +2025,39 @@ public sealed class VenuePlusApp : IDisposable, IEventListener
         return await _remote.UserExistsAsync(username);
     }
 
+    public async System.Threading.Tasks.Task<bool> SendServerAnnouncementAsync(string message)
+    {
+        if (!IsServerAdmin) return false;
+        var staffSess = _staffToken ?? string.Empty;
+        if (string.IsNullOrWhiteSpace(staffSess) || string.IsNullOrWhiteSpace(message)) return false;
+        return await _remote.SendServerAnnouncementAsync(message, staffSess);
+    }
+
+    public async System.Threading.Tasks.Task<bool> ScheduleServerShutdownAsync(string message, int[] minutes, bool restart)
+    {
+        if (!IsServerAdmin) return false;
+        var staffSess = _staffToken ?? string.Empty;
+        if (string.IsNullOrWhiteSpace(staffSess)) return false;
+        var minutesSafe = minutes ?? Array.Empty<int>();
+        return await _remote.ScheduleServerShutdownAsync(message ?? string.Empty, minutesSafe, staffSess, restart);
+    }
+
+    public async System.Threading.Tasks.Task<(bool Active, bool Pending)?> GetMaintenanceModeAsync()
+    {
+        if (!IsServerAdmin) return null;
+        var staffSess = _staffToken ?? string.Empty;
+        if (string.IsNullOrWhiteSpace(staffSess)) return null;
+        return await _remote.GetMaintenanceModeAsync(staffSess);
+    }
+
+    public async System.Threading.Tasks.Task<bool> SetMaintenanceModeAsync(bool enabled)
+    {
+        if (!IsServerAdmin) return false;
+        var staffSess = _staffToken ?? string.Empty;
+        if (string.IsNullOrWhiteSpace(staffSess)) return false;
+        return await _remote.SetMaintenanceModeAsync(enabled, staffSess);
+    }
+
     
 
     public bool RemoteUseWebSocket => _pluginConfigService.Current.RemoteUseWebSocket;
@@ -2226,10 +2274,11 @@ public sealed class VenuePlusApp : IDisposable, IEventListener
                 catch { }
                 try
                 {
-                    var p = tProfile.IsCompleted ? tProfile.Result : (System.ValueTuple<string, string>?)null;
+                    var p = tProfile.IsCompleted ? tProfile.Result : (System.ValueTuple<string, string, bool>?)null;
                     if (p.HasValue && string.Equals(p.Value.Item1, usernameFinal, System.StringComparison.Ordinal))
                     {
                         _selfUid = string.IsNullOrWhiteSpace(p.Value.Item2) ? _selfUid : p.Value.Item2;
+                        _isServerAdmin = p.Value.Item3;
                     }
                 }
                 catch { }
@@ -3023,6 +3072,12 @@ public sealed class VenuePlusApp : IDisposable, IEventListener
     {
         _clubService.SetCurrentClubLogo(CurrentClubId, base64);
         try { ClubLogoChanged?.Invoke(base64); } catch { }
+    }
+
+    public void OnServerAnnouncementReceived(string message)
+    {
+        if (string.IsNullOrWhiteSpace(message)) return;
+        try { _notifier?.ShowWarning(message); } catch { }
     }
 
     public void OnConnectionChanged(bool connected)

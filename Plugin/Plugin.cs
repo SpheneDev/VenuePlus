@@ -30,6 +30,7 @@ public sealed class Plugin : IDalamudPlugin
     private readonly WhisperWindow _whisperWindow;
     private readonly WhisperPresetEditorWindow _whisperEditorWindow;
     private readonly QolToolsWindow _qolToolsWindow;
+    private readonly ServerAdminWindow _serverAdminWindow;
     private readonly MacroHotbarManagerWindow _macroHotbarManagerWindow;
     private readonly MacroHotbarWindow _macroHotbarWindow;
     private readonly System.Collections.Generic.Dictionary<int, MacroHotbarWindow> _macroHotbarWindowsByIndex = new();
@@ -40,6 +41,7 @@ public sealed class Plugin : IDalamudPlugin
     private readonly Action _openChangelogHandler;
     private readonly Action _openWhisperHandler;
     private readonly Action _openQolToolsHandler;
+    private readonly Action _openAdminPanelHandler;
     private readonly IContextMenu _contextMenu;
     private readonly ICommandManager _commandManager;
     private readonly IPluginLog _log;
@@ -94,6 +96,8 @@ public sealed class Plugin : IDalamudPlugin
         _windowSystem.AddWindow(_whisperEditorWindow);
         _qolToolsWindow = new QolToolsWindow(_app);
         _windowSystem.AddWindow(_qolToolsWindow);
+        _serverAdminWindow = new ServerAdminWindow(_app);
+        _windowSystem.AddWindow(_serverAdminWindow);
         _macroHotbarManagerWindow = new MacroHotbarManagerWindow(_app);
         _windowSystem.AddWindow(_macroHotbarManagerWindow);
         _macroHotbarWindow = new MacroHotbarWindow(_app, _whisperWindow, _macroScheduler, _textureProvider);
@@ -108,6 +112,8 @@ public sealed class Plugin : IDalamudPlugin
         _app.OpenVenuesListRequested += () => { _venuesListWindow.IsOpen = true; };
         _openQolToolsHandler = () => { _qolToolsWindow.IsOpen = true; };
         _app.OpenQolToolsRequested += _openQolToolsHandler;
+        _openAdminPanelHandler = () => { _serverAdminWindow.IsOpen = true; };
+        _app.OpenAdminPanelRequested += _openAdminPanelHandler;
         _app.OpenMacroHotbarManagerRequested += () => { _macroHotbarManagerWindow.IsOpen = true; };
         _app.OpenMacroHotbarRequested += () => { _macroHotbarWindow.IsOpen = true; };
         _app.OpenMacroHotbarIndexRequested += OnOpenMacroHotbarIndexRequested;
@@ -185,6 +191,8 @@ public sealed class Plugin : IDalamudPlugin
         try { _app.OpenWhisperRequested -= _openWhisperHandler; } catch { }
         try { _qolToolsWindow.IsOpen = false; } catch { }
         try { _app.OpenQolToolsRequested -= _openQolToolsHandler; } catch { }
+        try { _serverAdminWindow.IsOpen = false; } catch { }
+        try { _app.OpenAdminPanelRequested -= _openAdminPanelHandler; } catch { }
         try { _app.OpenMacroHotbarRequested -= () => { _macroHotbarWindow.IsOpen = true; }; } catch { }
         try { _app.OpenMacroHotbarManagerRequested -= () => { _macroHotbarManagerWindow.IsOpen = true; }; } catch { }
         try { _app.OpenMacroHotbarIndexRequested -= OnOpenMacroHotbarIndexRequested; } catch { }

@@ -41,6 +41,11 @@ public sealed class QolToolsWindow : Window
         ImGui.BeginDisabled(!_app.HasStaffSession);
         DrawToolItem(FontAwesomeIcon.Users, "VIP List", "External VIP list window with sorting and search.", () => _app.OpenVipListWindow());
         ImGui.EndDisabled();
+        if (_app.IsServerAdmin)
+        {
+            ImGui.Spacing();
+            DrawToolItem(FontAwesomeIcon.UserShield, "Server Admin", "Server admin operations and diagnostics.", () => _app.OpenAdminPanelWindow());
+        }
     }
 
     private void DrawToolItem(FontAwesomeIcon icon, string title, string description, System.Action onOpen)

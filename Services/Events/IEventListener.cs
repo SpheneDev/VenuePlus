@@ -26,4 +26,5 @@ internal interface IEventListener
     void OnMembershipAdded(string username, string clubId);
     void OnClubLogoReceived(string? base64);
     void OnConnectionChanged(bool connected);
+    void OnServerAnnouncementReceived(string message);
 }

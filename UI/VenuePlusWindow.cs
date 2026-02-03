@@ -1,6 +1,9 @@
 using System;
 using System.Numerics;
 using System.Globalization;
+using System.Net.Http;
+using System.Text.Json;
+using System.Threading;
 using Dalamud.Bindings.ImGui;
 using Dalamud.Interface.Windowing;
 using Dalamud.Interface;
@@ -35,7 +38,7 @@ public sealed class VenuePlusWindow : Window, IDisposable
     private readonly JobsPanelComponent _jobsPanel = new();
     private bool _showStaffForm;
     private bool _showUserSettingsPanel;
-    private bool _currentCharExists;
+    private bool? _currentCharExists;
     private System.DateTimeOffset _currentCharExistsLastCheck;
     private string _adminPinInput = string.Empty;
     private string _staffUserInput = string.Empty;
@@ -51,6 +54,12 @@ public sealed class VenuePlusWindow : Window, IDisposable
     private System.DateTimeOffset _birthdayLastRefresh;
     private System.DateTimeOffset _serverStatusLastCheck;
     private bool _serverStatusCheckInFlight;
+    private readonly HttpClient _serverStatusHttpClient = new();
+    private System.DateTimeOffset _serverStatusHealthCheckedAt;
+    private System.DateTimeOffset? _serverStatusHealthStartedAt;
+    private bool _serverStatusHealthInFlight;
+    private bool? _serverStatusHealthOk;
+    private bool? _serverStatusMaintenanceActive;
     private VenuePlus.State.StaffUser[] _birthdayUsers = Array.Empty<VenuePlus.State.StaffUser>();
     private string? _birthdayClubId;
     private int _birthdayPageIndex;
@@ -67,6 +76,14 @@ public sealed class VenuePlusWindow : Window, IDisposable
     private int _statsVipCount;
     private int _statsStaffCount;
     private int _statsStaffOnlineCount;
+
+    private enum ServerStatus
+    {
+        Checking,
+        Online,
+        Offline,
+        Maintenance
+    }
 
     public VenuePlusWindow(VenuePlusApp app, ITextureProvider textureProvider) : base("Venue Plus")
     {
@@ -131,6 +148,11 @@ public sealed class VenuePlusWindow : Window, IDisposable
         if (!_app.HasStaffSession)
         {
             _showStaffForm = true;
+            if (!_app.RemoteConnected)
+            {
+                _currentCharExists = null;
+                _currentCharExistsLastCheck = System.DateTimeOffset.MinValue;
+            }
             var shouldCheckGlobal = _currentCharExistsLastCheck == System.DateTimeOffset.MinValue || _currentCharExistsLastCheck < System.DateTimeOffset.UtcNow.AddSeconds(-15);
             var infoGlobal = _app.GetCurrentCharacter();
             if (shouldCheckGlobal && infoGlobal.HasValue)
@@ -139,7 +161,15 @@ public sealed class VenuePlusWindow : Window, IDisposable
                 var u = infoGlobal.Value.name + "@" + infoGlobal.Value.world;
                 System.Threading.Tasks.Task.Run(async () =>
                 {
-                    try { _currentCharExists = (await _app.CheckUserExistsAsync(u)) ?? false; } catch { _currentCharExists = false; }
+                    try
+                    {
+                        var exists = await _app.CheckUserExistsAsync(u);
+                        _currentCharExists = exists.HasValue ? exists.Value : null;
+                    }
+                    catch
+                    {
+                        _currentCharExists = null;
+                    }
                 });
             }
         }
@@ -165,7 +195,7 @@ public sealed class VenuePlusWindow : Window, IDisposable
                     ImGui.TextWrapped("Please log in with a character first.");
                     ImGui.Spacing();
                 }
-                else if (_currentCharExists)
+                else if (_currentCharExists == true)
                 {
                     ImGui.Spacing();
                     ImGui.TextUnformatted("Character:");
@@ -206,7 +236,7 @@ public sealed class VenuePlusWindow : Window, IDisposable
                     ImGui.PopFont();
                     if (ImGui.IsItemHovered()) { ImGui.BeginTooltip(); ImGui.TextUnformatted("Open Settings"); ImGui.EndTooltip(); }
                     ImGui.SameLine();
-                    ImGui.BeginDisabled(!_currentCharExists || !_app.RemoteConnected);
+                    ImGui.BeginDisabled(_currentCharExists != true || !_app.RemoteConnected);
                     if (ImGui.Button("Login current character"))
                     {
                         StartStaffLoginWithPhases();
@@ -240,7 +270,7 @@ public sealed class VenuePlusWindow : Window, IDisposable
                         ImGui.InputTextWithHint("##reset_recovery_code", "Recovery Code", ref _resetRecoveryCode, 32);
                         ImGui.InputTextWithHint("##reset_password", "New Password", ref _resetPassword, 64, ImGuiInputTextFlags.Password);
                         ImGui.PopItemWidth();
-                        ImGui.BeginDisabled(!_app.RemoteConnected || string.IsNullOrWhiteSpace(recoverUser) || !_currentCharExists);
+                    ImGui.BeginDisabled(!_app.RemoteConnected || string.IsNullOrWhiteSpace(recoverUser) || _currentCharExists != true);
                         if (ImGui.Button("Reset Password", new Vector2(-1f, 0)))
                         {
                             _resetStatus = "Submitting...";
@@ -269,7 +299,7 @@ public sealed class VenuePlusWindow : Window, IDisposable
                         }
                     }
                 }
-                else
+                else if (_currentCharExists == false)
                 {
                     ImGui.TextUnformatted("No account found for your current character.");
                     ImGui.TextWrapped("Please register an account to continue. After registration, you can login and create or join a Venue.");
@@ -282,8 +312,8 @@ public sealed class VenuePlusWindow : Window, IDisposable
             }
             else
             {
-                ImGui.BeginDisabled(!_app.RemoteConnected || !_currentCharExists);
-                if (!_app.IsPowerStaff && _currentCharExists && ImGui.Button("Login", new Vector2(-1f, 0)))
+                ImGui.BeginDisabled(!_app.RemoteConnected || _currentCharExists != true);
+                    if (!_app.IsPowerStaff && _currentCharExists == true && ImGui.Button("Login", new Vector2(-1f, 0)))
                 {
                     _showStaffForm = true; _staffLoginStatus = string.Empty;
                 }
@@ -374,13 +404,24 @@ public sealed class VenuePlusWindow : Window, IDisposable
         var bottomH = textH * 3f + spacingY + btnH;
         var offsetY = MathF.Max(0f, ImGui.GetContentRegionAvail().Y - bottomH);
         ImGui.SetCursorPosY(ImGui.GetCursorPosY() + offsetY);
-        EnsureServerConnection();
+        EnsureServerStatus();
         ImGui.TextUnformatted("Server Status:");
         ImGui.SameLine();
-        var statusTextL = _app.RemoteConnected ? "Online" : (_serverStatusCheckInFlight ? "Checking..." : "Offline");
-        var statusColorL = _app.RemoteConnected
-            ? new System.Numerics.Vector4(0.2f, 0.85f, 0.2f, 1f)
-            : (_serverStatusCheckInFlight ? new System.Numerics.Vector4(0.95f, 0.75f, 0.2f, 1f) : new System.Numerics.Vector4(0.9f, 0.25f, 0.25f, 1f));
+        var status = GetServerStatus();
+        var statusTextL = status switch
+        {
+            ServerStatus.Online => "Online",
+            ServerStatus.Offline => "Offline",
+            ServerStatus.Maintenance => "Maintenance",
+            _ => "Checking..."
+        };
+        var statusColorL = status switch
+        {
+            ServerStatus.Online => new System.Numerics.Vector4(0.2f, 0.85f, 0.2f, 1f),
+            ServerStatus.Maintenance => new System.Numerics.Vector4(0.95f, 0.55f, 0.15f, 1f),
+            ServerStatus.Offline => new System.Numerics.Vector4(0.9f, 0.25f, 0.25f, 1f),
+            _ => new System.Numerics.Vector4(0.95f, 0.75f, 0.2f, 1f)
+        };
         ImGui.PushStyleColor(ImGuiCol.Text, statusColorL);
         ImGui.TextUnformatted(statusTextL);
         ImGui.PopStyleColor();
@@ -983,7 +1024,74 @@ public sealed class VenuePlusWindow : Window, IDisposable
         });
     }
 
-    
+    private void EnsureServerStatus()
+    {
+        var now = System.DateTimeOffset.UtcNow;
+        if (_serverStatusHealthInFlight && _serverStatusHealthStartedAt.HasValue)
+        {
+            var elapsed = now - _serverStatusHealthStartedAt.Value;
+            if (elapsed >= TimeSpan.FromSeconds(6))
+            {
+                _serverStatusHealthInFlight = false;
+                _serverStatusHealthOk = false;
+                _serverStatusMaintenanceActive = null;
+                _serverStatusHealthCheckedAt = now;
+            }
+        }
+        EnsureServerConnection();
+        if (_app.HasStaffSession) return;
+        if (_serverStatusHealthInFlight) return;
+        if (_serverStatusHealthCheckedAt != System.DateTimeOffset.MinValue && _serverStatusHealthCheckedAt > now.AddSeconds(-5)) return;
+        StartServerStatusHealthCheck(_app.GetServerBaseUrl());
+    }
+
+    private ServerStatus GetServerStatus()
+    {
+        if (_serverStatusMaintenanceActive.HasValue && _serverStatusMaintenanceActive.Value) return ServerStatus.Maintenance;
+        if (_app.RemoteConnected) return ServerStatus.Online;
+        if (_serverStatusCheckInFlight || _serverStatusHealthInFlight) return ServerStatus.Checking;
+        if (_serverStatusHealthOk.HasValue) return _serverStatusHealthOk.Value ? ServerStatus.Online : ServerStatus.Offline;
+        return ServerStatus.Checking;
+    }
+
+    private void StartServerStatusHealthCheck(string? baseUrl)
+    {
+        if (string.IsNullOrWhiteSpace(baseUrl)) return;
+        if (_serverStatusHealthInFlight) return;
+        _serverStatusHealthInFlight = true;
+        _serverStatusHealthStartedAt = System.DateTimeOffset.UtcNow;
+        System.Threading.Tasks.Task.Run(async () =>
+        {
+            try
+            {
+                var url = baseUrl.TrimEnd('/') + "/health";
+                using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+                var json = await _serverStatusHttpClient.GetStringAsync(url, cts.Token);
+                using var doc = JsonDocument.Parse(json);
+                var root = doc.RootElement;
+                var ok = root.TryGetProperty("ok", out var okEl) && okEl.ValueKind == JsonValueKind.True;
+                bool? maintenance = null;
+                if (root.TryGetProperty("maintenanceMode", out var m) && (m.ValueKind == JsonValueKind.True || m.ValueKind == JsonValueKind.False))
+                {
+                    maintenance = m.GetBoolean();
+                }
+                _serverStatusHealthOk = ok;
+                _serverStatusMaintenanceActive = maintenance;
+                _serverStatusHealthCheckedAt = System.DateTimeOffset.UtcNow;
+            }
+            catch
+            {
+                _serverStatusHealthOk = false;
+                _serverStatusMaintenanceActive = null;
+                _serverStatusHealthCheckedAt = System.DateTimeOffset.UtcNow;
+            }
+            finally
+            {
+                _serverStatusHealthInFlight = false;
+            }
+        });
+    }
+
 
     private void DrawWrappedButton(string label, Action onClick)
     {

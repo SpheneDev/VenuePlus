@@ -26,4 +26,5 @@ internal sealed class EventBindings
     public Action<string, string> MembershipAdded { get; init; } = (_, _) => { };
     public Action<string?> ClubLogoReceived { get; init; } = _ => { };
     public Action<bool> ConnectionChanged { get; init; } = _ => { };
+    public Action<string> ServerAnnouncementReceived { get; init; } = _ => { };
 }

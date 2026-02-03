@@ -51,6 +51,7 @@ public sealed class RemoteSyncService : IDisposable
     public event Action<VenuePlus.State.ShiftEntry>? ShiftEntryAdded;
     public event Action<VenuePlus.State.ShiftEntry>? ShiftEntryUpdated;
     public event Action<Guid>? ShiftEntryRemoved;
+    public event Action<string>? ServerAnnouncementReceived;
 
     private TaskCompletionSource<string[]?>? _pendingUserClubsTcs;
     private TaskCompletionSource<string[]?>? _pendingCreatedClubsTcs;
@@ -79,6 +80,11 @@ public sealed class RemoteSyncService : IDisposable
     private TaskCompletionSource<bool>? _pendingManualStaffLinkTcs;
     private TaskCompletionSource<string?>? _pendingAccessKeyTcs;
     private TaskCompletionSource<bool>? _pendingDjUpdateTcs;
+    private TaskCompletionSource<bool>? _pendingServerAnnouncementTcs;
+    private TaskCompletionSource<bool>? _pendingServerShutdownTcs;
+    private TaskCompletionSource<bool>? _pendingServerRestartTcs;
+    private TaskCompletionSource<(bool Active, bool Pending)?>? _pendingMaintenanceStatusTcs;
+    private TaskCompletionSource<bool>? _pendingMaintenanceSetTcs;
     
     private TaskCompletionSource<string?>? _pendingRegisterUserTcs;
     private TaskCompletionSource<bool>? _pendingLogoutTcs;
@@ -87,7 +93,7 @@ public sealed class RemoteSyncService : IDisposable
     private TaskCompletionSource<bool>? _pendingResetRecoveryPasswordTcs;
     private TaskCompletionSource<System.Collections.Generic.Dictionary<string, JobRightsInfo>?>? _pendingJobRightsTcs;
     private TaskCompletionSource<(string Job, System.Collections.Generic.Dictionary<string, bool>)?>? _pendingSelfRightsTcs;
-    private TaskCompletionSource<(string Username, string Uid)?>? _pendingSelfProfileTcs;
+    private TaskCompletionSource<(string Username, string Uid, bool IsServerAdmin)?>? _pendingSelfProfileTcs;
     private TaskCompletionSource<DateTimeOffset?>? _pendingSelfBirthdayTcs;
     private TaskCompletionSource<bool>? _pendingSelfBirthdaySetTcs;
     private TaskCompletionSource<bool?>? _pendingUserExistsTcs;
@@ -170,7 +176,9 @@ public sealed class RemoteSyncService : IDisposable
         try
         {
             _log?.Debug($"WS connect url={wsUrl}");
-            await _ws.ConnectAsync(new Uri(wsUrl), _wsCts.Token);
+            using var connectCts = CancellationTokenSource.CreateLinkedTokenSource(_wsCts.Token);
+            connectCts.CancelAfter(TimeSpan.FromSeconds(6));
+            await _ws.ConnectAsync(new Uri(wsUrl), connectCts.Token);
             _log?.Debug($"WS connected state={_ws.State}");
         }
         catch (Exception ex)
@@ -836,6 +844,117 @@ public sealed class RemoteSyncService : IDisposable
         return null;
     }
 
+    public async Task<bool> SendServerAnnouncementAsync(string message, string staffSession)
+    {
+        if (_useWebSocket && _ws != null && _ws.State == WebSocketState.Open)
+        {
+            try
+            {
+                var tcs = new TaskCompletionSource<bool>();
+                _pendingServerAnnouncementTcs = tcs;
+                var payload = JsonSerializer.Serialize(new { type = "server.announcement", token = staffSession, message });
+                var seg = new ArraySegment<byte>(Encoding.UTF8.GetBytes(payload));
+                await _ws.SendAsync(seg, WebSocketMessageType.Text, true, CancellationToken.None);
+                using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(6));
+                await Task.WhenAny(tcs.Task, Task.Delay(Timeout.Infinite, cts.Token)).ConfigureAwait(false);
+                var ok = tcs.Task.IsCompleted && tcs.Task.Result;
+                _pendingServerAnnouncementTcs = null;
+                return ok;
+            }
+            catch (Exception ex)
+            {
+                _log?.Debug($"WS server announcement failed: {ex.Message}");
+                _pendingServerAnnouncementTcs = null;
+                return false;
+            }
+        }
+        return false;
+    }
+
+    public async Task<bool> ScheduleServerShutdownAsync(string message, int[] minutes, string staffSession, bool restart)
+    {
+        if (_useWebSocket && _ws != null && _ws.State == WebSocketState.Open)
+        {
+            try
+            {
+                var tcs = new TaskCompletionSource<bool>();
+                if (restart) _pendingServerRestartTcs = tcs;
+                else _pendingServerShutdownTcs = tcs;
+                var payload = JsonSerializer.Serialize(new { type = restart ? "server.restart" : "server.shutdown", token = staffSession, message, minutes });
+                var seg = new ArraySegment<byte>(Encoding.UTF8.GetBytes(payload));
+                await _ws.SendAsync(seg, WebSocketMessageType.Text, true, CancellationToken.None);
+                using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(6));
+                await Task.WhenAny(tcs.Task, Task.Delay(Timeout.Infinite, cts.Token)).ConfigureAwait(false);
+                var ok = tcs.Task.IsCompleted && tcs.Task.Result;
+                if (restart) _pendingServerRestartTcs = null;
+                else _pendingServerShutdownTcs = null;
+                return ok;
+            }
+            catch (Exception ex)
+            {
+                _log?.Debug($"WS server shutdown schedule failed: {ex.Message}");
+                if (restart) _pendingServerRestartTcs = null;
+                else _pendingServerShutdownTcs = null;
+                return false;
+            }
+        }
+        return false;
+    }
+
+    public async Task<(bool Active, bool Pending)?> GetMaintenanceModeAsync(string staffSession)
+    {
+        if (_useWebSocket && _ws != null && _ws.State == WebSocketState.Open)
+        {
+            try
+            {
+                var tcs = new TaskCompletionSource<(bool Active, bool Pending)?>();
+                _pendingMaintenanceStatusTcs = tcs;
+                var payload = JsonSerializer.Serialize(new { type = "maintenance.mode.request", token = staffSession });
+                var seg = new ArraySegment<byte>(Encoding.UTF8.GetBytes(payload));
+                await _ws.SendAsync(seg, WebSocketMessageType.Text, true, CancellationToken.None);
+                using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(6));
+                await Task.WhenAny(tcs.Task, Task.Delay(Timeout.Infinite, cts.Token)).ConfigureAwait(false);
+                var ok = tcs.Task.IsCompleted ? tcs.Task.Result : null;
+                _pendingMaintenanceStatusTcs = null;
+                return ok;
+            }
+            catch (Exception ex)
+            {
+                _log?.Debug($"WS maintenance mode status failed: {ex.Message}");
+                _pendingMaintenanceStatusTcs = null;
+                return null;
+            }
+        }
+        return null;
+    }
+
+    public async Task<bool> SetMaintenanceModeAsync(bool enabled, string staffSession)
+    {
+        if (_useWebSocket && _ws != null && _ws.State == WebSocketState.Open)
+        {
+            try
+            {
+                var tcs = new TaskCompletionSource<bool>();
+                _pendingMaintenanceSetTcs = tcs;
+                var payload = JsonSerializer.Serialize(new { type = "maintenance.mode.set", token = staffSession, enabled });
+                var seg = new ArraySegment<byte>(Encoding.UTF8.GetBytes(payload));
+                await _ws.SendAsync(seg, WebSocketMessageType.Text, true, CancellationToken.None);
+                using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(6));
+                await Task.WhenAny(tcs.Task, Task.Delay(Timeout.Infinite, cts.Token)).ConfigureAwait(false);
+                var ok = tcs.Task.IsCompleted && tcs.Task.Result;
+                _pendingMaintenanceSetTcs = null;
+                return ok;
+            }
+            catch (Exception ex)
+            {
+                _log?.Debug($"WS maintenance mode set failed: {ex.Message}");
+                _pendingMaintenanceSetTcs = null;
+                return false;
+            }
+        }
+        return false;
+    }
+
     public async Task<bool> DeleteUserAsync(string username, string staffSession)
     {
         if (_useWebSocket && _ws != null && _ws.State == WebSocketState.Open)
@@ -1137,13 +1256,13 @@ public sealed class RemoteSyncService : IDisposable
         return null;
     }
 
-    public async Task<(string Username, string Uid)?> GetSelfProfileAsync(string staffSession)
+    public async Task<(string Username, string Uid, bool IsServerAdmin)?> GetSelfProfileAsync(string staffSession)
     {
         if (_useWebSocket && _ws != null && _ws.State == WebSocketState.Open)
         {
             try
             {
-                var tcs = new TaskCompletionSource<(string Username, string Uid)?>();
+                var tcs = new TaskCompletionSource<(string Username, string Uid, bool IsServerAdmin)?>();
                 _pendingSelfProfileTcs = tcs;
                 var payload = JsonSerializer.Serialize(new { type = "user.self.profile.request", token = staffSession });
                 var seg = new ArraySegment<byte>(Encoding.UTF8.GetBytes(payload));
@@ -1433,6 +1552,11 @@ public sealed class RemoteSyncService : IDisposable
                         var clubIdMsg = root.TryGetProperty("clubId", out var cEl) ? (cEl.GetString() ?? string.Empty) : string.Empty;
                         MembershipAdded?.Invoke(username, clubIdMsg);
                     }
+                    else if (type == "server.announcement")
+                    {
+                        var msgText = root.TryGetProperty("message", out var m) ? (m.GetString() ?? string.Empty) : string.Empty;
+                        if (!string.IsNullOrWhiteSpace(msgText)) ServerAnnouncementReceived?.Invoke(msgText);
+                    }
                     else if (type == "vip.snapshot")
                     {
                         var entriesEl = root.GetProperty("entries");
@@ -1641,7 +1765,8 @@ public sealed class RemoteSyncService : IDisposable
                     {
                         var username = root.TryGetProperty("username", out var u) ? (u.GetString() ?? string.Empty) : string.Empty;
                         var uid = root.TryGetProperty("uid", out var idEl) ? (idEl.GetString() ?? string.Empty) : string.Empty;
-                        _pendingSelfProfileTcs?.TrySetResult((username, uid));
+                        var isServerAdmin = root.TryGetProperty("isServerAdmin", out var adminEl) && adminEl.GetBoolean();
+                        _pendingSelfProfileTcs?.TrySetResult((username, uid, isServerAdmin));
                         _pendingSelfProfileTcs = null;
                     }
                     else if (type == "user.exists")
@@ -1649,6 +1774,68 @@ public sealed class RemoteSyncService : IDisposable
                         var exists = root.TryGetProperty("exists", out var exEl) && exEl.GetBoolean();
                         _pendingUserExistsTcs?.TrySetResult(exists);
                         _pendingUserExistsTcs = null;
+                    }
+                    else if (type == "server.announcement.ok")
+                    {
+                        _pendingServerAnnouncementTcs?.TrySetResult(true);
+                        _pendingServerAnnouncementTcs = null;
+                    }
+                    else if (type == "server.announcement.fail")
+                    {
+                        _lastErrorMessage = null;
+                        try { if (root.TryGetProperty("message", out var m)) _lastErrorMessage = m.GetString(); } catch { }
+                        _pendingServerAnnouncementTcs?.TrySetResult(false);
+                        _pendingServerAnnouncementTcs = null;
+                    }
+                    else if (type == "server.shutdown.ok")
+                    {
+                        _pendingServerShutdownTcs?.TrySetResult(true);
+                        _pendingServerShutdownTcs = null;
+                    }
+                    else if (type == "server.shutdown.fail")
+                    {
+                        _lastErrorMessage = null;
+                        try { if (root.TryGetProperty("message", out var m)) _lastErrorMessage = m.GetString(); } catch { }
+                        _pendingServerShutdownTcs?.TrySetResult(false);
+                        _pendingServerShutdownTcs = null;
+                    }
+                    else if (type == "server.restart.ok")
+                    {
+                        _pendingServerRestartTcs?.TrySetResult(true);
+                        _pendingServerRestartTcs = null;
+                    }
+                    else if (type == "server.restart.fail")
+                    {
+                        _lastErrorMessage = null;
+                        try { if (root.TryGetProperty("message", out var m)) _lastErrorMessage = m.GetString(); } catch { }
+                        _pendingServerRestartTcs?.TrySetResult(false);
+                        _pendingServerRestartTcs = null;
+                    }
+                    else if (type == "maintenance.mode.status")
+                    {
+                        var active = root.TryGetProperty("active", out var a) ? a.GetBoolean() : (root.TryGetProperty("enabled", out var en) && en.GetBoolean());
+                        var pending = root.TryGetProperty("pending", out var p) && p.GetBoolean();
+                        _pendingMaintenanceStatusTcs?.TrySetResult((active, pending));
+                        _pendingMaintenanceStatusTcs = null;
+                    }
+                    else if (type == "maintenance.mode.status.fail")
+                    {
+                        _lastErrorMessage = null;
+                        try { if (root.TryGetProperty("message", out var m)) _lastErrorMessage = m.GetString(); } catch { }
+                        _pendingMaintenanceStatusTcs?.TrySetResult(null);
+                        _pendingMaintenanceStatusTcs = null;
+                    }
+                    else if (type == "maintenance.mode.set.ok")
+                    {
+                        _pendingMaintenanceSetTcs?.TrySetResult(true);
+                        _pendingMaintenanceSetTcs = null;
+                    }
+                    else if (type == "maintenance.mode.set.fail")
+                    {
+                        _lastErrorMessage = null;
+                        try { if (root.TryGetProperty("message", out var m)) _lastErrorMessage = m.GetString(); } catch { }
+                        _pendingMaintenanceSetTcs?.TrySetResult(false);
+                        _pendingMaintenanceSetTcs = null;
                     }
                     else if (type == "user.clubs")
                     {

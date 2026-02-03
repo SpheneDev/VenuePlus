@@ -40,6 +40,7 @@ internal sealed class EventService : IDisposable
         _remote.MembershipAdded += bindings.MembershipAdded;
         _remote.ClubLogoReceived += bindings.ClubLogoReceived;
         _remote.ConnectionChanged += bindings.ConnectionChanged;
+        _remote.ServerAnnouncementReceived += bindings.ServerAnnouncementReceived;
         _registered = true;
     }
 
@@ -67,6 +68,7 @@ internal sealed class EventService : IDisposable
         _remote.MembershipAdded += listener.OnMembershipAdded;
         _remote.ClubLogoReceived += listener.OnClubLogoReceived;
         _remote.ConnectionChanged += listener.OnConnectionChanged;
+        _remote.ServerAnnouncementReceived += listener.OnServerAnnouncementReceived;
         _registered = true;
     }
 
@@ -97,6 +99,7 @@ internal sealed class EventService : IDisposable
             _remote.MembershipAdded -= b.MembershipAdded;
             _remote.ClubLogoReceived -= b.ClubLogoReceived;
             _remote.ConnectionChanged -= b.ConnectionChanged;
+            _remote.ServerAnnouncementReceived -= b.ServerAnnouncementReceived;
             _bindings = null;
         }
 
@@ -123,6 +126,7 @@ internal sealed class EventService : IDisposable
             _remote.MembershipAdded -= l.OnMembershipAdded;
             _remote.ClubLogoReceived -= l.OnClubLogoReceived;
             _remote.ConnectionChanged -= l.OnConnectionChanged;
+            _remote.ServerAnnouncementReceived -= l.OnServerAnnouncementReceived;
             _listener = null;
         }
 
