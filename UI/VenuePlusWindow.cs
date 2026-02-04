@@ -543,6 +543,9 @@ public sealed class VenuePlusWindow : Window, IDisposable
             ImGui.BulletText("Customize VIP nameplates and labels");
             ImGui.BulletText("Share public VIP, staff and DJ links");
             ImGui.BulletText("View staff birthdays and reminders");
+            ImGui.BulletText("Use QOL tools like Macro Helper and Macro Hotbar");
+            ImGui.BulletText("Set up auto login and account recovery options");
+            ImGui.BulletText("Open server admin tools when you have permissions");
             ImGui.Spacing();
             ImGui.TextUnformatted("Get Started");
             ImGui.BulletText("Register a staff account");

@@ -3243,8 +3243,8 @@ public sealed class VenuePlusApp : IDisposable, IEventListener
     private bool CanSyncClub(string? clubId)
     {
         if (!HasStaffSession) return false;
-        if (!_clubListsLoaded) return false;
         if (string.IsNullOrWhiteSpace(clubId)) return false;
+        if (!_clubListsLoaded) return true;
         if (_myCreatedClubs != null && System.Array.IndexOf(_myCreatedClubs, clubId) >= 0) return true;
         if (_myClubs != null && System.Array.IndexOf(_myClubs, clubId) >= 0) return true;
         return false;
