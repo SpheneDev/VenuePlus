@@ -64,6 +64,7 @@ public sealed class VenuePlusApp : IDisposable, IEventListener
     private string? _desiredClubId;
     private bool _clubListsLoaded;
     private string? _remoteSyncedClubId;
+    private readonly System.Collections.Generic.Dictionary<string, bool> _vipNonEmptySnapshotByClub = new(System.StringComparer.Ordinal);
     public event Action<VenuePlus.State.StaffUser[]>? UsersDetailsChanged;
     public event Action<string, string, string[]>? UserJobUpdatedEvt;
     public event Action<string[]>? JobsChanged;
@@ -1698,6 +1699,7 @@ public sealed class VenuePlusApp : IDisposable, IEventListener
             ? username
             : ((!string.IsNullOrWhiteSpace(_currentCharName) && !string.IsNullOrWhiteSpace(_currentCharWorld)) ? (_currentCharName + "@" + _currentCharWorld) : string.Empty);
         if (string.IsNullOrWhiteSpace(usernameFinal)) return false;
+        try { _log?.Debug($"[Login] start user={usernameFinal} club={CurrentClubId ?? "--"} ws={_remote.RemoteUseWebSocket}"); } catch { }
         var clubBeforeLogin = CurrentClubId;
         if (!string.IsNullOrWhiteSpace(clubBeforeLogin))
         {
@@ -1711,6 +1713,7 @@ public sealed class VenuePlusApp : IDisposable, IEventListener
         _isServerAdmin = result.IsServerAdmin;
         _accessService.SetLastKnownServerAdmin(GetCurrentCharacterKey(), _isServerAdmin);
         SetClubId(result.PreferredClubId);
+        try { _log?.Debug($"[Login] preferredClub={result.PreferredClubId ?? "--"} currentClub={CurrentClubId ?? "--"}"); } catch { }
         if (!RemoteConnected) await ConnectRemoteAsync();
         _selfUid = result.SelfUid ?? _selfUid;
         _selfBirthday = result.SelfBirthday ?? _selfBirthday;
@@ -1819,6 +1822,7 @@ public sealed class VenuePlusApp : IDisposable, IEventListener
         _vipService.SetActiveClub(null);
         _remote.SetClubId(null);
         _remoteSyncedClubId = null;
+        _vipNonEmptySnapshotByClub.Clear();
         _djService.Clear();
         _shiftService.Clear();
         
@@ -2041,7 +2045,8 @@ public sealed class VenuePlusApp : IDisposable, IEventListener
             try
             {
                 if (RemoteConnected) return true;
-                _remote.SetClubId(null);
+                try { _log?.Debug($"[WS] connect requested club={CurrentClubId ?? "--"}"); } catch { }
+                _remote.SetClubId(CurrentClubId);
                 return await _remote.ConnectAsync(RemoteBaseUrlConst);
             }
             finally
@@ -2429,7 +2434,21 @@ public sealed class VenuePlusApp : IDisposable, IEventListener
 
     public void OnSnapshotReceived(System.Collections.Generic.IReadOnlyCollection<VipEntry> entries)
     {
-        var cnt = entries.Count;
+        var count = entries?.Count ?? 0;
+        var clubId = CurrentClubId;
+        if (!string.IsNullOrWhiteSpace(clubId))
+        {
+            if (count > 0)
+            {
+                _vipNonEmptySnapshotByClub[clubId] = true;
+            }
+            else if (_vipNonEmptySnapshotByClub.TryGetValue(clubId, out var had) && had)
+            {
+                try { _log?.Debug($"[VIP] snapshot ignored club={clubId} count=0 hadNonEmpty=true"); } catch { }
+                return;
+            }
+        }
+        try { _log?.Debug($"[VIP] snapshot apply club={clubId ?? "--"} count={count}"); } catch { }
         _vipService.ReplaceAllForActiveClub(entries ?? System.Array.Empty<VipEntry>());
     }
 

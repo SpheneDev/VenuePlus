@@ -846,16 +846,12 @@ public sealed class StaffListComponent
             ImGui.EndDisabled();
             ImGui.PopItemWidth();
             ImGui.SameLine(0f, styleCell.ItemSpacing.X);
-            ImGui.PushFont(UiBuilder.IconFont);
-            ImGui.SetWindowFontScale(0.9f);
-            ImGui.SetCursorPosY(rowCenterY - infoH / 2f);
+            ImGui.SetCursorPosY(rowCenterY - ImGui.GetFrameHeight() / 2f);
             IconDraw.IconText(Dalamud.Interface.FontAwesomeIcon.QuestionCircle);
-            ImGui.SetWindowFontScale(1f);
-            ImGui.PopFont();
                 if (ImGui.IsItemHovered())
                 {
                     ImGui.BeginTooltip();
-                    ImGui.TextUnformatted("Select the staff member's job for the venue");
+                ImGui.TextUnformatted("Select the staff member's job for the venue. To assign multiple roles, click multiple roles in the list.");
                     ImGui.EndTooltip();
                 }
                 if (showActions)
@@ -964,6 +960,13 @@ public sealed class StaffListComponent
                     {
                         ImGui.SameLine();
                         ImGui.TextUnformatted(rs);
+                    }
+                    if (_dirtyKeys.Contains(key))
+                    {
+                        ImGui.SameLine();
+                        ImGui.PushStyleColor(ImGuiCol.Text, new Vector4(1f, 0.8f, 0.2f, 1f));
+                        ImGui.TextUnformatted("Unsaved role changes");
+                        ImGui.PopStyleColor();
                     }
                 }
                 ImGui.PopID();

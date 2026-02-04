@@ -539,6 +539,10 @@ public sealed class VenuePlusWindow : Window, IDisposable
             ImGui.BulletText("Assign jobs, icons and colors to staff");
             ImGui.BulletText("Invite staff by UID and manage memberships");
             ImGui.BulletText("Manage DJs list and open Twitch links");
+            ImGui.BulletText("Create shift plans with time ranges");
+            ImGui.BulletText("Customize VIP nameplates and labels");
+            ImGui.BulletText("Share public VIP, staff and DJ links");
+            ImGui.BulletText("View staff birthdays and reminders");
             ImGui.Spacing();
             ImGui.TextUnformatted("Get Started");
             ImGui.BulletText("Register a staff account");

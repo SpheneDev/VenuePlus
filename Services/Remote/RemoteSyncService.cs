@@ -112,6 +112,7 @@ public sealed class RemoteSyncService : IDisposable
     public void SetClubId(string? clubId)
     {
         _clubId = string.IsNullOrWhiteSpace(clubId) ? null : clubId.Trim();
+        try { _log?.Debug($"WS clubId set to {(_clubId ?? "--")}"); } catch { }
     }
 
     
@@ -1561,6 +1562,7 @@ public sealed class RemoteSyncService : IDisposable
                     {
                         var entriesEl = root.GetProperty("entries");
                         var entries = JsonSerializer.Deserialize<System.Collections.Generic.List<VipEntry>>(entriesEl.GetRawText(), new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.CamelCase }) ?? new System.Collections.Generic.List<VipEntry>();
+                        try { _log?.Debug($"WS vip.snapshot club={_clubId ?? "--"} count={entries.Count}"); } catch { }
                         SnapshotReceived?.Invoke(entries);
                     }
                     else if (type == "club.logo")
