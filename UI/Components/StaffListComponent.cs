@@ -721,7 +721,9 @@ public sealed class StaffListComponent
                 currentSet = new HashSet<string>(NormalizeJobs(GetJobsFromUser(u)), StringComparer.Ordinal);
                 _selectedJobsByClub[key] = currentSet;
             }
+            var baseArr = NormalizeJobs(GetJobsFromUser(u));
             var currentArr = NormalizeJobs(currentSet);
+            SyncDirtyKey(key, currentArr, baseArr);
             var currentPrimary = GetPrimaryJob(app.GetJobRightsCache(), currentArr);
             var currentDisplayArr = currentArr;
             var rightsCachePreview = app.GetJobRightsCache();
@@ -792,9 +794,23 @@ public sealed class StaffListComponent
             infoH = ImGui.CalcTextSize(FontAwesomeIcon.QuestionCircle.ToIconString()).Y;
             ImGui.SetWindowFontScale(1f);
             ImGui.PopFont();
+            var hasUnsaved = _dirtyKeys.Contains(key);
+            float warnW = hasUnsaved ? ImGui.CalcTextSize("Not saved").X : 0f;
             float totalW = comboW + styleCell.ItemSpacing.X + infoW;
+            float warnH = hasUnsaved ? ImGui.CalcTextSize("Not saved").Y : 0f;
+            if (hasUnsaved) totalW += styleCell.ItemSpacing.X + warnW;
             ImGui.SameLine();
             ImGui.SetCursorPosX(cellStartX + cellWidth - totalW);
+            ImGui.SetCursorPosY(rowCenterY - ImGui.GetFrameHeight() / 2f);
+            if (hasUnsaved)
+            {
+                var warnOffsetY = (ImGui.GetFrameHeight() - warnH) / 2f;
+                ImGui.SetCursorPosY(rowCenterY - ImGui.GetFrameHeight() / 2f + warnOffsetY);
+                ImGui.PushStyleColor(ImGuiCol.Text, new Vector4(1f, 0.8f, 0.2f, 1f));
+                ImGui.TextUnformatted("Not saved");
+                ImGui.PopStyleColor();
+                ImGui.SameLine(0f, styleCell.ItemSpacing.X);
+            }
             ImGui.SetCursorPosY(rowCenterY - ImGui.GetFrameHeight() / 2f);
             ImGui.PushItemWidth(comboW);
             var isOwnerJob = HasOwner(currentArr);
@@ -805,7 +821,11 @@ public sealed class StaffListComponent
                 if (currentArr.Length == 1 && Array.IndexOf(_jobOptions ?? Array.Empty<string>(), currentArr[0]) < 0)
                     {
                         bool selected = true;
-                    if (ImGui.Selectable(currentArr[0], selected)) { _selectedJobsByClub[key] = new HashSet<string>(currentArr, StringComparer.Ordinal); _dirtyKeys.Add(key); }
+                    if (ImGui.Selectable(currentArr[0], selected))
+                    {
+                        _selectedJobsByClub[key] = new HashSet<string>(currentArr, StringComparer.Ordinal);
+                        SyncDirtyKey(key, currentArr, baseArr);
+                    }
                     }
                     var rights = app.GetJobRightsCache();
                     var names = _jobOptions ?? Array.Empty<string>();
@@ -838,7 +858,8 @@ public sealed class StaffListComponent
                             if (selected) currentSet.Remove(name);
                             else currentSet.Add(name);
                             NormalizeJobSet(currentSet);
-                            _dirtyKeys.Add(key);
+                            var updatedArr = NormalizeJobs(currentSet);
+                            SyncDirtyKey(key, updatedArr, baseArr);
                         }
                     }
                     ImGui.EndCombo();
@@ -910,8 +931,7 @@ public sealed class StaffListComponent
                                 _rowStatus[identity] = ok ? "Saved" : (app.GetLastServerMessage() ?? "Save failed");
                                 if (ok)
                                 {
-                                    var k = key;
-                                    _dirtyKeys.Remove(k);
+                                    ApplySavedJobs(app.CurrentClubId ?? string.Empty, usernameSafe, newJobs, app);
                                 }
                             });
                             }
@@ -994,8 +1014,7 @@ public sealed class StaffListComponent
                     {
                         _confirmOpen = false;
                         _rowStatus[uname] = "Saved";
-                        var k = app.CurrentClubId + "|" + uname;
-                        _dirtyKeys.Remove(k);
+                        ApplySavedJobs(app.CurrentClubId ?? string.Empty, uname, jobs, app);
                     }
                 });
             }
@@ -1207,6 +1226,39 @@ public sealed class StaffListComponent
         }
         Array.Sort(arr, StringComparer.Ordinal);
         return arr;
+    }
+
+    private void SyncDirtyKey(string key, string[] current, string[] original)
+    {
+        if (JobsEqual(current, original)) _dirtyKeys.Remove(key);
+        else _dirtyKeys.Add(key);
+    }
+
+    private static bool JobsEqual(string[] a, string[] b)
+    {
+        if (a.Length != b.Length) return false;
+        for (int i = 0; i < a.Length; i++)
+        {
+            if (!string.Equals(a[i], b[i], StringComparison.Ordinal)) return false;
+        }
+        return true;
+    }
+
+    private void ApplySavedJobs(string clubId, string username, string[] jobs, VenuePlusApp app)
+    {
+        if (string.IsNullOrWhiteSpace(username)) return;
+        var key = clubId + "|" + username;
+        _selectedJobsByClub[key] = new HashSet<string>(jobs, StringComparer.Ordinal);
+        _dirtyKeys.Remove(key);
+        for (int i = 0; i < _users.Length; i++)
+        {
+            if (string.Equals(_users[i].Username, username, StringComparison.Ordinal))
+            {
+                _users[i].Jobs = jobs;
+                _users[i].Job = GetPrimaryJob(app.GetJobRightsCache(), jobs);
+                break;
+            }
+        }
     }
 
     private static void NormalizeJobSet(HashSet<string> jobs)

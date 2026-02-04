@@ -93,5 +93,6 @@ public sealed class NameplateVipService : IDisposable
         if (_disposed) return;
         _disposed = true;
         try { _namePlateGui.OnNamePlateUpdate -= OnNamePlateUpdate; } catch { }
+        try { _namePlateGui.RequestRedraw(); } catch { }
     }
 }
