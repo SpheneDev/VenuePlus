@@ -851,7 +851,8 @@ public sealed class StaffListComponent
                 if (ImGui.IsItemHovered())
                 {
                     ImGui.BeginTooltip();
-                ImGui.TextUnformatted("Select the staff member's job for the venue. To assign multiple roles, click multiple roles in the list.");
+                    ImGui.TextUnformatted("Select the staff member's job for the venue.");
+                    ImGui.TextUnformatted("To assign multiple roles, click multiple roles in the list.");
                     ImGui.EndTooltip();
                 }
                 if (showActions)

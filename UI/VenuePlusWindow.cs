@@ -375,29 +375,37 @@ public sealed class VenuePlusWindow : Window, IDisposable
         
         if (_app.HasStaffSession)
         {
-            ImGui.TextUnformatted("User");
-            ImGui.Separator();
-            if (_app.HasStaffSession)
+            var userFull = string.IsNullOrWhiteSpace(_app.CurrentStaffUsername) ? "--" : _app.CurrentStaffUsername;
+            var userName = userFull;
+            var userWorld = string.Empty;
+            var atIdx = userFull.IndexOf('@');
+            if (atIdx > 0)
             {
-                var user = string.IsNullOrWhiteSpace(_app.CurrentStaffUsername) ? "--" : _app.CurrentStaffUsername;
-                ImGui.TextUnformatted($"Username: {user}");
-                var uidLeft = string.IsNullOrWhiteSpace(_app.CurrentStaffUid) ? "--" : _app.CurrentStaffUid!;
-                ImGui.TextUnformatted($"UID: {uidLeft}");
-                ImGui.SameLine();
-                ImGui.PushFont(UiBuilder.IconFont);
-                ImGui.SetWindowFontScale(0.9f);
-                ImGui.BeginDisabled(string.IsNullOrWhiteSpace(_app.CurrentStaffUid));
-                if (ImGui.Button(FontAwesomeIcon.Copy.ToIconString() + "##copy_uid_left"))
-                {
-                    if (!string.IsNullOrWhiteSpace(_app.CurrentStaffUid)) ImGui.SetClipboardText(_app.CurrentStaffUid!);
-                }
-                ImGui.EndDisabled();
-                ImGui.SetWindowFontScale(1f);
-                ImGui.PopFont();
-                if (ImGui.IsItemHovered(ImGuiHoveredFlags.AllowWhenDisabled)) { ImGui.BeginTooltip(); ImGui.TextUnformatted("Copy UID to clipboard"); ImGui.EndTooltip(); }
+                userName = userFull.Substring(0, atIdx);
+                if (atIdx + 1 < userFull.Length) userWorld = userFull.Substring(atIdx + 1);
             }
+            else
+            {
+                var infoCur = _app.GetCurrentCharacter();
+                if (infoCur.HasValue) userWorld = infoCur.Value.world ?? string.Empty;
+            }
+            ImGui.TextUnformatted($"Username: {userName}");
+            ImGui.TextUnformatted($"Homeworld: {(string.IsNullOrWhiteSpace(userWorld) ? "--" : userWorld)}");
+            var uidLeft = string.IsNullOrWhiteSpace(_app.CurrentStaffUid) ? "--" : _app.CurrentStaffUid!;
+            ImGui.TextUnformatted($"UID: {uidLeft}");
+            ImGui.SameLine();
+            ImGui.PushFont(UiBuilder.IconFont);
+            ImGui.SetWindowFontScale(0.9f);
+            ImGui.BeginDisabled(string.IsNullOrWhiteSpace(_app.CurrentStaffUid));
+            if (ImGui.Button(FontAwesomeIcon.Copy.ToIconString() + "##copy_uid_left"))
+            {
+                if (!string.IsNullOrWhiteSpace(_app.CurrentStaffUid)) ImGui.SetClipboardText(_app.CurrentStaffUid!);
+            }
+            ImGui.EndDisabled();
+            ImGui.SetWindowFontScale(1f);
+            ImGui.PopFont();
+            if (ImGui.IsItemHovered(ImGuiHoveredFlags.AllowWhenDisabled)) { ImGui.BeginTooltip(); ImGui.TextUnformatted("Copy UID to clipboard"); ImGui.EndTooltip(); }
             ImGui.Spacing();
-            ImGui.TextUnformatted("Venue");
             ImGui.Separator();
             ImGui.TextUnformatted("Venue Selection");
             ImGui.PushItemWidth(-1f);
