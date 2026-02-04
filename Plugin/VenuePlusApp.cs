@@ -107,6 +107,7 @@ public sealed class VenuePlusApp : IDisposable, IEventListener
             _pluginConfigService.Save();
         }
         _remote.SetClubId(null);
+        try { _log?.Info($"VenuePlusApp initialized ws={_pluginConfigService.Current.RemoteUseWebSocket} baseUrl={RemoteBaseUrlConst}"); } catch { }
 
         _autoLoginMonitorCts = new System.Threading.CancellationTokenSource();
         var ctMon = _autoLoginMonitorCts.Token;
@@ -1713,6 +1714,7 @@ public sealed class VenuePlusApp : IDisposable, IEventListener
         _isServerAdmin = result.IsServerAdmin;
         _accessService.SetLastKnownServerAdmin(GetCurrentCharacterKey(), _isServerAdmin);
         SetClubId(result.PreferredClubId);
+        try { _log?.Info($"Staff login ok user={_staffUsername ?? "--"} club={CurrentClubId ?? "--"}"); } catch { }
         try { _log?.Debug($"[Login] preferredClub={result.PreferredClubId ?? "--"} currentClub={CurrentClubId ?? "--"}"); } catch { }
         if (!RemoteConnected) await ConnectRemoteAsync();
         _selfUid = result.SelfUid ?? _selfUid;
@@ -1786,12 +1788,14 @@ public sealed class VenuePlusApp : IDisposable, IEventListener
 
     public void StaffLogout()
     {
+        try { _log?.Info($"Staff logout user={_staffUsername ?? "--"}"); } catch { }
         _accessService.LogoutStaffAndReset(GetCurrentCharacterKey(), _staffToken);
         ClearAccessState();
     }
 
     public void LogoutAll()
     {
+        try { _log?.Info($"Logout all user={_staffUsername ?? "--"}"); } catch { }
         _accessService.LogoutAllAndReset(GetCurrentCharacterKey(), _staffToken);
         ClearAccessState();
     }
@@ -1831,6 +1835,7 @@ public sealed class VenuePlusApp : IDisposable, IEventListener
     private void OnRemoteDisconnected()
     {
         _accessLoading = false;
+        try { _log?.Info("Remote disconnected"); } catch { }
         if (HasStaffSession)
         {
             ClearAccessState();
@@ -2600,6 +2605,7 @@ public sealed class VenuePlusApp : IDisposable, IEventListener
     private void OnCharacterLoggedOut()
     {
         if (_isDisposing) return;
+        try { _log?.Info("Character logged out"); } catch { }
         var staff = _staffToken;
         if (!string.IsNullOrWhiteSpace(staff)) { _ = _remote.LogoutSessionAsync(staff); }
         ClearAccessState();
@@ -2609,6 +2615,8 @@ public sealed class VenuePlusApp : IDisposable, IEventListener
     private void OnCharacterLoggedIn()
     {
         if (_isDisposing) return;
+        var cur = GetCurrentCharacter();
+        try { _log?.Info($"Character logged in name={cur?.name ?? "--"} world={cur?.world ?? "--"}"); } catch { }
         System.Threading.Tasks.Task.Run(async () =>
         {
             if (_pluginConfigService.Current.AutoLoginEnabled && !HasStaffSession)
@@ -3174,6 +3182,7 @@ public sealed class VenuePlusApp : IDisposable, IEventListener
         }
         else
         {
+            try { _log?.Info($"Remote connected baseUrl={_remote.GetBaseUrl()}"); } catch { }
             if (HasStaffSession)
             {
                 System.Threading.Tasks.Task.Run(async () =>

@@ -158,6 +158,7 @@ public sealed class Plugin : IDalamudPlugin
             _updatePromptWindow.SetVersions(prevVer, _currentVersion);
             _updatePromptWindow.IsOpen = true;
         }
+        try { _log.Info($"Plugin initialized version={_currentVersion}"); } catch { }
         try { _app.SetClubId(_app.CurrentClubId); } catch { }
         _ = _app.ConnectRemoteAsync();
         _ = _app.TryAutoLoginAsync();
@@ -165,6 +166,7 @@ public sealed class Plugin : IDalamudPlugin
 
     public void Dispose()
     {
+        try { _log.Info("Plugin disposed"); } catch { }
         _contextMenu.OnMenuOpened -= OnMenuOpened;
         _commandManager.RemoveHandler("/venueplus");
         _commandManager.RemoveHandler("/v+");
