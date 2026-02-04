@@ -663,7 +663,12 @@ public sealed class JobsPanelComponent
     {
         var color = enabled ? new System.Numerics.Vector4(0.2f, 0.85f, 0.2f, 1f) : new System.Numerics.Vector4(0.9f, 0.25f, 0.25f, 1f);
         ImGui.PushStyleColor(ImGuiCol.Text, color);
-        ImGui.TextUnformatted(enabled ? "✓" : "✕");
+        ImGui.PushFont(UiBuilder.IconFont);
+        ImGui.SetWindowFontScale(0.9f);
+        var icon = enabled ? FontAwesomeIcon.Check : FontAwesomeIcon.Times;
+        ImGui.TextUnformatted(icon.ToIconString());
+        ImGui.SetWindowFontScale(1f);
+        ImGui.PopFont();
         ImGui.PopStyleColor();
         ImGui.SameLine();
         ImGui.TextUnformatted(label);

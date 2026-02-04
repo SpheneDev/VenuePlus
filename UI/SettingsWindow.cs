@@ -301,10 +301,8 @@ public sealed class SettingsWindow : Window, System.IDisposable
                 var bday = currentBirthday.Value.UtcDateTime;
                 _birthdayMonth = bday.Month;
                 _birthdayDay = bday.Day;
-                _birthdayYearInput = bday.Year == 2000 ? string.Empty : bday.Year.ToString(CultureInfo.InvariantCulture);
-                _birthdayInput = bday.Year == 2000
-                    ? bday.ToString("MM-dd", CultureInfo.InvariantCulture)
-                    : bday.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+                _birthdayYearInput = string.Empty;
+                _birthdayInput = bday.ToString("MM-dd", CultureInfo.InvariantCulture);
             }
             else
             {
@@ -319,8 +317,6 @@ public sealed class SettingsWindow : Window, System.IDisposable
         {
             ImGui.Spacing();
             ImGui.TextDisabled("Set your birthday to show in staff lists.");
-            ImGui.Spacing();
-            ImGui.TextDisabled("Select day and month. Year is optional.");
             ImGui.Spacing();
             var monthNames = new[]
             {
@@ -338,12 +334,7 @@ public sealed class SettingsWindow : Window, System.IDisposable
             }
             ImGui.PopItemWidth();
             ImGui.SameLine();
-            var yearForDays = 2000;
-            if (!string.IsNullOrWhiteSpace(_birthdayYearInput) && int.TryParse(_birthdayYearInput, out var parsedYear) && parsedYear >= 1 && parsedYear <= 9999)
-            {
-                yearForDays = parsedYear;
-            }
-            var maxDay = DateTime.DaysInMonth(yearForDays, _birthdayMonth);
+            var maxDay = DateTime.DaysInMonth(2000, _birthdayMonth);
             if (_birthdayDay > maxDay) _birthdayDay = maxDay;
             if (_birthdayDay < 1) _birthdayDay = 1;
             var dayLabels = new string[maxDay];
@@ -357,34 +348,15 @@ public sealed class SettingsWindow : Window, System.IDisposable
             }
             ImGui.PopItemWidth();
             ImGui.SameLine();
-            ImGui.PushItemWidth(80f);
-            var yearText = _birthdayYearInput;
-            if (ImGui.InputTextWithHint("##birthday_year", "Year", ref yearText, 4))
-            {
-                _birthdayYearInput = yearText;
-                _birthdayDirty = true;
-            }
-            ImGui.PopItemWidth();
-            ImGui.SameLine();
             if (ImGui.Button("Save Birthday"))
             {
                 _birthdayStatus = "Submitting...";
                 System.Threading.Tasks.Task.Run(async () =>
                 {
                     System.DateTimeOffset? bday = null;
-                    var yearTextLocal = _birthdayYearInput?.Trim() ?? string.Empty;
-                    var yearValue = 2000;
-                    if (!string.IsNullOrWhiteSpace(yearTextLocal))
-                    {
-                        if (!int.TryParse(yearTextLocal, out yearValue) || yearValue < 1 || yearValue > 9999)
-                        {
-                            _birthdayStatus = "Invalid year. Use 1 to 9999 or leave empty.";
-                            return;
-                        }
-                    }
                     try
                     {
-                        var normalized = new DateTime(yearValue, _birthdayMonth, _birthdayDay, 0, 0, 0, DateTimeKind.Utc);
+                        var normalized = new DateTime(2000, _birthdayMonth, _birthdayDay, 0, 0, 0, DateTimeKind.Utc);
                         bday = new System.DateTimeOffset(normalized, TimeSpan.Zero);
                     }
                     catch
@@ -403,10 +375,8 @@ public sealed class SettingsWindow : Window, System.IDisposable
                             var bdayVal = bday.Value.UtcDateTime;
                             _birthdayMonth = bdayVal.Month;
                             _birthdayDay = bdayVal.Day;
-                            _birthdayYearInput = bdayVal.Year == 2000 ? string.Empty : bdayVal.Year.ToString(CultureInfo.InvariantCulture);
-                            _birthdayInput = bdayVal.Year == 2000
-                                ? bdayVal.ToString("MM-dd", CultureInfo.InvariantCulture)
-                                : bdayVal.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+                            _birthdayYearInput = string.Empty;
+                            _birthdayInput = bdayVal.ToString("MM-dd", CultureInfo.InvariantCulture);
                         }
                         else
                         {
