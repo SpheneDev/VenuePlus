@@ -55,7 +55,7 @@ public sealed class VipTableComponent
             ImGui.InputText("Character Name", ref _pendingName, 128);
             ImGui.SameLine(); IconDraw.IconText(Dalamud.Interface.FontAwesomeIcon.QuestionCircle, "Enter the exact in-game character name for the VIP");
             ImGui.InputText("Homeworld", ref _pendingWorld, 64);
-            ImGui.SameLine(); IconDraw.IconText(Dalamud.Interface.FontAwesomeIcon.QuestionCircle, "Enter the VIP's homeworld (e.g., 'Omega')");
+            ImGui.SameLine(); IconDraw.IconText(Dalamud.Interface.FontAwesomeIcon.QuestionCircle, "Optional. Leave empty to use 'Unknown'.");
             ImGui.PopItemWidth();
             ImGui.Separator();
             ImGui.TextUnformatted("VIP Duration:");
@@ -69,10 +69,11 @@ public sealed class VipTableComponent
             if (ImGui.RadioButton("Unlimited", dLife)) _pendingDuration = VenuePlus.State.VipDuration.Lifetime;
             ImGui.SameLine(); IconDraw.IconText(Dalamud.Interface.FontAwesomeIcon.Infinity);
             ImGui.Separator();
-            ImGui.BeginDisabled(!canAddVipGlobal || string.IsNullOrWhiteSpace(_pendingName) || string.IsNullOrWhiteSpace(_pendingWorld));
+            ImGui.BeginDisabled(!canAddVipGlobal || string.IsNullOrWhiteSpace(_pendingName));
             if (ImGui.Button("Add"))
             {
-                app.AddVip(_pendingName.Trim(), _pendingWorld.Trim(), _pendingDuration);
+                var world = string.IsNullOrWhiteSpace(_pendingWorld) ? "Unknown" : _pendingWorld.Trim();
+                app.AddVip(_pendingName.Trim(), world, _pendingDuration);
                 _openAddForm = false;
                 _addStatus = string.Empty;
             }

@@ -31,7 +31,7 @@ public sealed class AddVipModal
                 ImGui.InputText("Character Name", ref _pendingName, 128);
                 ImGui.SameLine(); ImGui.PushFont(UiBuilder.IconFont); ImGui.TextUnformatted(FontAwesomeIcon.QuestionCircle.ToIconString()); ImGui.PopFont(); if (ImGui.IsItemHovered()) { ImGui.BeginTooltip(); ImGui.TextUnformatted("Enter the exact in-game character name for the VIP"); ImGui.EndTooltip(); }
                 ImGui.InputText("Homeworld", ref _pendingWorld, 64);
-                ImGui.SameLine(); ImGui.PushFont(UiBuilder.IconFont); ImGui.TextUnformatted(FontAwesomeIcon.QuestionCircle.ToIconString()); ImGui.PopFont(); if (ImGui.IsItemHovered()) { ImGui.BeginTooltip(); ImGui.TextUnformatted("Enter the VIP's homeworld (e.g., 'Omega')"); ImGui.EndTooltip(); }
+                ImGui.SameLine(); ImGui.PushFont(UiBuilder.IconFont); ImGui.TextUnformatted(FontAwesomeIcon.QuestionCircle.ToIconString()); ImGui.PopFont(); if (ImGui.IsItemHovered()) { ImGui.BeginTooltip(); ImGui.TextUnformatted("Optional. Leave empty to use 'Unknown'."); ImGui.EndTooltip(); }
                 ImGui.PopItemWidth();
                 ImGui.Separator();
                 ImGui.TextUnformatted("VIP Duration:");
@@ -47,14 +47,12 @@ public sealed class AddVipModal
 
                 ImGui.Separator();
                 var canAdd = app.IsOwnerCurrentClub || (app.HasStaffSession && app.StaffCanAddVip);
-                ImGui.BeginDisabled(!canAdd);
+                ImGui.BeginDisabled(!canAdd || string.IsNullOrWhiteSpace(_pendingName));
                 if (ImGui.Button("Add"))
                 {
-                    if (!string.IsNullOrWhiteSpace(_pendingName) && !string.IsNullOrWhiteSpace(_pendingWorld))
-                    {
-                        app.AddVip(_pendingName.Trim(), _pendingWorld.Trim(), _pendingDuration);
-                        _open = false;
-                    }
+                    var world = string.IsNullOrWhiteSpace(_pendingWorld) ? "Unknown" : _pendingWorld.Trim();
+                    app.AddVip(_pendingName.Trim(), world, _pendingDuration);
+                    _open = false;
                 }
                 ImGui.EndDisabled();
                 if (ImGui.IsItemHovered(ImGuiHoveredFlags.AllowWhenDisabled)) { ImGui.BeginTooltip(); ImGui.TextUnformatted(canAdd ? "Add VIP with entered details" : "Requires Owner or Add VIP rights"); ImGui.EndTooltip(); }
