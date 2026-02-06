@@ -768,17 +768,6 @@ public sealed class VenuePlusWindow : Window, IDisposable
                 ImGui.EndChild();
                 ImGui.EndTabItem();
             }
-            if (showShiftTab && ImGui.BeginTabItem("Schedule"))
-            {
-                if (ImGui.IsItemActivated()) ResetStatusMessages();
-                ImGui.BeginChild("ShiftsTabContent", new Vector2(0, ImGui.GetContentRegionAvail().Y), false);
-                _vipTable.CloseAddForm();
-                _staffList.CloseInviteInline();
-                _djList.CloseAddForm();
-                _shiftPlan.Draw(_app);
-                ImGui.EndChild();
-                ImGui.EndTabItem();
-            }
             if (_app.HasStaffSession)
             {
                 if (ImGui.BeginTabItem("DJs"))
@@ -976,6 +965,17 @@ public sealed class VenuePlusWindow : Window, IDisposable
                     ImGui.EndChild();
                     ImGui.EndTabItem();
                 }
+            }
+            if (showShiftTab && ImGui.BeginTabItem("Schedule"))
+            {
+                if (ImGui.IsItemActivated()) ResetStatusMessages();
+                ImGui.BeginChild("ShiftsTabContent", new Vector2(0, ImGui.GetContentRegionAvail().Y), false);
+                _vipTable.CloseAddForm();
+                _staffList.CloseInviteInline();
+                _djList.CloseAddForm();
+                _shiftPlan.Draw(_app);
+                ImGui.EndChild();
+                ImGui.EndTabItem();
             }
             if (_app.IsOwnerCurrentClub || (_app.HasStaffSession && _app.StaffCanManageJobs))
             {
