@@ -107,6 +107,46 @@ public sealed class VipTableComponent
         ImGui.EndDisabled();
         ImGui.Separator();
 
+        System.Array.Sort(items, (a, b) =>
+        {
+            int r = 0;
+            switch (_sortCol)
+            {
+                case 0:
+                    r = string.Compare(a.CharacterName, b.CharacterName, System.StringComparison.OrdinalIgnoreCase);
+                    break;
+                case 1:
+                    r = string.Compare(a.HomeWorld, b.HomeWorld, System.StringComparison.OrdinalIgnoreCase);
+                    break;
+                case 2:
+                    {
+                        double va = a.Duration == VipDuration.Lifetime ? double.MaxValue : (a.ExpiresAt.HasValue ? (a.ExpiresAt.Value.ToUniversalTime() - DateTimeOffset.UtcNow).TotalMinutes : 0.0);
+                        double vb = b.Duration == VipDuration.Lifetime ? double.MaxValue : (b.ExpiresAt.HasValue ? (b.ExpiresAt.Value.ToUniversalTime() - DateTimeOffset.UtcNow).TotalMinutes : 0.0);
+                        r = va.CompareTo(vb);
+                    }
+                    break;
+                case 3:
+                    r = a.Duration.CompareTo(b.Duration);
+                    break;
+            }
+            return _sortAsc ? r : -r;
+        });
+
+        var startIndex = _pageIndex * pageSize;
+        var endIndex = Math.Min(items.Length, startIndex + pageSize);
+        var editKeyInPage = false;
+        if (!string.IsNullOrWhiteSpace(_editKey))
+        {
+            for (int i = startIndex; i < endIndex; i++)
+            {
+                if (string.Equals(items[i].Key, _editKey, StringComparison.Ordinal))
+                {
+                    editKeyInPage = true;
+                    break;
+                }
+            }
+        }
+
         var style = ImGui.GetStyle();
         ImGui.PushFont(UiBuilder.IconFont);
         ImGui.SetWindowFontScale(0.9f);
@@ -114,7 +154,7 @@ public sealed class VipTableComponent
         int actionsCount = 0;
         var canRemoveGlobal = app.IsOwnerCurrentClub || (app.HasStaffSession && app.StaffCanRemoveVip);
         var canSetDurationGlobal = app.IsOwnerCurrentClub || (app.HasStaffSession && app.StaffCanEditVipDuration);
-        var canEditHomeWorldGlobal = canSetDurationGlobal;
+        var canEditHomeWorldGlobal = app.IsOwnerCurrentClub || (app.HasStaffSession && app.StaffCanEditVipHomeWorld);
         if (canRemoveGlobal)
         {
             actionsWidth += ImGui.CalcTextSize(FontAwesomeIcon.Trash.ToIconString()).X + style.FramePadding.X * 2f;
@@ -129,15 +169,22 @@ public sealed class VipTableComponent
         }
         if (canEditHomeWorldGlobal)
         {
-            actionsWidth += ImGui.CalcTextSize(FontAwesomeIcon.Edit.ToIconString()).X + style.FramePadding.X * 2f;
-            actionsWidth += ImGui.CalcTextSize(FontAwesomeIcon.Save.ToIconString()).X + style.FramePadding.X * 2f;
-            actionsWidth += ImGui.CalcTextSize(FontAwesomeIcon.Times.ToIconString()).X + style.FramePadding.X * 2f;
-            actionsCount += 3;
+            if (editKeyInPage)
+            {
+                actionsWidth += ImGui.CalcTextSize(FontAwesomeIcon.Save.ToIconString()).X + style.FramePadding.X * 2f;
+                actionsWidth += ImGui.CalcTextSize(FontAwesomeIcon.Times.ToIconString()).X + style.FramePadding.X * 2f;
+                actionsCount += 2;
+            }
+            else
+            {
+                actionsWidth += ImGui.CalcTextSize(FontAwesomeIcon.Edit.ToIconString()).X + style.FramePadding.X * 2f;
+                actionsCount++;
+            }
         }
         ImGui.SetWindowFontScale(1f);
         ImGui.PopFont();
         if (actionsCount > 1) actionsWidth += style.ItemSpacing.X * (actionsCount - 1);
-        var showActions = canRemoveGlobal || canSetDurationGlobal;
+        var showActions = canRemoveGlobal || canSetDurationGlobal || canEditHomeWorldGlobal;
         if (showActions && actionsWidth <= 0f) actionsWidth = ImGui.GetFrameHeight() * 1.5f;
 
         var sampleRem = "999d 23h";
@@ -169,33 +216,6 @@ public sealed class VipTableComponent
                 ImGui.TextUnformatted("Actions");
             }
 
-            System.Array.Sort(items, (a, b) =>
-            {
-                int r = 0;
-                switch (_sortCol)
-                {
-                    case 0:
-                        r = string.Compare(a.CharacterName, b.CharacterName, System.StringComparison.OrdinalIgnoreCase);
-                        break;
-                    case 1:
-                        r = string.Compare(a.HomeWorld, b.HomeWorld, System.StringComparison.OrdinalIgnoreCase);
-                        break;
-                    case 2:
-                        {
-                            double va = a.Duration == VipDuration.Lifetime ? double.MaxValue : (a.ExpiresAt.HasValue ? (a.ExpiresAt.Value.ToUniversalTime() - DateTimeOffset.UtcNow).TotalMinutes : 0.0);
-                            double vb = b.Duration == VipDuration.Lifetime ? double.MaxValue : (b.ExpiresAt.HasValue ? (b.ExpiresAt.Value.ToUniversalTime() - DateTimeOffset.UtcNow).TotalMinutes : 0.0);
-                            r = va.CompareTo(vb);
-                        }
-                        break;
-                    case 3:
-                        r = a.Duration.CompareTo(b.Duration);
-                        break;
-                }
-                return _sortAsc ? r : -r;
-            });
-
-            var startIndex = _pageIndex * pageSize;
-            var endIndex = Math.Min(items.Length, startIndex + pageSize);
             for (int i = startIndex; i < endIndex; i++)
             {
                 var e = items[i];

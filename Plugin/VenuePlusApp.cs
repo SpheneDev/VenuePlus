@@ -275,12 +275,11 @@ public sealed class VenuePlusApp : IDisposable, IEventListener
         if (string.IsNullOrWhiteSpace(characterName) || string.IsNullOrWhiteSpace(oldHomeWorld) || string.IsNullOrWhiteSpace(newHomeWorld)) return false;
         if (string.Equals(oldHomeWorld, newHomeWorld, StringComparison.Ordinal)) return true;
         var canOwner = IsOwnerCurrentClub;
-        var canEdit = HasStaffSession && StaffCanEditVipDuration;
+        var canEdit = HasStaffSession && StaffCanEditVipHomeWorld;
         if (!(canOwner || canEdit)) return false;
         var updated = _vipService.UpdateHomeWorld(characterName, oldHomeWorld, newHomeWorld);
         if (updated == null) return false;
-        TryPublishRemove(new VipEntry { CharacterName = characterName, HomeWorld = oldHomeWorld, Duration = updated.Duration, CreatedAt = updated.CreatedAt, ExpiresAt = updated.ExpiresAt });
-        TryPublishAdd(updated);
+        TryPublishHomeWorldUpdate(characterName, oldHomeWorld, newHomeWorld);
         return true;
     }
 
@@ -400,7 +399,9 @@ public sealed class VenuePlusApp : IDisposable, IEventListener
     public string CurrentStaffUsername => _staffUsername ?? string.Empty;
     public bool StaffCanAddVip => _selfRights.TryGetValue("addVip", out var b) && b;
     public bool StaffCanRemoveVip => _selfRights.TryGetValue("removeVip", out var b) && b;
+    public bool StaffCanEditVipHomeWorld => _selfRights.TryGetValue("editVipHomeWorld", out var b) && b;
     public bool StaffCanManageUsers => _selfRights.TryGetValue("manageUsers", out var b) && b;
+    public bool StaffCanDeleteStaffMember => _selfRights.TryGetValue("deleteStaffMember", out var b) && b;
     public bool StaffCanManageJobs => _selfRights.TryGetValue("manageJobs", out var b) && b;
     public bool StaffCanManageVenueSettings => _selfRights.TryGetValue("manageVenueSettings", out var b) && b;
     public bool StaffCanEditVipDuration => _selfRights.TryGetValue("editVipDuration", out var b) && b;
@@ -1935,7 +1936,9 @@ public sealed class VenuePlusApp : IDisposable, IEventListener
         {
             ["addVip"] = r.AddVip,
             ["removeVip"] = r.RemoveVip,
+            ["editVipHomeWorld"] = r.EditVipHomeWorld,
             ["manageUsers"] = r.ManageUsers,
+            ["deleteStaffMember"] = r.DeleteStaffMember,
             ["manageJobs"] = r.ManageJobs,
             ["manageVenueSettings"] = r.ManageVenueSettings,
             ["editVipDuration"] = r.EditVipDuration,
@@ -1951,7 +1954,9 @@ public sealed class VenuePlusApp : IDisposable, IEventListener
         if (rightsCache == null || jobs.Length == 0) { _selfRights = new System.Collections.Generic.Dictionary<string, bool>(); return; }
         bool addVip = false;
         bool removeVip = false;
+        bool editVipHomeWorld = false;
         bool manageUsers = false;
+        bool deleteStaffMember = false;
         bool manageJobs = false;
         bool editVipDuration = false;
         bool addDj = false;
@@ -1965,7 +1970,9 @@ public sealed class VenuePlusApp : IDisposable, IEventListener
             {
                 addVip |= r.AddVip;
                 removeVip |= r.RemoveVip;
+                editVipHomeWorld |= r.EditVipHomeWorld;
                 manageUsers |= r.ManageUsers;
+                deleteStaffMember |= r.DeleteStaffMember;
                 manageJobs |= r.ManageJobs;
                 editVipDuration |= r.EditVipDuration;
                 addDj |= r.AddDj;
@@ -1978,7 +1985,9 @@ public sealed class VenuePlusApp : IDisposable, IEventListener
         {
             ["addVip"] = addVip,
             ["removeVip"] = removeVip,
+            ["editVipHomeWorld"] = editVipHomeWorld,
             ["manageUsers"] = manageUsers,
+            ["deleteStaffMember"] = deleteStaffMember,
             ["manageJobs"] = manageJobs,
             ["manageVenueSettings"] = manageVenueSettings,
             ["editVipDuration"] = editVipDuration,
@@ -2212,7 +2221,7 @@ public sealed class VenuePlusApp : IDisposable, IEventListener
     public string? CurrentStaffUid => _selfUid;
     public System.DateTimeOffset? CurrentStaffBirthday => _selfBirthday;
 
-    public async System.Threading.Tasks.Task<bool> UpdateJobRightsAsync(string name, bool addVip, bool removeVip, bool manageUsers, bool manageJobs, bool manageVenueSettings, bool editVipDuration, bool addDj, bool removeDj, bool editShiftPlan, string colorHex = "#FFFFFF", string iconKey = "User", int rank = 1)
+    public async System.Threading.Tasks.Task<bool> UpdateJobRightsAsync(string name, bool addVip, bool removeVip, bool editVipHomeWorld, bool manageUsers, bool deleteStaffMember, bool manageJobs, bool manageVenueSettings, bool editVipDuration, bool addDj, bool removeDj, bool editShiftPlan, string colorHex = "#FFFFFF", string iconKey = "User", int rank = 1)
     {
         var sess = _staffToken ?? string.Empty;
         if (string.IsNullOrWhiteSpace(sess)) return false;
@@ -2220,7 +2229,7 @@ public sealed class VenuePlusApp : IDisposable, IEventListener
         if (string.Equals(name, "Owner", System.StringComparison.Ordinal)) r = 10;
         else if (string.Equals(name, "Unassigned", System.StringComparison.Ordinal)) r = 0;
         else r = rank <= 0 ? 1 : (rank > 9 ? 9 : rank);
-        var info = new JobRightsInfo { AddVip = addVip, RemoveVip = removeVip, ManageUsers = manageUsers, ManageJobs = manageJobs, ManageVenueSettings = manageVenueSettings, EditVipDuration = editVipDuration, AddDj = addDj, RemoveDj = removeDj, EditShiftPlan = editShiftPlan, Rank = r, ColorHex = colorHex ?? "#FFFFFF", IconKey = iconKey ?? "User" };
+        var info = new JobRightsInfo { AddVip = addVip, RemoveVip = removeVip, EditVipHomeWorld = editVipHomeWorld, ManageUsers = manageUsers, DeleteStaffMember = deleteStaffMember, ManageJobs = manageJobs, ManageVenueSettings = manageVenueSettings, EditVipDuration = editVipDuration, AddDj = addDj, RemoveDj = removeDj, EditShiftPlan = editShiftPlan, Rank = r, ColorHex = colorHex ?? "#FFFFFF", IconKey = iconKey ?? "User" };
         return await _remote.UpdateJobRightsAsync(name, info, sess);
     }
 
@@ -2292,6 +2301,7 @@ public sealed class VenuePlusApp : IDisposable, IEventListener
     {
         var staffSess = _staffToken ?? string.Empty;
         if (!string.IsNullOrWhiteSpace(_staffUsername) && string.Equals(username, _staffUsername, System.StringComparison.Ordinal)) return false;
+        if (!IsOwnerCurrentClub && !(HasStaffSession && StaffCanDeleteStaffMember)) return false;
         if (string.IsNullOrWhiteSpace(staffSess)) return false;
         return await _remote.DeleteUserAsync(username, staffSess);
     }
@@ -2435,6 +2445,20 @@ public sealed class VenuePlusApp : IDisposable, IEventListener
         catch (Exception ex)
         {
             _log?.Error($"Publish remove session failed: {ex.Message}");
+        }
+    }
+
+    private async void TryPublishHomeWorldUpdate(string characterName, string oldHomeWorld, string newHomeWorld)
+    {
+        if (!HasStaffSession) { _log?.Debug("Publish homeworld update denied: not authorized"); return; }
+        try
+        {
+            var okSess = await _remote.UpdateVipHomeWorldWithSessionAsync(characterName, oldHomeWorld, newHomeWorld, _staffToken!);
+            _log?.Debug($"Publish homeworld update session ok={okSess}");
+        }
+        catch (Exception ex)
+        {
+            _log?.Error($"Publish homeworld update session failed: {ex.Message}");
         }
     }
 

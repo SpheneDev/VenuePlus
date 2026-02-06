@@ -552,28 +552,9 @@ public sealed class StaffListComponent
         }
         ImGui.Separator();
         var style = ImGui.GetStyle();
-        ImGui.PushFont(UiBuilder.IconFont);
-        ImGui.SetWindowFontScale(0.9f);
-        var canAct = app.IsOwnerCurrentClub || (app.HasStaffSession && app.StaffCanManageUsers);
+        var canManageStaff = app.IsOwnerCurrentClub || (app.HasStaffSession && app.StaffCanManageUsers);
+        var canDeleteStaff = app.IsOwnerCurrentClub || (app.HasStaffSession && app.StaffCanDeleteStaffMember);
         var canAssignShift = _assignShiftAction != null && (app.IsOwnerCurrentClub || (app.HasStaffSession && app.StaffCanEditShiftPlan));
-        float actionsWidth = 0f;
-        int actionsCount = 0;
-        if (canAct)
-        {
-            actionsWidth += ImGui.CalcTextSize(FontAwesomeIcon.Trash.ToIconString()).X + style.FramePadding.X * 2f; actionsCount++;
-            actionsWidth += ImGui.CalcTextSize(FontAwesomeIcon.Save.ToIconString()).X + style.FramePadding.X * 2f; actionsCount++;
-            actionsWidth += ImGui.CalcTextSize(FontAwesomeIcon.Calendar.ToIconString()).X + style.FramePadding.X * 2f; actionsCount++;
-            actionsWidth += ImGui.CalcTextSize(FontAwesomeIcon.Link.ToIconString()).X + style.FramePadding.X * 2f; actionsCount++;
-        }
-        if (canAssignShift)
-        {
-            actionsWidth += ImGui.CalcTextSize(FontAwesomeIcon.Clock.ToIconString()).X + style.FramePadding.X * 2f; actionsCount++;
-        }
-        ImGui.SetWindowFontScale(1f);
-        ImGui.PopFont();
-        if (actionsCount > 1) actionsWidth += style.ItemSpacing.X * (actionsCount - 1);
-        var showActions = actionsCount > 0;
-        if (showActions && actionsWidth <= 0f) actionsWidth = ImGui.GetFrameHeight() * 1.5f;
 
         if (!string.Equals(_pageFilter, _filter, StringComparison.Ordinal))
         {
@@ -628,6 +609,76 @@ public sealed class StaffListComponent
         var pageItems = new StaffUser[pageCount];
         if (pageCount > 0) Array.Copy(visible, startIndex, pageItems, 0, pageCount);
 
+        ImGui.PushFont(UiBuilder.IconFont);
+        ImGui.SetWindowFontScale(0.9f);
+        var trashW = ImGui.CalcTextSize(FontAwesomeIcon.Trash.ToIconString()).X + style.FramePadding.X * 2f;
+        var saveW = ImGui.CalcTextSize(FontAwesomeIcon.Save.ToIconString()).X + style.FramePadding.X * 2f;
+        var calendarW = ImGui.CalcTextSize(FontAwesomeIcon.Calendar.ToIconString()).X + style.FramePadding.X * 2f;
+        var linkW = ImGui.CalcTextSize(FontAwesomeIcon.Link.ToIconString()).X + style.FramePadding.X * 2f;
+        var clockW = ImGui.CalcTextSize(FontAwesomeIcon.Clock.ToIconString()).X + style.FramePadding.X * 2f;
+        float actionsWidth = 0f;
+        int actionsCount = 0;
+        var currentUser = app.CurrentStaffUsername ?? string.Empty;
+        var rightsCacheSavePreview = app.GetJobRightsCache();
+        for (int i = 0; i < pageItems.Length; i++)
+        {
+            var u = pageItems[i];
+            var identity = GetIdentity(u);
+            if (string.IsNullOrWhiteSpace(identity)) continue;
+            var key = (app.CurrentClubId ?? string.Empty) + "|" + identity;
+            var hasUsername = !string.IsNullOrWhiteSpace(u.Username);
+            var isSelfRow = !string.IsNullOrWhiteSpace(currentUser) && string.Equals(u.Username, currentUser, StringComparison.Ordinal);
+            string[] currentJobs;
+            if (_selectedJobsByClub.TryGetValue(key, out var set))
+            {
+                currentJobs = NormalizeJobs(set);
+            }
+            else
+            {
+                currentJobs = NormalizeJobs(GetJobsFromUser(u));
+            }
+            var isOwnerRow = HasOwner(currentJobs);
+            var rowCount = 0;
+            var rowWidth = 0f;
+            if (canAssignShift && hasUsername)
+            {
+                rowWidth += clockW;
+                rowCount++;
+            }
+            if (canDeleteStaff && !isOwnerRow && !isSelfRow && hasUsername)
+            {
+                rowWidth += trashW;
+                rowCount++;
+            }
+            if (canManageStaff)
+            {
+                var selfLosesManageJobs = isSelfRow && !isOwnerRow && !HasManageJobs(rightsCacheSavePreview, currentJobs);
+                var canSave = !(isOwnerRow && !app.IsOwnerCurrentClub) && !selfLosesManageJobs && hasUsername;
+                if (canSave)
+                {
+                    rowWidth += saveW;
+                    rowCount++;
+                }
+                if (u.IsManual)
+                {
+                    rowWidth += calendarW;
+                    rowCount++;
+                    if (!isOwnerRow && !isSelfRow && hasUsername)
+                    {
+                        rowWidth += linkW;
+                        rowCount++;
+                    }
+                }
+            }
+            if (rowCount > 1) rowWidth += style.ItemSpacing.X * (rowCount - 1);
+            if (rowCount > actionsCount) actionsCount = rowCount;
+            if (rowWidth > actionsWidth) actionsWidth = rowWidth;
+        }
+        ImGui.SetWindowFontScale(1f);
+        ImGui.PopFont();
+        var showActions = actionsCount > 0;
+        if (showActions && actionsWidth <= 0f) actionsWidth = ImGui.GetFrameHeight() * 1.5f;
+
         var flags = ImGuiTableFlags.RowBg | ImGuiTableFlags.Borders | ImGuiTableFlags.SizingStretchProp;
         if (ImGui.BeginTable("staff_table", showActions ? 3 : 2, flags))
         {
@@ -672,6 +723,10 @@ public sealed class StaffListComponent
                     displayName = fullName.Substring(0, atIndex);
                     homeWorld = fullName[(atIndex + 1)..];
                 }
+                if (string.IsNullOrWhiteSpace(displayName))
+                {
+                    displayName = string.IsNullOrWhiteSpace(identity) ? "Unknown" : identity;
+                }
                 var textH = ImGui.CalcTextSize(displayName).Y;
                 const float nameOffsetY = -1f;
                 var contentH = statusIconH > textH ? statusIconH : textH;
@@ -712,9 +767,23 @@ public sealed class StaffListComponent
                 var showTooltip = ImGui.IsItemHovered();
                 if (u.IsManual)
                 {
-                    ImGui.SameLine();
-                    ImGui.TextDisabled("Manual (Editable)");
-                    showTooltip = showTooltip || ImGui.IsItemHovered();
+                    ImGui.SameLine(0f, 6f);
+                    ImGui.PushFont(UiBuilder.IconFont);
+                    ImGui.PushStyleColor(ImGuiCol.Text, ImGui.GetColorU32(ImGuiCol.TextDisabled));
+                    ImGui.SetWindowFontScale(0.9f);
+                    var manualIconH = ImGui.CalcTextSize(FontAwesomeIcon.Edit.ToIconString()).Y;
+                    ImGui.SetCursorPosY(baseY + (rowHeight - manualIconH) / 2f + nameOffsetY);
+                    ImGui.TextUnformatted(FontAwesomeIcon.Edit.ToIconString());
+                    ImGui.SetWindowFontScale(1f);
+                    ImGui.PopStyleColor();
+                    ImGui.PopFont();
+                    var manualHover = ImGui.IsItemHovered();
+                    if (manualHover)
+                    {
+                        ImGui.BeginTooltip();
+                        ImGui.TextUnformatted("Manual entry");
+                        ImGui.EndTooltip();
+                    }
                 }
                 if (showTooltip)
                 {
@@ -722,7 +791,7 @@ public sealed class StaffListComponent
                     var createdStr = u.CreatedAt?.ToUniversalTime().ToString("yyyy-MM-dd HH:mm 'UTC'", CultureInfo.InvariantCulture) ?? "--";
                     ImGui.TextUnformatted($"Added: {createdStr}");
                     if (!string.IsNullOrWhiteSpace(homeWorld)) ImGui.TextUnformatted($"Homeworld: {homeWorld}");
-                    if (u.IsManual) ImGui.TextUnformatted("Manual Entry (Editable)");
+                    if (u.IsManual) ImGui.TextUnformatted("Manual entry");
                     ImGui.EndTooltip();
                 }
                 ImGui.TableSetColumnIndex(1);
@@ -826,7 +895,7 @@ public sealed class StaffListComponent
             ImGui.PushItemWidth(comboW);
             var isOwnerJob = HasOwner(currentArr);
             var hasUsername = !string.IsNullOrWhiteSpace(usernameSafe);
-            ImGui.BeginDisabled(!canAct || (isOwnerJob && !app.IsOwnerCurrentClub) || !hasUsername);
+            ImGui.BeginDisabled(!canManageStaff || (isOwnerJob && !app.IsOwnerCurrentClub) || !hasUsername);
             if (ImGui.BeginCombo($"##job_{identity}", setRoleLabel, ImGuiComboFlags.NoArrowButton))
             {
                 if (currentArr.Length == 1 && Array.IndexOf(_jobOptions ?? Array.Empty<string>(), currentArr[0]) < 0)
@@ -905,16 +974,19 @@ public sealed class StaffListComponent
                         if (ImGui.IsItemHovered()) { ImGui.BeginTooltip(); ImGui.TextUnformatted("Assign a shift to this user"); ImGui.EndTooltip(); }
                         printed = true;
                     }
-                    if (canAct)
+                    if (canDeleteStaff || canManageStaff)
                     {
+                        if (printed) ImGui.SameLine();
                         ImGui.PushFont(UiBuilder.IconFont);
                         ImGui.SetWindowFontScale(0.9f);
                         ImGui.SetCursorPosY(rowCenterY - ImGui.GetFrameHeight() / 2f);
                         var isOwnerRow = _selectedJobsByClub.TryGetValue(key, out var ownerSet) && ownerSet.Contains("Owner");
                         var isSelfRow = !string.IsNullOrWhiteSpace(app.CurrentStaffUsername) && string.Equals(usernameSafe, app.CurrentStaffUsername, System.StringComparison.Ordinal);
-                        var ctrlDown = ImGui.GetIO().KeyCtrl;
-                        if (ctrlDown && !isOwnerRow && !isSelfRow && hasUsername)
+                        var hoverDelete = false;
+                        if (canDeleteStaff && !isOwnerRow && !isSelfRow && hasUsername)
                         {
+                            var ctrlDown = ImGui.GetIO().KeyCtrl;
+                            ImGui.BeginDisabled(!ctrlDown);
                             if (ImGui.Button(FontAwesomeIcon.Trash.ToIconString() + $"##rm_{identity}"))
                             {
                                 _rowStatus[identity] = "Removing...";
@@ -924,11 +996,13 @@ public sealed class StaffListComponent
                                     _rowStatus[identity] = ok ? "Removed" : (app.GetLastServerMessage() ?? "Remove failed");
                                 });
                             }
-                            if (ImGui.IsItemHovered()) { ImGui.BeginTooltip(); ImGui.TextUnformatted("Remove this staff member"); ImGui.EndTooltip(); }
+                            ImGui.EndDisabled();
+                            hoverDelete = ImGui.IsItemHovered();
                             printed = true;
                         }
                         ImGui.SetWindowFontScale(1f);
                         ImGui.PopFont();
+                        if (hoverDelete) { ImGui.BeginTooltip(); ImGui.TextUnformatted("Remove this staff member"); ImGui.EndTooltip(); }
 
                         if (printed) ImGui.SameLine();
                         ImGui.PushFont(UiBuilder.IconFont);
@@ -938,7 +1012,8 @@ public sealed class StaffListComponent
                         var rightsCacheSave = app.GetJobRightsCache();
                         var selfLosesManageJobs = isSelfRow && !isOwnerRow && !HasManageJobs(rightsCacheSave, newJobsSelf);
                         var canSave = !(isOwnerRow && !app.IsOwnerCurrentClub) && !selfLosesManageJobs && hasUsername;
-                        if (canSave)
+                        var hoverSave = false;
+                        if (canManageStaff && canSave)
                         {
                             if (ImGui.Button(FontAwesomeIcon.Save.ToIconString() + $"##save_{identity}"))
                             {
@@ -966,17 +1041,19 @@ public sealed class StaffListComponent
                                     });
                                 }
                             }
-                            if (ImGui.IsItemHovered()) { ImGui.BeginTooltip(); ImGui.TextUnformatted("Save changes to this staff member's job"); ImGui.EndTooltip(); }
+                            hoverSave = ImGui.IsItemHovered();
                             printed = true;
                         }
                         ImGui.SetWindowFontScale(1f);
                         ImGui.PopFont();
+                        if (hoverSave) { ImGui.BeginTooltip(); ImGui.TextUnformatted("Save changes to this staff member's job"); ImGui.EndTooltip(); }
 
                         if (printed) ImGui.SameLine();
                         ImGui.PushFont(UiBuilder.IconFont);
                         ImGui.SetWindowFontScale(0.9f);
                         ImGui.SetCursorPosY(rowCenterY - ImGui.GetFrameHeight() / 2f);
-                        if (u.IsManual)
+                        var hoverBirthday = false;
+                        if (canManageStaff && u.IsManual)
                         {
                             if (ImGui.Button(FontAwesomeIcon.Calendar.ToIconString() + $"##birthday_{identity}"))
                             {
@@ -985,17 +1062,19 @@ public sealed class StaffListComponent
                                 _editBirthdayUserSnapshot = string.Empty;
                                 _editBirthdayStatus = string.Empty;
                             }
-                            if (ImGui.IsItemHovered()) { ImGui.BeginTooltip(); ImGui.TextUnformatted("Edit birthday"); ImGui.EndTooltip(); }
+                            hoverBirthday = ImGui.IsItemHovered();
                             printed = true;
                         }
                         ImGui.SetWindowFontScale(1f);
                         ImGui.PopFont();
+                        if (hoverBirthday) { ImGui.BeginTooltip(); ImGui.TextUnformatted("Edit birthday"); ImGui.EndTooltip(); }
 
                         if (printed) ImGui.SameLine();
                         ImGui.PushFont(UiBuilder.IconFont);
                         ImGui.SetWindowFontScale(0.9f);
                         ImGui.SetCursorPosY(rowCenterY - ImGui.GetFrameHeight() / 2f);
-                        if (u.IsManual && !isOwnerRow && !isSelfRow && hasUsername)
+                        var hoverLink = false;
+                        if (canManageStaff && u.IsManual && !isOwnerRow && !isSelfRow && hasUsername)
                         {
                             if (ImGui.Button(FontAwesomeIcon.Link.ToIconString() + $"##link_{identity}"))
                             {
@@ -1006,11 +1085,12 @@ public sealed class StaffListComponent
                                 _manualLinkStatus = string.Empty;
                                 _focusManualLinkTarget = true;
                             }
-                            if (ImGui.IsItemHovered()) { ImGui.BeginTooltip(); ImGui.TextUnformatted("Link this manual entry to a real user UID"); ImGui.EndTooltip(); }
+                            hoverLink = ImGui.IsItemHovered();
                             printed = true;
                         }
                         ImGui.SetWindowFontScale(1f);
                         ImGui.PopFont();
+                        if (hoverLink) { ImGui.BeginTooltip(); ImGui.TextUnformatted("Link this manual entry to a real user UID"); ImGui.EndTooltip(); }
                     }
                     if (!string.IsNullOrWhiteSpace(identity) && _rowStatus.TryGetValue(identity, out var rs) && !string.IsNullOrEmpty(rs))
                     {

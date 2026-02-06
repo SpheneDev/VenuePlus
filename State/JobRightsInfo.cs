@@ -6,7 +6,9 @@ public sealed class JobRightsInfo
 {
     public bool AddVip { get; set; }
     public bool RemoveVip { get; set; }
+    public bool EditVipHomeWorld { get; set; }
     public bool ManageUsers { get; set; }
+    public bool DeleteStaffMember { get; set; }
     public bool ManageJobs { get; set; }
     public bool ManageVenueSettings { get; set; }
     public bool EditVipDuration { get; set; }

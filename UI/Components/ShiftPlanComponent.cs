@@ -563,20 +563,27 @@ public sealed class ShiftPlanComponent
                 var u = _staffUsers[i];
                 var label = (u.Username ?? string.Empty) + " [" + (u.Job ?? string.Empty) + "]";
                 bool sel = _selUserIdx == i;
-                if (ImGui.Selectable(label, sel)) { _selUserIdx = i; _selUid = string.IsNullOrWhiteSpace(u.Uid) ? null : u.Uid; if (string.IsNullOrWhiteSpace(_selJob)) _selJob = u.Job ?? _selJob; }
+                if (ImGui.Selectable(label, sel))
+                {
+                    _selUserIdx = i;
+                    _selUid = string.IsNullOrWhiteSpace(u.Uid) ? null : u.Uid;
+                    _selJob = SelectJobForUser(u, _selJob, _jobs);
+                }
             }
             ImGui.EndCombo();
         }
         ImGui.PopItemWidth();
 
         ImGui.PushItemWidth(220f);
+        var allowedJobs = GetAllowedJobsForSelectedUser(_staffUsers, _selUserIdx, _jobs);
+        if (!IsJobAllowed(_selJob, allowedJobs)) _selJob = allowedJobs.Length > 0 ? allowedJobs[0] : null;
         var selJobLabel = string.IsNullOrWhiteSpace(_selJob) ? "(none)" : _selJob;
         if (ImGui.BeginCombo("##job", selJobLabel))
         {
             if (ImGui.Selectable("(none)", string.IsNullOrWhiteSpace(_selJob))) { _selJob = null; }
-            for (int i = 0; i < _jobs.Length; i++)
+            for (int i = 0; i < allowedJobs.Length; i++)
             {
-                var j = _jobs[i] ?? string.Empty;
+                var j = allowedJobs[i] ?? string.Empty;
                 bool sel = string.Equals(_selJob, j, StringComparison.Ordinal);
                 if (ImGui.Selectable(j, sel)) { _selJob = j; }
             }
@@ -923,6 +930,52 @@ public sealed class ShiftPlanComponent
         if (string.IsNullOrWhiteSpace(title)) return s + "-" + ee + " " + whoLabel;
         if (string.IsNullOrWhiteSpace(whoLabel)) return s + "-" + ee + " " + title;
         return s + "-" + ee + " " + title + " (" + whoLabel + ")";
+    }
+
+    private static string[] GetAllowedJobsForSelectedUser(StaffUser[] users, int selectedIndex, string[] allJobs)
+    {
+        if (selectedIndex < 0 || selectedIndex >= users.Length) return allJobs ?? Array.Empty<string>();
+        var user = users[selectedIndex];
+        var userJobs = user.Jobs ?? Array.Empty<string>();
+        var set = new System.Collections.Generic.HashSet<string>(StringComparer.Ordinal);
+        for (int i = 0; i < userJobs.Length; i++)
+        {
+            var j = userJobs[i];
+            if (!string.IsNullOrWhiteSpace(j)) set.Add(j);
+        }
+        if (set.Count == 0 && !string.IsNullOrWhiteSpace(user.Job)) set.Add(user.Job);
+        var list = new System.Collections.Generic.List<string>();
+        if (allJobs != null)
+        {
+            for (int i = 0; i < allJobs.Length; i++)
+            {
+                var j = allJobs[i] ?? string.Empty;
+                if (set.Contains(j)) list.Add(j);
+            }
+        }
+        foreach (var j in set)
+        {
+            if (!list.Contains(j)) list.Add(j);
+        }
+        return list.ToArray();
+    }
+
+    private static bool IsJobAllowed(string? job, string[] allowed)
+    {
+        if (string.IsNullOrWhiteSpace(job) || allowed == null) return false;
+        for (int i = 0; i < allowed.Length; i++)
+        {
+            if (string.Equals(allowed[i], job, StringComparison.Ordinal)) return true;
+        }
+        return false;
+    }
+
+    private static string? SelectJobForUser(StaffUser user, string? currentJob, string[] allJobs)
+    {
+        var jobs = GetAllowedJobsForSelectedUser(new[] { user }, 0, allJobs);
+        if (jobs.Length == 0) return null;
+        if (IsJobAllowed(currentJob, jobs)) return currentJob;
+        return jobs[0];
     }
 
     private void BeginEditShift(ShiftEntry e, VenuePlusApp app)

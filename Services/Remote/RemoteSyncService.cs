@@ -302,6 +302,28 @@ public sealed class RemoteSyncService : IDisposable
         return false;
     }
 
+    public async Task<bool> UpdateVipHomeWorldWithSessionAsync(string characterName, string oldHomeWorld, string newHomeWorld, string session)
+    {
+        if (_useWebSocket && _ws != null && _ws.State == WebSocketState.Open)
+        {
+            try
+            {
+                var tcs = new TaskCompletionSource<bool>();
+                _pendingVipUpdateTcs = tcs;
+                var payload = JsonSerializer.Serialize(new { type = "vip.homeworld.update", token = session, characterName, oldHomeWorld, newHomeWorld }, new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.CamelCase });
+                var seg = new ArraySegment<byte>(Encoding.UTF8.GetBytes(payload));
+                await _ws.SendAsync(seg, WebSocketMessageType.Text, true, CancellationToken.None);
+                using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(8));
+                await Task.WhenAny(tcs.Task, Task.Delay(Timeout.Infinite, cts.Token)).ConfigureAwait(false);
+                var ok = tcs.Task.IsCompleted && tcs.Task.Result;
+                _pendingVipUpdateTcs = null;
+                return ok;
+            }
+            catch (Exception ex) { _log?.Debug($"WS vip homeworld update failed: {ex.Message}"); _pendingVipUpdateTcs = null; return false; }
+        }
+        return false;
+    }
+
     public async Task<bool> PurgeExpiredVipAsync(string session)
     {
         if (_useWebSocket && _ws != null && _ws.State == WebSocketState.Open)
