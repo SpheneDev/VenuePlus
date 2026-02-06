@@ -757,6 +757,17 @@ public sealed class VenuePlusWindow : Window, IDisposable
                     ImGui.EndTabItem();
                 }
             }
+            if (showShiftTab && ImGui.BeginTabItem("Shifts"))
+            {
+                if (ImGui.IsItemActivated()) ResetStatusMessages();
+                ImGui.BeginChild("ShiftListTabContent", new Vector2(0, ImGui.GetContentRegionAvail().Y), false);
+                _vipTable.CloseAddForm();
+                _staffList.CloseInviteInline();
+                _djList.CloseAddForm();
+                _shiftPlan.DrawStaffShiftTab(_app);
+                ImGui.EndChild();
+                ImGui.EndTabItem();
+            }
             if (showShiftTab && ImGui.BeginTabItem("Schedule"))
             {
                 if (ImGui.IsItemActivated()) ResetStatusMessages();

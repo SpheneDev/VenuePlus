@@ -1,5 +1,7 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
+using System.Text;
 using Dalamud.Bindings.ImGui;
 using Dalamud.Interface;
 using VenuePlus.Plugin;
@@ -99,6 +101,36 @@ public sealed class DjListComponent
 
         ImGui.Separator();
         var list = app.GetDjEntries().ToArray();
+        var nowLocal = DateTime.Now;
+        var dayStart = new DateTimeOffset(new DateTime(nowLocal.Year, nowLocal.Month, nowLocal.Day, 0, 0, 0, DateTimeKind.Local));
+        var dayEnd = dayStart.AddDays(1);
+        var djToday = new Dictionary<string, List<ShiftEntry>>(StringComparer.Ordinal);
+        var firstStartByDj = new Dictionary<string, DateTimeOffset>(StringComparer.Ordinal);
+        var shifts = app.GetShiftEntries().ToArray();
+        for (int i = 0; i < shifts.Length; i++)
+        {
+            var s = shifts[i];
+            if (string.IsNullOrWhiteSpace(s.DjName)) continue;
+            var sLocal = s.StartAt.ToLocalTime();
+            var eLocal = s.EndAt.ToLocalTime();
+            if (sLocal >= dayEnd || eLocal <= dayStart) continue;
+            if (!djToday.TryGetValue(s.DjName, out var items))
+            {
+                items = new List<ShiftEntry>();
+                djToday[s.DjName] = items;
+            }
+            items.Add(s);
+            if (!firstStartByDj.TryGetValue(s.DjName, out var firstStart) || s.StartAt < firstStart)
+            {
+                firstStartByDj[s.DjName] = s.StartAt;
+            }
+        }
+        var todayLabelByDj = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (var kvp in djToday)
+        {
+            var label = BuildTodayLabel(kvp.Value, dayStart, dayEnd);
+            if (!string.IsNullOrWhiteSpace(label)) todayLabelByDj[kvp.Key] = label;
+        }
         if (!string.IsNullOrWhiteSpace(_filter))
         {
             var f = _filter.Trim();
@@ -142,6 +174,15 @@ public sealed class DjListComponent
             list = _sortAsc ? list.OrderBy(e => e.TwitchLink ?? string.Empty, StringComparer.Ordinal).ToArray()
                              : list.OrderByDescending(e => e.TwitchLink ?? string.Empty, StringComparer.Ordinal).ToArray();
         }
+        else if (_sortCol == 2)
+        {
+            list = list.OrderBy(e =>
+            {
+                if (firstStartByDj.TryGetValue(e.DjName, out var v)) return v;
+                return DateTimeOffset.MaxValue;
+            }).ToArray();
+            if (!_sortAsc) Array.Reverse(list);
+        }
 
         const int pageSize = 15;
         var totalCount = list.Length;
@@ -168,19 +209,22 @@ public sealed class DjListComponent
         var showActions = actionsCount > 0;
         var widthActions = showActions ? actionsWidth + style.ItemSpacing.X * Math.Max(0, actionsCount - 1) : 0f;
         var availX = ImGui.GetContentRegionAvail().X;
-        if (ImGui.BeginTable("dj_table", showActions ? 3 : 2, flags, new System.Numerics.Vector2(availX, Math.Max(160f, ImGui.GetContentRegionAvail().Y - 28f))))
+        if (ImGui.BeginTable("dj_table", showActions ? 4 : 3, flags, new System.Numerics.Vector2(availX, Math.Max(160f, ImGui.GetContentRegionAvail().Y - 28f))))
         {
             ImGui.TableSetupColumn("DJ Name", ImGuiTableColumnFlags.WidthFixed, 170f);
-            ImGui.TableSetupColumn("Twitch");
+            ImGui.TableSetupColumn("Twitch", ImGuiTableColumnFlags.WidthStretch, 0.4f);
+            ImGui.TableSetupColumn("Today", ImGuiTableColumnFlags.WidthStretch, 0.4f);
             if (showActions) ImGui.TableSetupColumn("Actions", ImGuiTableColumnFlags.WidthFixed, widthActions);
             ImGui.TableNextRow(ImGuiTableRowFlags.Headers);
             ImGui.TableSetColumnIndex(0);
             TableSortUi.DrawSortableHeader("DJ Name", 0, ref _sortCol, ref _sortAsc);
             ImGui.TableSetColumnIndex(1);
             TableSortUi.DrawSortableHeader("Twitch", 1, ref _sortCol, ref _sortAsc);
+            ImGui.TableSetColumnIndex(2);
+            TableSortUi.DrawSortableHeader("Today", 2, ref _sortCol, ref _sortAsc);
             if (showActions)
             {
-                ImGui.TableSetColumnIndex(2);
+                ImGui.TableSetColumnIndex(3);
                 ImGui.TextUnformatted("Actions");
             }
 
@@ -198,9 +242,13 @@ public sealed class DjListComponent
                 ImGui.TableSetColumnIndex(1);
                 ImGui.SetCursorPosY(textY);
                 ImGui.TextUnformatted(string.IsNullOrWhiteSpace(e.TwitchLink) ? "" : e.TwitchLink);
+                ImGui.TableSetColumnIndex(2);
+                ImGui.SetCursorPosY(textY);
+                var todayLabel = todayLabelByDj.TryGetValue(e.DjName, out var lbl) ? lbl : string.Empty;
+                ImGui.TextUnformatted(todayLabel);
                 if (showActions)
                 {
-                    ImGui.TableSetColumnIndex(2);
+                    ImGui.TableSetColumnIndex(3);
                     ImGui.SetCursorPosY(buttonY);
                     bool anyPrinted = false;
                     if (!string.IsNullOrWhiteSpace(e.TwitchLink))
@@ -263,5 +311,22 @@ public sealed class DjListComponent
             }
             ImGui.EndTable();
         }
+    }
+
+    private static string BuildTodayLabel(List<ShiftEntry> entries, DateTimeOffset dayStart, DateTimeOffset dayEnd)
+    {
+        if (entries.Count == 0) return string.Empty;
+        entries.Sort((a, b) => a.StartAt.CompareTo(b.StartAt));
+        var sb = new StringBuilder();
+        for (int i = 0; i < entries.Count; i++)
+        {
+            var s = entries[i].StartAt.ToLocalTime();
+            var e = entries[i].EndAt.ToLocalTime();
+            if (s < dayStart) s = dayStart;
+            if (e > dayEnd) e = dayEnd;
+            if (sb.Length > 0) sb.Append(", ");
+            sb.Append(s.ToString("HH:mm")).Append("-").Append(e.ToString("HH:mm"));
+        }
+        return sb.ToString();
     }
 }

@@ -22,17 +22,72 @@ public sealed class MacroHotbarWindow : Window
     private System.Collections.Generic.Dictionary<int, string> _slotMacroText = new System.Collections.Generic.Dictionary<int, string>();
     private int _gameTabIndex = 0;
     private int _gamePage = 0;
-    private static readonly (string name, int start, int end)[] _gameTabs = new[]
+    private readonly System.Collections.Generic.Dictionary<int, System.Collections.Generic.List<int>> _gameIconIdsByTab = new System.Collections.Generic.Dictionary<int, System.Collections.Generic.List<int>>();
+    private readonly System.Collections.Generic.List<int> _gameFilteredIds = new System.Collections.Generic.List<int>();
+    private int _gameFilteredTabIndex = -1;
+    private string _gameFilteredText = string.Empty;
+    private sealed class GameIconCategory
     {
-        ("Jobs", 62000, 62600),
-        ("Actions", 100, 4000),
-        ("Emotes", 64000, 64500),
-        ("FC", 64200, 64325),
-        ("Items", 20000, 30000),
-        ("Equipment", 30000, 50000),
-        ("Statuses", 10000, 20000),
-        ("Mounts", 4000, 4400),
-        ("Minions", 4400, 5100),
+        public string Name { get; }
+        public (int start, int end)[] Ranges { get; }
+
+        public GameIconCategory(string name, (int start, int end)[] ranges)
+        {
+            Name = name;
+            Ranges = ranges;
+        }
+    }
+
+    private static readonly GameIconCategory[] _gameCategories = new[]
+    {
+        new GameIconCategory("General", new[] {
+            (0, 95), (101, 132), (651, 652), (654, 655), (695, 698), (66001, 66001), (66021, 66023),
+            (66031, 66033), (66041, 66043), (66051, 66053), (66061, 66063), (66071, 66073), (66081, 66083),
+            (66101, 66105), (66121, 66125), (66141, 66145), (66161, 66171), (66181, 66191), (66301, 66341),
+            (66401, 66423), (66452, 66473), (60001, 6004), (60011, 60013), (60026, 60048), (60071, 60074),
+            (61471, 61489), (61501, 61548), (61551, 61598), (61751, 61768), (61801, 61850), (61875, 61880),
+        }),
+        new GameIconCategory("Jobs", new[] {
+            (0, 0), (62001, 62042), (62801, 62842), (62226, 62267), (62101, 62142), (62301, 62320), (62401, 62422),
+            (82271, 82286),
+        }),
+        new GameIconCategory("Quests", new[] {
+            (0, 0),
+            (71001, 71006), (71021, 71025), (71041, 71045), (71061, 70165), (71081, 70185), (71101, 71102),
+            (71121, 71125), (71141, 71145), (71201, 71205), (71221, 71225), (61721, 61723), (61731, 61733),
+            (63875, 63892), (63900, 63977), (63979, 63987),
+        }),
+        new GameIconCategory("Avatars", new[] {
+            (0, 0), (82009, 82010), (62145, 62146), (72556, 72608), (72001, 72059), (73001, 73279), (73281, 73283),
+            (73285, 73287), (88001, 88457),
+        }),
+        new GameIconCategory("Emotes", new[] {
+            (0, 0), (246001, 246004), (246101, 246133), (246201, 246280), (246282, 246299), (246301, 246324),
+            (246327, 246453), (246456, 246457), (246459, 246459), (246463, 246470),
+        }),
+        new GameIconCategory("Rewards", new[] {
+            (0, 0), (65001, 65127), (65130, 65134), (65137, 65137),
+        }),
+        new GameIconCategory("MapMarkers", new[] {
+            (0, 0),
+            (60401, 60408), (60412, 60482), (60501, 60508), (60511, 60515), (60550, 60565), (60567, 60583),
+            (60585, 60611), (60640, 60649), (60651, 60662), (60751, 60792), (60901, 60999),
+        }),
+        new GameIconCategory("Shapes", new[] {
+            (0, 0),
+            (82091, 82093), (90001, 90004), (90200, 90263), (90401, 90463), (61901, 61918),
+            (230131, 230143), (230201, 230215), (230301, 230317), (230401, 230433), (230701, 230715),
+            (230626, 230629), (230631, 230641), (180021, 180028),
+        }),
+        new GameIconCategory("Minions", new[] {
+            (0, 0), (4401, 4521), (4523, 4611), (4613, 4939), (4941, 4962), (4964, 4967), (4971, 4973),
+            (4977, 4979), (59401, 59521), (59523, 59611), (59613, 59939), (59941, 59962),
+            (59964, 59967), (59971, 59973), (59977, 59979),
+        }),
+        new GameIconCategory("Mounts", new[] {
+            (0, 0), (4001, 4045), (4047, 4098), (4101, 4276), (4278, 4329), (4331, 4332), (4334, 4335),
+            (4339, 4339), (4343, 4343),
+        }),
     };
 
     private int _barIndex = -1;
@@ -465,29 +520,41 @@ public sealed class MacroHotbarWindow : Window
                                     var popGame = $"macro_game_icon_browser_{i}";
                                     if (ImGui.BeginPopup(popGame))
                                     {
-                                        ImGui.InputTextWithHint("##icon_filter_game", "Search by id", ref _iconFilter, 32);
+                                        var filterGame = _iconFilter ?? string.Empty;
+                                        ImGui.InputTextWithHint("##icon_filter_game", "Search by id", ref filterGame, 32);
+                                        _iconFilter = filterGame ?? string.Empty;
                                         ImGui.Separator();
                                         if (ImGui.BeginTabBar($"##game_tabs_{i}"))
                                         {
-                                            for (int t = 0; t < _gameTabs.Length; t++)
+                                            for (int t = 0; t < _gameCategories.Length; t++)
                                             {
-                                                if (ImGui.BeginTabItem(_gameTabs[t].name))
+                                                if (ImGui.BeginTabItem(_gameCategories[t].Name))
                                                 {
                                                     _gameTabIndex = t;
-                                                    var start = _gameTabs[t].start;
-                                                    var end = _gameTabs[t].end;
+                                                    var filter = _iconFilter?.Trim() ?? string.Empty;
+                                                    var ids = GetFilteredGameIconIds(t, filter);
                                                     var pageSize = 120;
-                                                    var total = end - start;
+                                                    var total = ids.Count;
                                                     var maxPage = System.Math.Max(0, (total + pageSize - 1) / pageSize - 1);
                                                     if (_gamePage > maxPage) _gamePage = maxPage;
-                                                    var pStart = start + _gamePage * pageSize;
-                                                    var pEnd = System.Math.Min(end, pStart + pageSize);
+                                                    var pStart = _gamePage * pageSize;
+                                                    var pEnd = System.Math.Min(total, pStart + pageSize);
                                                     var colsB = 10;
                                                     var cellB = System.MathF.Max(36f, ImGui.GetFrameHeight() * 1.6f);
+                                                    ImGui.BeginDisabled(_gamePage <= 0);
+                                                    if (ImGui.Button("Prev")) _gamePage = System.Math.Max(0, _gamePage - 1);
+                                                    ImGui.EndDisabled();
+                                                    ImGui.SameLine();
+                                                    ImGui.TextUnformatted($"Page {_gamePage + 1} / {maxPage + 1}");
+                                                    ImGui.SameLine();
+                                                    ImGui.BeginDisabled(_gamePage >= maxPage);
+                                                    if (ImGui.Button("Next")) _gamePage = System.Math.Min(maxPage, _gamePage + 1);
+                                                    ImGui.EndDisabled();
+                                                    ImGui.Separator();
                                                     int shownB = 0;
-                                                    for (int id = pStart; id < pEnd; id++)
+                                                    for (int idx = pStart; idx < pEnd; idx++)
                                                     {
-                                                        if (!string.IsNullOrWhiteSpace(_iconFilter) && id.ToString().IndexOf(_iconFilter, System.StringComparison.OrdinalIgnoreCase) < 0) continue;
+                                                        var id = ids[idx];
                                                         var wrapB = TryGetGameIconWrap(id);
                                                         if (wrapB == null) continue;
                                                         var clickedPick = ImGui.ImageButton(wrapB.Handle, new Vector2(cellB, cellB));
@@ -506,16 +573,6 @@ public sealed class MacroHotbarWindow : Window
                                                         shownB++;
                                                         if ((shownB % colsB) != 0) ImGui.SameLine();
                                                     }
-                                                    ImGui.Separator();
-                                                    ImGui.BeginDisabled(_gamePage <= 0);
-                                                    if (ImGui.Button("Prev")) _gamePage = System.Math.Max(0, _gamePage - 1);
-                                                    ImGui.EndDisabled();
-                                                    ImGui.SameLine();
-                                                    ImGui.TextUnformatted($"Page {_gamePage + 1} / {maxPage + 1}");
-                                                    ImGui.SameLine();
-                                                    ImGui.BeginDisabled(_gamePage >= maxPage);
-                                                    if (ImGui.Button("Next")) _gamePage = System.Math.Min(maxPage, _gamePage + 1);
-                                                    ImGui.EndDisabled();
                                                     ImGui.EndTabItem();
                                                 }
                                             }
@@ -526,12 +583,15 @@ public sealed class MacroHotbarWindow : Window
                                 }
                                 else
                                 {
-                                    ImGui.SetNextItemWidth(-60f);
-                                    ImGui.InputText($"##icon_font_{i}", ref iconStr, 64);
+                                    var btnW = ImGui.CalcTextSize("Browse").X + ImGui.GetStyle().FramePadding.X * 2f;
+                                    var inputW = System.MathF.Max(140f, System.MathF.Min(260f, ImGui.GetContentRegionAvail().X - btnW - 8f));
+                                    var iconKey = (i < slots.Length) ? (slots[i].IconKey ?? string.Empty) : string.Empty;
+                                    ImGui.SetNextItemWidth(inputW);
+                                    ImGui.InputText($"##icon_font_{i}", ref iconKey, 64);
                                     if (ImGui.IsItemDeactivatedAfterEdit())
                                     {
-                                        if (_barIndex >= 0) _ = _app.SetMacroHotbarSlotAsyncAtBar(_barIndex, i, null, null, iconStr, false, null);
-                                        else _ = _app.SetMacroHotbarSlotAsync(i, null, null, iconStr, false, null);
+                                        if (_barIndex >= 0) _ = _app.SetMacroHotbarSlotAsyncAtBar(_barIndex, i, null, null, iconKey, false, null);
+                                        else _ = _app.SetMacroHotbarSlotAsync(i, null, null, iconKey, false, null);
                                     }
                                     ImGui.SameLine();
                                     if (ImGui.Button($"Browse##icon_font_{i}"))
@@ -541,41 +601,55 @@ public sealed class MacroHotbarWindow : Window
                                         ImGui.OpenPopup($"macro_icon_browser_{i}");
                                     }
 
+                                    var iconGlyph = VenuePlus.Helpers.IconDraw.ToIconStringFromKey(iconKey);
                                     ImGui.PushFont(UiBuilder.IconFont);
-                                    ImGui.TextUnformatted(string.IsNullOrEmpty(iconStr) ? "-" : iconStr);
+                                    ImGui.TextUnformatted(string.IsNullOrEmpty(iconGlyph) ? "-" : iconGlyph);
                                     ImGui.PopFont();
 
                                     var popupName = $"macro_icon_browser_{i}";
+                                    var maxPopupW = System.MathF.Max(320f, ImGui.GetIO().DisplaySize.X - 80f);
+                                    var maxPopupH = System.MathF.Max(240f, ImGui.GetIO().DisplaySize.Y - 120f);
+                                    var minPopupW = System.MathF.Min(520f, maxPopupW);
+                                    var minPopupH = System.MathF.Min(360f, maxPopupH);
+                                    ImGui.SetNextWindowSizeConstraints(new Vector2(minPopupW, minPopupH), new Vector2(maxPopupW, maxPopupH));
                                     if (ImGui.BeginPopup(popupName))
                                     {
-                                        ImGui.InputTextWithHint("##icon_filter", "Search icons", ref _iconFilter, 64);
+                                        var filterIcons = _iconFilter ?? string.Empty;
+                                        ImGui.InputTextWithHint("##icon_filter", "Search icons", ref filterIcons, 64);
+                                        _iconFilter = filterIcons ?? string.Empty;
                                         ImGui.Separator();
                                         var cols = 10;
                                         var cell = System.MathF.Max(36f, ImGui.GetFrameHeight() * 1.6f);
-                                        int shown = 0;
-                                        for (int k = 0; k < _iconKeysCache.Length; k++)
+                                        var childW = System.MathF.Max(240f, System.MathF.Min(ImGui.GetContentRegionAvail().X, maxPopupW - 24f));
+                                        var childH = System.MathF.Max(200f, System.MathF.Min(ImGui.GetContentRegionAvail().Y, maxPopupH - 120f));
+                                        if (ImGui.BeginChild($"##icon_browser_list_{i}", new Vector2(childW, childH), false, ImGuiWindowFlags.HorizontalScrollbar))
                                         {
-                                            var key = _iconKeysCache[k];
-                                            if (!string.IsNullOrWhiteSpace(_iconFilter) && key.IndexOf(_iconFilter, System.StringComparison.OrdinalIgnoreCase) < 0) continue;
-                                            var iconStrPick = VenuePlus.Helpers.IconDraw.ToIconStringFromKey(key);
-                                            ImGui.PushFont(UiBuilder.IconFont);
-                                            var clickedPick = ImGui.Button(iconStrPick + $"##pick_{i}_{k}", new Vector2(cell, cell));
-                                            ImGui.PopFont();
-                                            if (ImGui.IsItemHovered())
+                                            int shown = 0;
+                                            for (int k = 0; k < _iconKeysCache.Length; k++)
                                             {
-                                                ImGui.BeginTooltip();
-                                                ImGui.TextUnformatted(key);
-                                                ImGui.EndTooltip();
+                                                var key = _iconKeysCache[k];
+                                                if (!string.IsNullOrWhiteSpace(_iconFilter) && key.IndexOf(_iconFilter, System.StringComparison.OrdinalIgnoreCase) < 0) continue;
+                                                var iconStrPick = VenuePlus.Helpers.IconDraw.ToIconStringFromKey(key);
+                                                ImGui.PushFont(UiBuilder.IconFont);
+                                                var clickedPick = ImGui.Button(iconStrPick + $"##pick_{i}_{k}", new Vector2(cell, cell));
+                                                ImGui.PopFont();
+                                                if (ImGui.IsItemHovered())
+                                                {
+                                                    ImGui.BeginTooltip();
+                                                    ImGui.TextUnformatted(key);
+                                                    ImGui.EndTooltip();
+                                                }
+                                                if (clickedPick)
+                                                {
+                                                    if (_barIndex >= 0) _ = _app.SetMacroHotbarSlotAsyncAtBar(_barIndex, i, null, null, key, false, null);
+                                                    else _ = _app.SetMacroHotbarSlotAsync(i, null, null, key, false, null);
+                                                    ImGui.CloseCurrentPopup();
+                                                }
+                                                shown++;
+                                                if ((shown % cols) != 0) ImGui.SameLine();
                                             }
-                                            if (clickedPick)
-                                            {
-                                                if (_barIndex >= 0) _ = _app.SetMacroHotbarSlotAsyncAtBar(_barIndex, i, null, null, key, false, null);
-                                                else _ = _app.SetMacroHotbarSlotAsync(i, null, null, key, false, null);
-                                                ImGui.CloseCurrentPopup();
-                                            }
-                                            shown++;
-                                            if ((shown % cols) != 0) ImGui.SameLine();
                                         }
+                                        ImGui.EndChild();
                                         ImGui.EndPopup();
                                     }
                                 }
@@ -1025,6 +1099,55 @@ public sealed class MacroHotbarWindow : Window
             _pendingPopupId = null;
         }
 
+    }
+
+    private System.Collections.Generic.List<int> GetGameIconIdsForTab(int tabIndex)
+    {
+        EnsureGameIconCache();
+        if (_gameIconIdsByTab.TryGetValue(tabIndex, out var cached)) return cached;
+        return new System.Collections.Generic.List<int>();
+    }
+    private bool _gameIconCacheBuilt;
+
+    private void EnsureGameIconCache()
+    {
+        if (_gameIconCacheBuilt) return;
+        _gameIconIdsByTab.Clear();
+        for (int t = 0; t < _gameCategories.Length; t++)
+        {
+            var list = new System.Collections.Generic.List<int>();
+            var ranges = _gameCategories[t].Ranges;
+            for (int r = 0; r < ranges.Length; r++)
+            {
+                var start = ranges[r].start;
+                var end = ranges[r].end;
+                for (int id = start; id <= end; id++)
+                {
+                    var wrap = TryGetGameIconWrap(id);
+                    if (wrap == null) continue;
+                    list.Add(id);
+                }
+            }
+            _gameIconIdsByTab[t] = list;
+        }
+        _gameIconCacheBuilt = true;
+    }
+
+    private System.Collections.Generic.List<int> GetFilteredGameIconIds(int tabIndex, string filter)
+    {
+        var list = GetGameIconIdsForTab(tabIndex);
+        if (string.IsNullOrWhiteSpace(filter)) return list;
+        if (tabIndex == _gameFilteredTabIndex && string.Equals(filter, _gameFilteredText, System.StringComparison.Ordinal)) return _gameFilteredIds;
+        _gameFilteredTabIndex = tabIndex;
+        _gameFilteredText = filter;
+        _gameFilteredIds.Clear();
+        for (int i = 0; i < list.Count; i++)
+        {
+            var id = list[i];
+            if (id.ToString().IndexOf(filter, System.StringComparison.OrdinalIgnoreCase) < 0) continue;
+            _gameFilteredIds.Add(id);
+        }
+        return _gameFilteredIds;
     }
 
     public void SetExternalPosition(System.Numerics.Vector2 pos)
