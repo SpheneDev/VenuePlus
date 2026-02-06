@@ -35,6 +35,7 @@ public sealed class VenuePlusApp : IDisposable, IEventListener
     private System.DateTimeOffset _selfRightsLastFetch;
     private string _selfJob = string.Empty;
     private string[] _selfJobs = Array.Empty<string>();
+    private string[]? _selfJobsPrevForDiff;
     private string? _selfUid;
     private System.DateTimeOffset? _selfBirthday;
     private bool _disposed;
@@ -1814,6 +1815,7 @@ public sealed class VenuePlusApp : IDisposable, IEventListener
         _selfRightsLastFetch = System.DateTimeOffset.MinValue;
         _selfJob = string.Empty;
         _selfJobs = Array.Empty<string>();
+        _selfJobsPrevForDiff = null;
         _jobsCache = null;
         _jobRightsCache = null;
         _usersCache = null;
@@ -2486,14 +2488,23 @@ public sealed class VenuePlusApp : IDisposable, IEventListener
 
     public void OnEntryAdded(VipEntry entry)
     {
+        var existing = _vipService.GetExisting(entry.CharacterName, entry.HomeWorld);
         _vipService.SetFromRemote(entry);
-        var name = entry?.CharacterName ?? string.Empty;
-        var world = entry?.HomeWorld ?? string.Empty;
-        var dur = entry?.Duration.ToString() ?? string.Empty;
+        var name = entry.CharacterName ?? string.Empty;
+        var world = entry.HomeWorld ?? string.Empty;
+        var dur = FormatVipDuration(entry.Duration);
         var _np = GetNotificationPreferences();
         if (_np.ShowVipAdded)
         {
-            try { _notifier?.ShowInfo("VIP added: " + name + " (" + world + ") — Duration: " + dur); } catch { }
+            if (existing != null && existing.Duration != entry.Duration)
+            {
+                var oldDur = FormatVipDuration(existing.Duration);
+                try { _notifier?.ShowInfo("VIP duration changed: " + name + " (" + world + ") — " + oldDur + " → " + dur); } catch { }
+            }
+            else
+            {
+                try { _notifier?.ShowInfo("VIP added: " + name + " (" + world + ") — Duration: " + dur); } catch { }
+            }
         }
     }
 
@@ -2983,6 +2994,10 @@ public sealed class VenuePlusApp : IDisposable, IEventListener
                 if (string.Equals(det[i].Username, uname, System.StringComparison.Ordinal))
                 {
                     var jobsSelf = NormalizeJobs(det[i].Jobs, det[i].Job);
+                    if (!AreJobSetsEqual(_selfJobs, jobsSelf))
+                    {
+                        _selfJobsPrevForDiff = _selfJobs;
+                    }
                     _selfJobs = jobsSelf;
                     _selfJob = GetPrimaryJob(_jobRightsCache, jobsSelf);
                     var uidCandidate = det[i].Uid;
@@ -3008,7 +3023,31 @@ public sealed class VenuePlusApp : IDisposable, IEventListener
         var isSelf = !string.IsNullOrWhiteSpace(_staffUsername) && string.Equals(_staffUsername, username, System.StringComparison.Ordinal);
         if (isSelf)
         {
+            var oldJobs = _selfJobsPrevForDiff ?? _selfJobs;
             var jobsNorm = NormalizeJobs(jobs, job);
+            var oldSet = new System.Collections.Generic.HashSet<string>(System.StringComparer.Ordinal);
+            for (int i = 0; i < oldJobs.Length; i++)
+            {
+                var j = oldJobs[i];
+                if (!string.IsNullOrWhiteSpace(j)) oldSet.Add(j);
+            }
+            var newSet = new System.Collections.Generic.HashSet<string>(System.StringComparer.Ordinal);
+            for (int i = 0; i < jobsNorm.Length; i++)
+            {
+                var j = jobsNorm[i];
+                if (!string.IsNullOrWhiteSpace(j)) newSet.Add(j);
+            }
+            var added = new System.Collections.Generic.List<string>();
+            foreach (var j in newSet)
+            {
+                if (!oldSet.Contains(j)) added.Add(j);
+            }
+            var removed = new System.Collections.Generic.List<string>();
+            foreach (var j in oldSet)
+            {
+                if (!newSet.Contains(j)) removed.Add(j);
+            }
+            _selfJobsPrevForDiff = null;
             _selfJobs = jobsNorm;
             string jobKey = GetPrimaryJob(_jobRightsCache, jobsNorm);
             _selfJob = jobKey;
@@ -3016,12 +3055,32 @@ public sealed class VenuePlusApp : IDisposable, IEventListener
             var _np = GetNotificationPreferences();
             if (_np.ShowRoleChangedSelf)
             {
-                try { _notifier?.ShowSuccess("Your role is now: " + jobKey); } catch { }
+                if (added.Count > 0)
+                {
+                    var label = added.Count == 1 ? "Role added: " : "Roles added: ";
+                    try { _notifier?.ShowSuccess(label + string.Join(", ", added)); } catch { }
+                }
+                if (removed.Count > 0)
+                {
+                    var label = removed.Count == 1 ? "Role removed: " : "Roles removed: ";
+                    try { _notifier?.ShowInfo(label + string.Join(", ", removed)); } catch { }
+                }
             }
         }
         var jobsNorm2 = NormalizeJobs(jobs, job);
         var primary = GetPrimaryJob(_jobRightsCache, jobsNorm2);
         UserJobUpdatedEvt?.Invoke(username ?? string.Empty, primary, jobsNorm2);
+    }
+
+    private static string FormatVipDuration(VipDuration duration)
+    {
+        return duration switch
+        {
+            VipDuration.FourWeeks => "1 Month",
+            VipDuration.TwelveWeeks => "3 Months",
+            VipDuration.Lifetime => "Lifetime",
+            _ => "Lifetime"
+        };
     }
 
     private static bool HasOwner(string[] jobs)
@@ -3031,6 +3090,30 @@ public sealed class VenuePlusApp : IDisposable, IEventListener
             if (string.Equals(jobs[i], "Owner", System.StringComparison.Ordinal)) return true;
         }
         return false;
+    }
+
+    private static bool AreJobSetsEqual(string[] a, string[] b)
+    {
+        var setA = new System.Collections.Generic.HashSet<string>(StringComparer.Ordinal);
+        for (int i = 0; i < a.Length; i++)
+        {
+            var j = a[i];
+            if (string.IsNullOrWhiteSpace(j)) continue;
+            setA.Add(j);
+        }
+        var setB = new System.Collections.Generic.HashSet<string>(StringComparer.Ordinal);
+        for (int i = 0; i < b.Length; i++)
+        {
+            var j = b[i];
+            if (string.IsNullOrWhiteSpace(j)) continue;
+            setB.Add(j);
+        }
+        if (setA.Count != setB.Count) return false;
+        foreach (var j in setA)
+        {
+            if (!setB.Contains(j)) return false;
+        }
+        return true;
     }
 
     private static string[] NormalizeJobs(string[]? jobs, string? fallbackJob)

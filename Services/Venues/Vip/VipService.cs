@@ -46,6 +46,14 @@ public sealed class VipService
         return false;
     }
 
+    public VipEntry? GetExisting(string characterName, string homeWorld)
+    {
+        if (string.IsNullOrWhiteSpace(_activeClub)) return null;
+        var map = GetActiveMap();
+        var key = characterName + "@" + homeWorld;
+        return map.TryGetValue(key, out var entry) ? entry : null;
+    }
+
     public VipEntry AddOrUpdate(string characterName, string homeWorld, VipDuration duration)
     {
         if (string.IsNullOrWhiteSpace(_activeClub)) return new VipEntry { CharacterName = characterName, HomeWorld = homeWorld, Duration = duration };
