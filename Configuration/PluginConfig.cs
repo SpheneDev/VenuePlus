@@ -20,6 +20,7 @@ public sealed class PluginConfig
     public System.Collections.Generic.Dictionary<string, CharacterProfile> ProfilesByCharacter { get; set; } = new(System.StringComparer.Ordinal);
     public bool KeepWhisperMessage { get; set; } = false;
     public System.Collections.Generic.List<WhisperPreset> WhisperPresets { get; set; } = new();
+    public bool ShowShiftTimesInLocalTime { get; set; } = false;
     public NotificationPreferences Notifications { get; set; } = new NotificationPreferences();
     public System.Collections.Generic.List<MacroHotbar> MacroHotbars { get; set; } = new System.Collections.Generic.List<MacroHotbar>();
     public int CurrentMacroHotbarIndex { get; set; } = 0;

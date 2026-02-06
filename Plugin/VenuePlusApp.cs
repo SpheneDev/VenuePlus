@@ -469,7 +469,15 @@ public sealed class VenuePlusApp : IDisposable, IEventListener
     public string VipLabelText => _pluginConfigService.Current.VipLabelText ?? string.Empty;
     public VenuePlus.Configuration.VipLabelOrder VipLabelOrder => _pluginConfigService.Current.VipLabelOrder;
     public bool KeepWhisperMessage => _pluginConfigService.Current.KeepWhisperMessage;
+    public bool ShowShiftTimesInLocalTime => _pluginConfigService.Current.ShowShiftTimesInLocalTime;
     public VenuePlus.Configuration.WhisperPreset[] GetWhisperPresets() => _pluginConfigService.Current.WhisperPresets?.ToArray() ?? System.Array.Empty<VenuePlus.Configuration.WhisperPreset>();
+
+    public System.Threading.Tasks.Task SetShowShiftTimesInLocalTimeAsync(bool enable)
+    {
+        _pluginConfigService.Current.ShowShiftTimesInLocalTime = enable;
+        _pluginConfigService.Save();
+        return System.Threading.Tasks.Task.CompletedTask;
+    }
 
     private void EnsureMacroHotbars()
     {

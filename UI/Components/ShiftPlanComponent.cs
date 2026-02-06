@@ -49,6 +49,7 @@ public sealed class ShiftPlanComponent
     private int _shiftTabSortCol;
     private bool _shiftTabSortAsc = true;
     private bool _shiftTabViewMy = true;
+    private bool _useLocalTimeView;
     private const string CalendarMarkerHex = "#4CAF50";
     private const string CurrentShiftRowHex = "#2E7D32";
     private const string PastShiftRowHex = "#424242";
@@ -69,13 +70,13 @@ public sealed class ShiftPlanComponent
         _selDjIdx = -1;
         _selDjName = null;
         _pendingAssignUsername = null;
-        var now = DateTime.Now;
+        var now = _useLocalTimeView ? DateTime.Now : DateTime.UtcNow;
         _startYear = now.Year;
         _startMonth = now.Month;
         _startDay = now.Day;
         _startHour = now.Hour;
         _startMinute = (now.Minute / 5) * 5;
-        _pendingStart = now.ToString("yyyy-MM-dd");
+        _pendingStart = new DateTime(_startYear, _startMonth, _startDay, 0, 0, 0, _useLocalTimeView ? DateTimeKind.Local : DateTimeKind.Utc).ToString("yyyy-MM-dd");
         SyncAddFormDateFromSelection();
     }
 
@@ -98,6 +99,7 @@ public sealed class ShiftPlanComponent
     internal void DrawInlineAddForm(VenuePlusApp app)
     {
         var canEdit = app.IsOwnerCurrentClub || (app.HasStaffSession && app.StaffCanEditShiftPlan);
+        _useLocalTimeView = app.ShowShiftTimesInLocalTime;
         DrawEditForm(app, canEdit);
     }
 
@@ -164,7 +166,7 @@ public sealed class ShiftPlanComponent
         _startYear = _viewYear;
         _startMonth = _viewMonth;
         _startDay = day;
-        _pendingStart = new DateTime(_startYear, _startMonth, _startDay).ToString("yyyy-MM-dd");
+        _pendingStart = new DateTime(_startYear, _startMonth, _startDay, 0, 0, 0, _useLocalTimeView ? DateTimeKind.Local : DateTimeKind.Utc).ToString("yyyy-MM-dd");
     }
 
     private void DrawCalendar(string id, ref int year, ref int month, ref int day)
@@ -223,14 +225,14 @@ public sealed class ShiftPlanComponent
         value = DateTimeOffset.MinValue;
         var s = (text ?? string.Empty).Trim();
         if (string.IsNullOrWhiteSpace(s)) return false;
-        if (DateTimeOffset.TryParseExact(s, new[] { "yyyy-MM-dd HH:mm", "yyyy-MM-dd" }, CultureInfo.InvariantCulture, DateTimeStyles.AssumeLocal, out var dt))
+        if (DateTimeOffset.TryParseExact(s, new[] { "yyyy-MM-dd HH:mm", "yyyy-MM-dd" }, CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal, out var dt))
         {
-            value = dt.ToUniversalTime();
+            value = dt;
             return true;
         }
-        if (DateTimeOffset.TryParse(s, CultureInfo.InvariantCulture, DateTimeStyles.AssumeLocal, out var dt2))
+        if (DateTimeOffset.TryParse(s, CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal, out var dt2))
         {
-            value = dt2.ToUniversalTime();
+            value = dt2;
             return true;
         }
         return false;
@@ -244,13 +246,15 @@ public sealed class ShiftPlanComponent
         ImGui.PushItemWidth(260f);
         ImGui.InputTextWithHint("##shift_filter", "Search shifts by title, job or uid", ref _filter, 256);
         ImGui.PopItemWidth();
+        var useLocal = app.ShowShiftTimesInLocalTime;
+        _useLocalTimeView = useLocal;
         DrawEditForm(app, canEdit);
 
         ImGui.Separator();
         var all = app.GetShiftEntries().ToArray();
         var nonDj = FilterNonDj(all);
-        var eventDays = GetEventDays(nonDj);
-        if (_viewYear <= 0 || _viewMonth <= 0) { var nowV = DateTime.Now; _viewYear = nowV.Year; _viewMonth = nowV.Month; _selectedDayMain = nowV.Day; }
+        var eventDays = GetEventDays(nonDj, useLocal);
+        if (_viewYear <= 0 || _viewMonth <= 0) { var nowV = useLocal ? DateTime.Now : DateTime.UtcNow; _viewYear = nowV.Year; _viewMonth = nowV.Month; _selectedDayMain = nowV.Day; }
         if (!_listMode)
         {
             var labelMonth = new DateTime(_viewYear, _viewMonth, 1).ToString("MMMM yyyy");
@@ -262,7 +266,7 @@ public sealed class ShiftPlanComponent
             if (ImGui.Button("Schedule"))
             {
                 _listMode = true;
-                var pick = PickEventDay(eventDays);
+                var pick = PickEventDay(eventDays, useLocal);
                 if (pick.HasValue)
                 {
                     _viewYear = pick.Value.Year;
@@ -277,7 +281,7 @@ public sealed class ShiftPlanComponent
             var mainCalWidth = ImGui.GetContentRegionAvail().X;
             var mainCalHeight = Math.Max(260f, ImGui.GetContentRegionAvail().Y);
             ImGui.BeginChild("main_calendar", new System.Numerics.Vector2(mainCalWidth, mainCalHeight), false);
-            DrawMainCalendar(app);
+            DrawMainCalendar(app, useLocal);
             ImGui.EndChild();
         }
         else
@@ -292,7 +296,7 @@ public sealed class ShiftPlanComponent
                 var selectedIndex = eventDays.FindIndex(d => d.Date == currentDay.Date);
                 if (selectedIndex < 0)
                 {
-                    var pick = PickEventDay(eventDays);
+                    var pick = PickEventDay(eventDays, useLocal);
                     if (pick.HasValue)
                     {
                         _viewYear = pick.Value.Year;
@@ -336,19 +340,21 @@ public sealed class ShiftPlanComponent
             var availX = ImGui.GetContentRegionAvail().X;
             ImGui.BeginChild("day_plan_panel", new System.Numerics.Vector2(availX, listHeight), false);
             var day = _selectedDayMain <= 0 ? 1 : _selectedDayMain;
-            var dayLocalStart = new DateTime(_viewYear, _viewMonth, day, 0, 0, 0, DateTimeKind.Local);
-            var dayLocalEnd = dayLocalStart.AddDays(1);
-            var listDay = nonDj.Where(e => e.StartAt.ToLocalTime() < dayLocalEnd && e.EndAt.ToLocalTime() > dayLocalStart).ToArray();
-            var nowLocal = DateTimeOffset.Now;
-            if (dayLocalStart.Date == nowLocal.ToLocalTime().Date)
+            var dayStart = new DateTime(_viewYear, _viewMonth, day, 0, 0, 0, useLocal ? DateTimeKind.Local : DateTimeKind.Utc);
+            var dayEnd = dayStart.AddDays(1);
+            var listDay = useLocal
+                ? nonDj.Where(e => e.StartAt.ToLocalTime() < dayEnd && e.EndAt.ToLocalTime() > dayStart).ToArray()
+                : nonDj.Where(e => e.StartAt < dayEnd && e.EndAt > dayStart).ToArray();
+            var nowServer = DateTimeOffset.UtcNow;
+            if (dayStart.Date == (useLocal ? nowServer.ToLocalTime().Date : nowServer.Date))
             {
-                Array.Sort(listDay, (a, b) => CompareByCurrent(nowLocal, a, b));
+                Array.Sort(listDay, (a, b) => CompareByCurrent(nowServer, a, b));
             }
             else
             {
                 Array.Sort(listDay, (a, b) => a.StartAt.CompareTo(b.StartAt));
             }
-            var titleDay = dayLocalStart.ToString("yyyy-MM-dd");
+            var titleDay = dayStart.ToString("yyyy-MM-dd");
             ImGui.TextUnformatted("Plan " + titleDay);
             if (listDay.Length == 0)
             {
@@ -377,14 +383,13 @@ public sealed class ShiftPlanComponent
                 ImGui.TableSetColumnIndex(1); ImGui.TextUnformatted("User/Job");
                 ImGui.TableSetColumnIndex(2); ImGui.TextUnformatted("Title");
                 ImGui.TableSetColumnIndex(3); ImGui.TextUnformatted("Actions");
-                var nowServer = DateTimeOffset.UtcNow;
                 var currentRowColor = ColorUtil.HexToU32(CurrentShiftRowHex);
                 var pastRowColor = ColorUtil.HexToU32(PastShiftRowHex);
                 for (int i = 0; i < listDay.Length; i++)
                 {
                     var e = listDay[i];
-                    var s = e.StartAt.ToLocalTime().ToString("HH:mm");
-                    var ee = e.EndAt.ToLocalTime().ToString("HH:mm");
+                    var s = (useLocal ? e.StartAt.ToLocalTime() : e.StartAt).ToString("HH:mm");
+                    var ee = (useLocal ? e.EndAt.ToLocalTime() : e.EndAt).ToString("HH:mm");
                     var whoLabel = BuildWhoLabel(e, _staffUsers);
 
                     ImGui.TableNextRow();
@@ -411,7 +416,7 @@ public sealed class ShiftPlanComponent
                     ImGui.EndDisabled();
                     if (canEdit && editClicked)
                     {
-                        BeginEditShift(e, app);
+                        BeginEditShift(e, app, useLocal);
                     }
                     if (canEdit && rmClicked)
                     {
@@ -548,8 +553,9 @@ public sealed class ShiftPlanComponent
             ImGui.EndCombo();
         }
 
-        var startLocal = new DateTime(_startYear, _startMonth, _startDay, _startHour, _startMinute, 0, DateTimeKind.Local);
-        var endLocalAuto = startLocal.AddMinutes(_durationMinutes);
+        var startBase = new DateTime(_startYear, _startMonth, _startDay, _startHour, _startMinute, 0, _useLocalTimeView ? DateTimeKind.Local : DateTimeKind.Utc);
+        var startUtc = _useLocalTimeView ? startBase.ToUniversalTime() : startBase;
+        var endUtcAuto = startUtc.AddMinutes(_durationMinutes);
         ImGui.TextUnformatted("Assigned User");
         ImGui.PushItemWidth(220f);
         if (_selUserIdx >= _staffUsers.Length) { _selUserIdx = -1; _selUid = null; }
@@ -591,9 +597,9 @@ public sealed class ShiftPlanComponent
         }
         ImGui.PopItemWidth();
 
-        var endLocal = endLocalAuto;
-        DateTimeOffset startAt = new DateTimeOffset(startLocal).ToUniversalTime();
-        DateTimeOffset endAt = new DateTimeOffset(endLocal).ToUniversalTime();
+        var endUtc = endUtcAuto;
+        DateTimeOffset startAt = new DateTimeOffset(startUtc);
+        DateTimeOffset endAt = new DateTimeOffset(endUtc);
         var canSubmit = endAt > startAt;
         ImGui.BeginDisabled(!canSubmit);
         if (ImGui.Button(_editingId == Guid.Empty ? "Add" : "Update"))
@@ -634,6 +640,8 @@ public sealed class ShiftPlanComponent
     {
         EnsureLookups(app);
         ImGui.Spacing();
+        var useLocal = app.ShowShiftTimesInLocalTime;
+        _useLocalTimeView = useLocal;
         ImGui.TextUnformatted("View");
         ImGui.SameLine();
         if (ImGui.RadioButton("My", _shiftTabViewMy)) { _shiftTabViewMy = true; }
@@ -744,8 +752,8 @@ public sealed class ShiftPlanComponent
             for (int i = startIndex; i < endIndex; i++)
             {
                 var e = items[i];
-                var sLocal = e.StartAt.ToLocalTime();
-                var eLocal = e.EndAt.ToLocalTime();
+                var sView = useLocal ? e.StartAt.ToLocalTime() : e.StartAt;
+                var eView = useLocal ? e.EndAt.ToLocalTime() : e.EndAt;
                 var whoLabel = BuildWhoLabel(e, _staffUsers);
                 var statusLabel = BuildShiftStatus(nowServer, e);
 
@@ -754,9 +762,9 @@ public sealed class ShiftPlanComponent
                 if (isCurrent) ImGui.TableSetBgColor(ImGuiTableBgTarget.RowBg0, currentRowColor);
                 else if (e.EndAt <= nowServer) ImGui.TableSetBgColor(ImGuiTableBgTarget.RowBg0, pastRowColor);
                 ImGui.TableSetColumnIndex(0);
-                ImGui.TextUnformatted(sLocal.ToString("yyyy-MM-dd"));
+                ImGui.TextUnformatted(sView.ToString("yyyy-MM-dd"));
                 ImGui.TableSetColumnIndex(1);
-                ImGui.TextUnformatted(sLocal.ToString("HH:mm") + "-" + eLocal.ToString("HH:mm"));
+                ImGui.TextUnformatted(sView.ToString("HH:mm") + "-" + eView.ToString("HH:mm"));
                 ImGui.TableSetColumnIndex(2);
                 ImGui.TextUnformatted(whoLabel);
                 ImGui.TableSetColumnIndex(3);
@@ -777,7 +785,7 @@ public sealed class ShiftPlanComponent
                     ImGui.PopFont();
                     if (editClicked)
                     {
-                        BeginEditShift(e, app);
+                        BeginEditShift(e, app, useLocal);
                     }
                     if (rmClicked)
                     {
@@ -790,7 +798,7 @@ public sealed class ShiftPlanComponent
         }
     }
 
-    private void DrawMainCalendar(VenuePlusApp app)
+    private void DrawMainCalendar(VenuePlusApp app, bool useLocal)
     {
         var first = new DateTime(_viewYear, _viewMonth, 1);
         int startCol = ((int)first.DayOfWeek + 6) % 7;
@@ -820,9 +828,11 @@ public sealed class ShiftPlanComponent
                     if (curDay > days) { ImGui.TextUnformatted(""); continue; }
                     bool sel = _selectedDayMain == curDay;
                     var lbl = curDay.ToString();
-                    var dayStart = new DateTime(_viewYear, _viewMonth, curDay, 0, 0, 0, DateTimeKind.Local);
+                    var dayStart = new DateTime(_viewYear, _viewMonth, curDay, 0, 0, 0, useLocal ? DateTimeKind.Local : DateTimeKind.Utc);
                     var dayEnd = dayStart.AddDays(1);
-                    var dayShifts = all.Where(e => e.StartAt.ToLocalTime() < dayEnd && e.EndAt.ToLocalTime() > dayStart).ToArray();
+                    var dayShifts = useLocal
+                        ? all.Where(e => e.StartAt.ToLocalTime() < dayEnd && e.EndAt.ToLocalTime() > dayStart).ToArray()
+                        : all.Where(e => e.StartAt < dayEnd && e.EndAt > dayStart).ToArray();
                     if (dayShifts.Length > 0)
                     {
                         var col = VenuePlus.Helpers.ColorUtil.HexToU32(CalendarMarkerHex);
@@ -853,14 +863,14 @@ public sealed class ShiftPlanComponent
         return list.ToArray();
     }
 
-    private static List<DateTime> GetEventDays(ShiftEntry[] entries)
+    private static List<DateTime> GetEventDays(ShiftEntry[] entries, bool useLocal)
     {
         var set = new HashSet<DateTime>();
         for (int i = 0; i < entries.Length; i++)
         {
             var e = entries[i];
-            var start = e.StartAt.ToLocalTime();
-            var end = e.EndAt.ToLocalTime();
+            var start = useLocal ? e.StartAt.ToLocalTime().DateTime : e.StartAt.UtcDateTime;
+            var end = useLocal ? e.EndAt.ToLocalTime().DateTime : e.EndAt.UtcDateTime;
             var dayStart = start.Date;
             var dayEnd = end.Date;
             if (end.TimeOfDay == TimeSpan.Zero && dayEnd > dayStart) dayEnd = dayEnd.AddDays(-1);
@@ -874,10 +884,10 @@ public sealed class ShiftPlanComponent
         return list;
     }
 
-    private static DateTime? PickEventDay(List<DateTime> days)
+    private static DateTime? PickEventDay(List<DateTime> days, bool useLocal)
     {
         if (days.Count == 0) return null;
-        var today = DateTime.Now.Date;
+        var today = useLocal ? DateTime.Now.Date : DateTime.UtcNow.Date;
         for (int i = 0; i < days.Count; i++)
         {
             if (days[i].Date == today) return days[i];
@@ -885,13 +895,13 @@ public sealed class ShiftPlanComponent
         return days[0];
     }
 
-    private static int CompareByCurrent(DateTimeOffset nowLocal, ShiftEntry a, ShiftEntry b)
+    private static int CompareByCurrent(DateTimeOffset nowServer, ShiftEntry a, ShiftEntry b)
     {
-        var now = nowLocal.ToLocalTime();
-        var aStart = a.StartAt.ToLocalTime();
-        var aEnd = a.EndAt.ToLocalTime();
-        var bStart = b.StartAt.ToLocalTime();
-        var bEnd = b.EndAt.ToLocalTime();
+        var now = nowServer;
+        var aStart = a.StartAt;
+        var aEnd = a.EndAt;
+        var bStart = b.StartAt;
+        var bEnd = b.EndAt;
         var aCurrent = aStart <= now && aEnd > now;
         var bCurrent = bStart <= now && bEnd > now;
         if (aCurrent != bCurrent) return aCurrent ? -1 : 1;
@@ -923,8 +933,8 @@ public sealed class ShiftPlanComponent
 
     private static string BuildShiftLabel(ShiftEntry e, string whoLabel)
     {
-        var s = e.StartAt.ToLocalTime().ToString("HH:mm");
-        var ee = e.EndAt.ToLocalTime().ToString("HH:mm");
+        var s = e.StartAt.ToString("HH:mm");
+        var ee = e.EndAt.ToString("HH:mm");
         var title = e.Title ?? string.Empty;
         if (string.IsNullOrWhiteSpace(title) && string.IsNullOrWhiteSpace(whoLabel)) return s + "-" + ee;
         if (string.IsNullOrWhiteSpace(title)) return s + "-" + ee + " " + whoLabel;
@@ -978,15 +988,15 @@ public sealed class ShiftPlanComponent
         return jobs[0];
     }
 
-    private void BeginEditShift(ShiftEntry e, VenuePlusApp app)
+    private void BeginEditShift(ShiftEntry e, VenuePlusApp app, bool useLocal)
     {
         _editingId = e.Id;
         _pendingTitle = e.Title ?? string.Empty;
-        var sL = e.StartAt.ToLocalTime();
-        var eL = e.EndAt.ToLocalTime();
-        _startYear = sL.Year; _startMonth = sL.Month; _startDay = sL.Day; _startHour = sL.Hour; _startMinute = sL.Minute;
-        _pendingStart = sL.ToString("yyyy-MM-dd");
-        _durationMinutes = (int)Math.Max(0, (eL - sL).TotalMinutes);
+        var sView = useLocal ? e.StartAt.ToLocalTime() : e.StartAt;
+        var eView = useLocal ? e.EndAt.ToLocalTime() : e.EndAt;
+        _startYear = sView.Year; _startMonth = sView.Month; _startDay = sView.Day; _startHour = sView.Hour; _startMinute = sView.Minute;
+        _pendingStart = sView.ToString("yyyy-MM-dd");
+        _durationMinutes = (int)Math.Max(0, (eView - sView).TotalMinutes);
         _selUid = string.IsNullOrWhiteSpace(e.AssignedUid) ? null : e.AssignedUid;
         _selJob = string.IsNullOrWhiteSpace(e.Job) ? null : e.Job;
         _selDjName = string.IsNullOrWhiteSpace(e.DjName) ? null : e.DjName;

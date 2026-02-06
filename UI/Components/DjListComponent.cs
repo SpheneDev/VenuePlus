@@ -52,6 +52,7 @@ public sealed class DjListComponent
         ImGui.PushItemWidth(260f);
         ImGui.InputTextWithHint("##dj_filter", "Search DJs by name or link", ref _filter, 256);
         ImGui.PopItemWidth();
+        var useLocal = app.ShowShiftTimesInLocalTime;
         if (canAddDjTop)
         {
             var styleDj = ImGui.GetStyle();
@@ -107,8 +108,8 @@ public sealed class DjListComponent
 
         ImGui.Separator();
         var list = app.GetDjEntries().ToArray();
-        var nowLocal = DateTime.Now;
-        var dayStart = new DateTimeOffset(new DateTime(nowLocal.Year, nowLocal.Month, nowLocal.Day, 0, 0, 0, DateTimeKind.Local));
+        var now = useLocal ? DateTime.Now : DateTime.UtcNow;
+        var dayStart = new DateTimeOffset(new DateTime(now.Year, now.Month, now.Day, 0, 0, 0, useLocal ? DateTimeKind.Local : DateTimeKind.Utc));
         var dayEnd = dayStart.AddDays(1);
         var djToday = new Dictionary<string, List<ShiftEntry>>(StringComparer.Ordinal);
         var firstStartByDj = new Dictionary<string, DateTimeOffset>(StringComparer.Ordinal);
@@ -117,9 +118,9 @@ public sealed class DjListComponent
         {
             var s = shifts[i];
             if (string.IsNullOrWhiteSpace(s.DjName)) continue;
-            var sLocal = s.StartAt.ToLocalTime();
-            var eLocal = s.EndAt.ToLocalTime();
-            if (sLocal >= dayEnd || eLocal <= dayStart) continue;
+            var sView = useLocal ? s.StartAt.ToLocalTime() : s.StartAt;
+            var eView = useLocal ? s.EndAt.ToLocalTime() : s.EndAt;
+            if (sView >= dayEnd || eView <= dayStart) continue;
             if (!djToday.TryGetValue(s.DjName, out var items))
             {
                 items = new List<ShiftEntry>();
@@ -134,7 +135,7 @@ public sealed class DjListComponent
         var todayLabelByDj = new Dictionary<string, string>(StringComparer.Ordinal);
         foreach (var kvp in djToday)
         {
-            var label = BuildTodayLabel(kvp.Value, dayStart, dayEnd);
+            var label = BuildTodayLabel(kvp.Value, dayStart, dayEnd, useLocal);
             if (!string.IsNullOrWhiteSpace(label)) todayLabelByDj[kvp.Key] = label;
         }
         if (!string.IsNullOrWhiteSpace(_filter))
@@ -335,15 +336,15 @@ public sealed class DjListComponent
         }
     }
 
-    private static string BuildTodayLabel(List<ShiftEntry> entries, DateTimeOffset dayStart, DateTimeOffset dayEnd)
+    private static string BuildTodayLabel(List<ShiftEntry> entries, DateTimeOffset dayStart, DateTimeOffset dayEnd, bool useLocal)
     {
         if (entries.Count == 0) return string.Empty;
         entries.Sort((a, b) => a.StartAt.CompareTo(b.StartAt));
         var sb = new StringBuilder();
         for (int i = 0; i < entries.Count; i++)
         {
-            var s = entries[i].StartAt.ToLocalTime();
-            var e = entries[i].EndAt.ToLocalTime();
+            var s = useLocal ? entries[i].StartAt.ToLocalTime() : entries[i].StartAt;
+            var e = useLocal ? entries[i].EndAt.ToLocalTime() : entries[i].EndAt;
             if (s < dayStart) s = dayStart;
             if (e > dayEnd) e = dayEnd;
             if (sb.Length > 0) sb.Append(", ");

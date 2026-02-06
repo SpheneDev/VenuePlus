@@ -619,7 +619,37 @@ public sealed class VenuePlusWindow : Window, IDisposable
             }
             ImGui.BeginGroup();
             var accessR = (_app.AccessLoading && !_app.HasStaffSession) ? "Loading..." : (_app.IsOwnerCurrentClub ? "Owner" : (_app.HasStaffSession ? "Staff" : "Guest"));
-            ImGui.TextUnformatted($"Access: {accessR}");
+            var accessLabel = $"Access: {accessR}";
+            var useLocalTimeView = _app.ShowShiftTimesInLocalTime;
+            var timeViewLabel = useLocalTimeView ? "Current View: LT" : "Current View: ST";
+            var styleTime = ImGui.GetStyle();
+            var toggleHeight = ImGui.GetFrameHeight();
+            var toggleSize = new Vector2(toggleHeight * 1.6f, toggleHeight);
+            var timeViewWidth = ImGui.CalcTextSize(timeViewLabel).X + styleTime.ItemSpacing.X + toggleSize.X;
+            var accessStartX = ImGui.GetCursorPosX();
+            var accessRightLimit = accessStartX + ImGui.GetContentRegionAvail().X;
+            ImGui.TextUnformatted(accessLabel);
+            var afterAccessX = ImGui.GetCursorPosX();
+            ImGui.SameLine();
+            var accessRightX = accessRightLimit - timeViewWidth - 6f;
+            if (accessRightX < afterAccessX) accessRightX = afterAccessX;
+            ImGui.SetCursorPosX(accessRightX);
+            var lineStartY = ImGui.GetCursorPosY();
+            ImGui.AlignTextToFramePadding();
+            ImGui.TextUnformatted(timeViewLabel);
+            ImGui.SameLine();
+            var toggleY = lineStartY + (ImGui.GetTextLineHeightWithSpacing() - toggleHeight) * 0.5f;
+            if (toggleY > ImGui.GetCursorPosY()) ImGui.SetCursorPosY(toggleY);
+            if (DrawSlideToggle("##time_view_toggle", ref useLocalTimeView, toggleSize))
+            {
+                _ = _app.SetShowShiftTimesInLocalTimeAsync(useLocalTimeView);
+            }
+            if (ImGui.IsItemHovered())
+            {
+                ImGui.BeginTooltip();
+                ImGui.TextUnformatted("ST = Server Time\nLT = Local Time (your PC)\nShows shifts in your timezone so you know when they start.");
+                ImGui.EndTooltip();
+            }
             var jobsR = _app.CurrentStaffJobs;
             if (jobsR != null && jobsR.Length > 0)
             {
@@ -1209,6 +1239,28 @@ public sealed class VenuePlusWindow : Window, IDisposable
         if (w > avail) ImGui.NewLine();
         if (ImGui.Button(label)) onClick();
         ImGui.SameLine();
+    }
+
+    private static bool DrawSlideToggle(string id, ref bool value, Vector2 size)
+    {
+        var pos = ImGui.GetCursorScreenPos();
+        ImGui.InvisibleButton(id, size);
+        var toggled = false;
+        if (ImGui.IsItemClicked())
+        {
+            value = !value;
+            toggled = true;
+        }
+        var drawList = ImGui.GetWindowDrawList();
+        var radius = size.Y * 0.5f;
+        var bgColor = value ? ImGui.GetColorU32(ImGuiCol.FrameBgActive) : ImGui.GetColorU32(ImGuiCol.FrameBg);
+        var knobColor = ImGui.GetColorU32(value ? ImGuiCol.SliderGrabActive : ImGuiCol.SliderGrab);
+        drawList.AddRectFilled(pos, pos + size, bgColor, radius);
+        var knobX = value ? (pos.X + size.X - radius) : (pos.X + radius);
+        var knobCenter = new Vector2(knobX, pos.Y + radius);
+        var knobRadius = MathF.Max(1f, radius - 2f);
+        drawList.AddCircleFilled(knobCenter, knobRadius, knobColor);
+        return toggled;
     }
 
 
