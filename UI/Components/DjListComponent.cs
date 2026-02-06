@@ -22,6 +22,12 @@ public sealed class DjListComponent
     private string _editingName = string.Empty;
     private int _pageIndex;
     private string _pageFilter = string.Empty;
+    private Action<DjEntry>? _assignShiftAction;
+
+    internal void SetAssignShiftAction(Action<DjEntry>? action)
+    {
+        _assignShiftAction = action;
+    }
 
     public void OpenAddForm()
     {
@@ -143,7 +149,9 @@ public sealed class DjListComponent
         var openIcon = IconDraw.ToIconStringFromKey("Link");
         var editIcon = IconDraw.ToIconStringFromKey("Edit");
         var rmIcon = IconDraw.ToIconStringFromKey("Trash");
+        var clockIcon = Dalamud.Interface.FontAwesomeIcon.Clock.ToIconString();
         var canEditDj = canAddDjTop;
+        var canAssignShift = _assignShiftAction != null && (app.IsOwnerCurrentClub || (app.HasStaffSession && app.StaffCanEditShiftPlan));
         ImGui.PushFont(UiBuilder.IconFont);
         float actionsWidth = 0f;
         int actionsCount = 0;
@@ -156,6 +164,7 @@ public sealed class DjListComponent
         AddActionWidth(openIcon);
         if (canEditDj) AddActionWidth(editIcon);
         if (canRemoveDj) AddActionWidth(rmIcon);
+        if (canAssignShift) AddActionWidth(clockIcon);
         ImGui.PopFont();
 
         if (!string.Equals(_pageFilter, _filter, StringComparison.Ordinal))
@@ -306,6 +315,19 @@ public sealed class DjListComponent
                             System.Threading.Tasks.Task.Run(async () => { await app.RemoveDjAsync(e.DjName); });
                         }
                         if (ImGui.IsItemHovered()) { ImGui.BeginTooltip(); ImGui.TextUnformatted("Remove DJ"); ImGui.EndTooltip(); }
+                        anyPrinted = true;
+                    }
+                    if (canAssignShift)
+                    {
+                        if (anyPrinted) ImGui.SameLine();
+                        ImGui.PushFont(UiBuilder.IconFont);
+                        var shiftClicked = ImGui.Button(clockIcon + $"##shift_{e.DjName}");
+                        ImGui.PopFont();
+                        if (shiftClicked)
+                        {
+                            _assignShiftAction?.Invoke(e);
+                        }
+                        if (ImGui.IsItemHovered()) { ImGui.BeginTooltip(); ImGui.TextUnformatted("Create shift for this DJ in Schedule"); ImGui.EndTooltip(); }
                     }
                 }
             }

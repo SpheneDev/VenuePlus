@@ -30,6 +30,7 @@ public sealed class ShiftPlanComponent
     private string? _selJob;
     private int _selDjIdx = -1;
     private string? _selDjName;
+    private string? _pendingAssignUsername;
     private int _startYear;
     private int _startMonth;
     private int _startDay;
@@ -67,6 +68,7 @@ public sealed class ShiftPlanComponent
         _selJob = null;
         _selDjIdx = -1;
         _selDjName = null;
+        _pendingAssignUsername = null;
         var now = DateTime.Now;
         _startYear = now.Year;
         _startMonth = now.Month;
@@ -75,6 +77,28 @@ public sealed class ShiftPlanComponent
         _startMinute = (now.Minute / 5) * 5;
         _pendingStart = now.ToString("yyyy-MM-dd");
         SyncAddFormDateFromSelection();
+    }
+
+    internal void OpenAddFormForUser(string? uid, string? username, string? job)
+    {
+        OpenAddForm();
+        _selUid = string.IsNullOrWhiteSpace(uid) ? null : uid;
+        _selUserIdx = -1;
+        _pendingAssignUsername = string.IsNullOrWhiteSpace(username) ? null : username;
+        if (!string.IsNullOrWhiteSpace(job)) _selJob = job;
+    }
+
+    internal void OpenAddFormForDj(string? djName)
+    {
+        OpenAddForm();
+        _selDjName = string.IsNullOrWhiteSpace(djName) ? null : djName;
+        _selDjIdx = -1;
+    }
+
+    internal void DrawInlineAddForm(VenuePlusApp app)
+    {
+        var canEdit = app.IsOwnerCurrentClub || (app.HasStaffSession && app.StaffCanEditShiftPlan);
+        DrawEditForm(app, canEdit);
     }
 
     public void CloseAddForm()
@@ -92,6 +116,7 @@ public sealed class ShiftPlanComponent
         _selJob = null;
         _selDjIdx = -1;
         _selDjName = null;
+        _pendingAssignUsername = null;
     }
 
     private void EnsureLookups(VenuePlusApp app)
@@ -219,16 +244,6 @@ public sealed class ShiftPlanComponent
         ImGui.PushItemWidth(260f);
         ImGui.InputTextWithHint("##shift_filter", "Search shifts by title, job or uid", ref _filter, 256);
         ImGui.PopItemWidth();
-        if (canEdit)
-        {
-            var style = ImGui.GetStyle();
-            var btnW = ImGui.CalcTextSize("Add Shift").X + style.FramePadding.X * 2f;
-            var startX = ImGui.GetCursorPosX();
-            var rightX = startX + ImGui.GetContentRegionAvail().X - btnW;
-            ImGui.SameLine(rightX);
-            if (ImGui.Button("Add Shift")) { OpenAddForm(); EnsureLookups(app); }
-            if (ImGui.IsItemHovered()) { ImGui.BeginTooltip(); ImGui.TextUnformatted("Create a new shift"); ImGui.EndTooltip(); }
-        }
         DrawEditForm(app, canEdit);
 
         ImGui.Separator();
@@ -448,6 +463,34 @@ public sealed class ShiftPlanComponent
         }
         ImGui.PopItemWidth();
         EnsureLookups(app);
+        if (_selUserIdx >= _staffUsers.Length) { _selUserIdx = -1; }
+        if (_selUserIdx < 0 && !string.IsNullOrWhiteSpace(_selUid))
+        {
+            for (int i = 0; i < _staffUsers.Length; i++)
+            {
+                var u = _staffUsers[i];
+                if (!string.IsNullOrWhiteSpace(u.Uid) && string.Equals(u.Uid, _selUid, StringComparison.Ordinal))
+                {
+                    _selUserIdx = i;
+                    _pendingAssignUsername = null;
+                    break;
+                }
+            }
+        }
+        if (_selUserIdx < 0 && !string.IsNullOrWhiteSpace(_pendingAssignUsername))
+        {
+            for (int i = 0; i < _staffUsers.Length; i++)
+            {
+                var u = _staffUsers[i];
+                if (!string.IsNullOrWhiteSpace(u.Username) && string.Equals(u.Username, _pendingAssignUsername, StringComparison.Ordinal))
+                {
+                    _selUserIdx = i;
+                    if (string.IsNullOrWhiteSpace(_selUid)) _selUid = u.Uid;
+                    _pendingAssignUsername = null;
+                    break;
+                }
+            }
+        }
         ImGui.TextUnformatted("Start");
         ImGui.PushItemWidth(120f);
         ImGui.InputTextWithHint("##start_date", "yyyy-MM-dd", ref _pendingStart, 32);
@@ -590,12 +633,11 @@ public sealed class ShiftPlanComponent
         ImGui.SameLine();
         if (ImGui.RadioButton("All", !_shiftTabViewMy)) { _shiftTabViewMy = false; }
         ImGui.SameLine();
+        var canEdit = app.IsOwnerCurrentClub || (app.HasStaffSession && app.StaffCanEditShiftPlan);
         ImGui.PushItemWidth(260f);
         ImGui.InputTextWithHint("##shift_tab_filter", "Search shifts by title, DJ, job or user", ref _shiftTabFilter, 256);
         ImGui.PopItemWidth();
-
-        var canEdit = app.IsOwnerCurrentClub || (app.HasStaffSession && app.StaffCanEditShiftPlan);
-        DrawEditForm(app, canEdit);
+        ImGui.Separator();
 
         var nowServer = DateTimeOffset.UtcNow;
         var all = app.GetShiftEntries().ToArray();

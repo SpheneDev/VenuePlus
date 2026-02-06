@@ -53,6 +53,12 @@ public sealed class StaffListComponent
     private bool _editBirthdayOpen;
     private int _pageIndex;
     private string _pageFilter = string.Empty;
+    private Action<StaffUser>? _assignShiftAction;
+
+    internal void SetAssignShiftAction(Action<StaffUser>? action)
+    {
+        _assignShiftAction = action;
+    }
 
     public void TriggerRefresh(VenuePlusApp app)
     {
@@ -549,6 +555,7 @@ public sealed class StaffListComponent
         ImGui.PushFont(UiBuilder.IconFont);
         ImGui.SetWindowFontScale(0.9f);
         var canAct = app.IsOwnerCurrentClub || (app.HasStaffSession && app.StaffCanManageUsers);
+        var canAssignShift = _assignShiftAction != null && (app.IsOwnerCurrentClub || (app.HasStaffSession && app.StaffCanEditShiftPlan));
         float actionsWidth = 0f;
         int actionsCount = 0;
         if (canAct)
@@ -557,6 +564,10 @@ public sealed class StaffListComponent
             actionsWidth += ImGui.CalcTextSize(FontAwesomeIcon.Save.ToIconString()).X + style.FramePadding.X * 2f; actionsCount++;
             actionsWidth += ImGui.CalcTextSize(FontAwesomeIcon.Calendar.ToIconString()).X + style.FramePadding.X * 2f; actionsCount++;
             actionsWidth += ImGui.CalcTextSize(FontAwesomeIcon.Link.ToIconString()).X + style.FramePadding.X * 2f; actionsCount++;
+        }
+        if (canAssignShift)
+        {
+            actionsWidth += ImGui.CalcTextSize(FontAwesomeIcon.Clock.ToIconString()).X + style.FramePadding.X * 2f; actionsCount++;
         }
         ImGui.SetWindowFontScale(1f);
         ImGui.PopFont();
@@ -879,6 +890,21 @@ public sealed class StaffListComponent
                 if (showActions)
                 {
                     ImGui.TableSetColumnIndex(2);
+                    var printed = false;
+                    if (canAssignShift && hasUsername)
+                    {
+                        ImGui.PushFont(UiBuilder.IconFont);
+                        ImGui.SetWindowFontScale(0.9f);
+                        ImGui.SetCursorPosY(rowCenterY - ImGui.GetFrameHeight() / 2f);
+                        if (ImGui.Button(FontAwesomeIcon.Clock.ToIconString() + $"##shift_{identity}"))
+                        {
+                            _assignShiftAction?.Invoke(u);
+                        }
+                        ImGui.SetWindowFontScale(1f);
+                        ImGui.PopFont();
+                        if (ImGui.IsItemHovered()) { ImGui.BeginTooltip(); ImGui.TextUnformatted("Assign a shift to this user"); ImGui.EndTooltip(); }
+                        printed = true;
+                    }
                     if (canAct)
                     {
                         ImGui.PushFont(UiBuilder.IconFont);
@@ -887,95 +913,104 @@ public sealed class StaffListComponent
                         var isOwnerRow = _selectedJobsByClub.TryGetValue(key, out var ownerSet) && ownerSet.Contains("Owner");
                         var isSelfRow = !string.IsNullOrWhiteSpace(app.CurrentStaffUsername) && string.Equals(usernameSafe, app.CurrentStaffUsername, System.StringComparison.Ordinal);
                         var ctrlDown = ImGui.GetIO().KeyCtrl;
-                        ImGui.BeginDisabled(!ctrlDown || isOwnerRow || isSelfRow || !hasUsername);
-                        if (ImGui.Button(FontAwesomeIcon.Trash.ToIconString() + $"##rm_{identity}"))
+                        if (ctrlDown && !isOwnerRow && !isSelfRow && hasUsername)
                         {
-                            _rowStatus[identity] = "Removing...";
-                            System.Threading.Tasks.Task.Run(async () =>
+                            if (ImGui.Button(FontAwesomeIcon.Trash.ToIconString() + $"##rm_{identity}"))
                             {
-                                var ok = await app.DeleteStaffUserAsync(usernameSafe);
-                                _rowStatus[identity] = ok ? "Removed" : (app.GetLastServerMessage() ?? "Remove failed");
-                            });
+                                _rowStatus[identity] = "Removing...";
+                                System.Threading.Tasks.Task.Run(async () =>
+                                {
+                                    var ok = await app.DeleteStaffUserAsync(usernameSafe);
+                                    _rowStatus[identity] = ok ? "Removed" : (app.GetLastServerMessage() ?? "Remove failed");
+                                });
+                            }
+                            if (ImGui.IsItemHovered()) { ImGui.BeginTooltip(); ImGui.TextUnformatted("Remove this staff member"); ImGui.EndTooltip(); }
+                            printed = true;
                         }
-                        ImGui.EndDisabled();
                         ImGui.SetWindowFontScale(1f);
                         ImGui.PopFont();
-                        if (ImGui.IsItemHovered(ImGuiHoveredFlags.AllowWhenDisabled)) { ImGui.BeginTooltip(); ImGui.TextUnformatted(isOwnerRow ? "Owner cannot be removed" : (isSelfRow ? "You cannot remove yourself" : (ctrlDown ? "Remove this staff member" : "Hold Ctrl to remove this staff member"))); ImGui.EndTooltip(); }
 
-                        ImGui.SameLine();
+                        if (printed) ImGui.SameLine();
                         ImGui.PushFont(UiBuilder.IconFont);
                         ImGui.SetWindowFontScale(0.9f);
                         ImGui.SetCursorPosY(rowCenterY - ImGui.GetFrameHeight() / 2f);
                         var newJobsSelf = NormalizeJobs(currentSet);
                         var rightsCacheSave = app.GetJobRightsCache();
                         var selfLosesManageJobs = isSelfRow && !isOwnerRow && !HasManageJobs(rightsCacheSave, newJobsSelf);
-                        ImGui.BeginDisabled((isOwnerRow && !app.IsOwnerCurrentClub) || selfLosesManageJobs || !hasUsername);
-                        if (ImGui.Button(FontAwesomeIcon.Save.ToIconString() + $"##save_{identity}"))
+                        var canSave = !(isOwnerRow && !app.IsOwnerCurrentClub) && !selfLosesManageJobs && hasUsername;
+                        if (canSave)
                         {
-                            var prevJobs = NormalizeJobs(GetJobsFromUser(u));
-                            var newJobs = NormalizeJobs(currentSet);
-                            var ownerChange = HasOwner(prevJobs) != HasOwner(newJobs);
-                            if (ownerChange)
+                            if (ImGui.Button(FontAwesomeIcon.Save.ToIconString() + $"##save_{identity}"))
                             {
-                                _confirmOpen = true;
-                                _confirmUser = usernameSafe;
-                                _confirmNewJobs = newJobs;
-                                _confirmStatus = string.Empty;
-                            }
-                            else
-                            {
-                                _rowStatus[identity] = "Saving...";
-                                System.Threading.Tasks.Task.Run(async () =>
+                                var prevJobs = NormalizeJobs(GetJobsFromUser(u));
+                                var newJobs = NormalizeJobs(currentSet);
+                                var ownerChange = HasOwner(prevJobs) != HasOwner(newJobs);
+                                if (ownerChange)
                                 {
-                                var ok = await app.UpdateStaffUserJobsAsync(usernameSafe, newJobs);
-                                _rowStatus[identity] = ok ? "Saved" : (app.GetLastServerMessage() ?? "Save failed");
-                                if (ok)
-                                {
-                                    ApplySavedJobs(app.CurrentClubId ?? string.Empty, usernameSafe, newJobs, app);
+                                    _confirmOpen = true;
+                                    _confirmUser = usernameSafe;
+                                    _confirmNewJobs = newJobs;
+                                    _confirmStatus = string.Empty;
                                 }
-                            });
+                                else
+                                {
+                                    _rowStatus[identity] = "Saving...";
+                                    System.Threading.Tasks.Task.Run(async () =>
+                                    {
+                                        var ok = await app.UpdateStaffUserJobsAsync(usernameSafe, newJobs);
+                                        _rowStatus[identity] = ok ? "Saved" : (app.GetLastServerMessage() ?? "Save failed");
+                                        if (ok)
+                                        {
+                                            ApplySavedJobs(app.CurrentClubId ?? string.Empty, usernameSafe, newJobs, app);
+                                        }
+                                    });
+                                }
                             }
+                            if (ImGui.IsItemHovered()) { ImGui.BeginTooltip(); ImGui.TextUnformatted("Save changes to this staff member's job"); ImGui.EndTooltip(); }
+                            printed = true;
                         }
-                        ImGui.EndDisabled();
                         ImGui.SetWindowFontScale(1f);
                         ImGui.PopFont();
-                        if (ImGui.IsItemHovered(ImGuiHoveredFlags.AllowWhenDisabled)) { ImGui.BeginTooltip(); ImGui.TextUnformatted(isOwnerRow ? "Owner job cannot be changed" : (selfLosesManageJobs ? "You cannot assign yourself a role that removes role editing rights" : "Save changes to this staff member's job")); ImGui.EndTooltip(); }
 
-                        ImGui.SameLine();
+                        if (printed) ImGui.SameLine();
                         ImGui.PushFont(UiBuilder.IconFont);
                         ImGui.SetWindowFontScale(0.9f);
                         ImGui.SetCursorPosY(rowCenterY - ImGui.GetFrameHeight() / 2f);
-                        ImGui.BeginDisabled(!u.IsManual);
-                        if (ImGui.Button(FontAwesomeIcon.Calendar.ToIconString() + $"##birthday_{identity}"))
+                        if (u.IsManual)
                         {
-                            _editBirthdayOpen = true;
-                            _editBirthdayUser = usernameSafe;
-                            _editBirthdayUserSnapshot = string.Empty;
-                            _editBirthdayStatus = string.Empty;
+                            if (ImGui.Button(FontAwesomeIcon.Calendar.ToIconString() + $"##birthday_{identity}"))
+                            {
+                                _editBirthdayOpen = true;
+                                _editBirthdayUser = usernameSafe;
+                                _editBirthdayUserSnapshot = string.Empty;
+                                _editBirthdayStatus = string.Empty;
+                            }
+                            if (ImGui.IsItemHovered()) { ImGui.BeginTooltip(); ImGui.TextUnformatted("Edit birthday"); ImGui.EndTooltip(); }
+                            printed = true;
                         }
-                        ImGui.EndDisabled();
                         ImGui.SetWindowFontScale(1f);
                         ImGui.PopFont();
-                        if (ImGui.IsItemHovered(ImGuiHoveredFlags.AllowWhenDisabled)) { ImGui.BeginTooltip(); ImGui.TextUnformatted(!u.IsManual ? "Only manual entries can be edited" : "Edit birthday"); ImGui.EndTooltip(); }
 
-                        ImGui.SameLine();
+                        if (printed) ImGui.SameLine();
                         ImGui.PushFont(UiBuilder.IconFont);
                         ImGui.SetWindowFontScale(0.9f);
                         ImGui.SetCursorPosY(rowCenterY - ImGui.GetFrameHeight() / 2f);
-                        ImGui.BeginDisabled(!u.IsManual || isOwnerRow || isSelfRow || !hasUsername);
-                        if (ImGui.Button(FontAwesomeIcon.Link.ToIconString() + $"##link_{identity}"))
+                        if (u.IsManual && !isOwnerRow && !isSelfRow && hasUsername)
                         {
-                            _inviteInlineOpen = false;
-                            _manualLinkInlineOpen = true;
-                            _manualLinkManualUid = u.Uid ?? string.Empty;
-                            _manualLinkTargetUid = string.Empty;
-                            _manualLinkStatus = string.Empty;
-                            _focusManualLinkTarget = true;
+                            if (ImGui.Button(FontAwesomeIcon.Link.ToIconString() + $"##link_{identity}"))
+                            {
+                                _inviteInlineOpen = false;
+                                _manualLinkInlineOpen = true;
+                                _manualLinkManualUid = u.Uid ?? string.Empty;
+                                _manualLinkTargetUid = string.Empty;
+                                _manualLinkStatus = string.Empty;
+                                _focusManualLinkTarget = true;
+                            }
+                            if (ImGui.IsItemHovered()) { ImGui.BeginTooltip(); ImGui.TextUnformatted("Link this manual entry to a real user UID"); ImGui.EndTooltip(); }
+                            printed = true;
                         }
-                        ImGui.EndDisabled();
                         ImGui.SetWindowFontScale(1f);
                         ImGui.PopFont();
-                        if (ImGui.IsItemHovered(ImGuiHoveredFlags.AllowWhenDisabled)) { ImGui.BeginTooltip(); ImGui.TextUnformatted(!u.IsManual ? "Only manual entries can be linked" : (isOwnerRow ? "Owner cannot be linked" : (isSelfRow ? "You cannot link yourself" : "Link this manual entry to a real user UID"))); ImGui.EndTooltip(); }
                     }
                     if (!string.IsNullOrWhiteSpace(identity) && _rowStatus.TryGetValue(identity, out var rs) && !string.IsNullOrEmpty(rs))
                     {

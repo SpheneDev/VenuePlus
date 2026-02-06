@@ -66,6 +66,7 @@ public sealed class VenuePlusWindow : Window, IDisposable
     private string? _birthdayClubId;
     private int _birthdayPageIndex;
     private string _birthdayPageFilter = string.Empty;
+    private bool _requestScheduleTab;
     private bool _openStaffLoginModal;
     private IDalamudTextureWrap? _clubLogoTex;
     private IDalamudTextureWrap? _fallbackLogoTex;
@@ -108,6 +109,16 @@ public sealed class VenuePlusWindow : Window, IDisposable
         _app.RememberStaffNeedsPasswordEvt += OnRememberStaffNeedsPassword;
         _app.ClubLogoChanged += OnClubLogoChanged;
         OnClubLogoChanged(_app.CurrentClubLogoBase64);
+        _staffList.SetAssignShiftAction(u =>
+        {
+            _requestScheduleTab = true;
+            _shiftPlan.OpenAddFormForUser(u.Uid, u.Username, u.Job);
+        });
+        _djList.SetAssignShiftAction(dj =>
+        {
+            _requestScheduleTab = true;
+            _shiftPlan.OpenAddFormForDj(dj.DjName);
+        });
     }
 
     public override void OnOpen()
@@ -966,8 +977,10 @@ public sealed class VenuePlusWindow : Window, IDisposable
                     ImGui.EndTabItem();
                 }
             }
-            if (showShiftTab && ImGui.BeginTabItem("Schedule"))
+            var scheduleFlags = _requestScheduleTab ? ImGuiTabItemFlags.SetSelected : ImGuiTabItemFlags.None;
+            if (showShiftTab && ImGui.BeginTabItem("Schedule", scheduleFlags))
             {
+                if (_requestScheduleTab) _requestScheduleTab = false;
                 if (ImGui.IsItemActivated()) ResetStatusMessages();
                 ImGui.BeginChild("ShiftsTabContent", new Vector2(0, ImGui.GetContentRegionAvail().Y), false);
                 _vipTable.CloseAddForm();

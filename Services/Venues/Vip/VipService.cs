@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using VenuePlus.State;
+using VenuePlus.Helpers;
 
 namespace VenuePlus.Services;
 
@@ -22,6 +23,7 @@ public sealed class VipService
     {
         _activeClub = string.IsNullOrWhiteSpace(clubId) ? null : clubId!.Trim();
         if (_activeClub != null) EnsureClubInitialized(_activeClub);
+        Logger.LogDebug($"[VipListSync] vip.active.club set={( _activeClub ?? "--" )}");
     }
 
     public IReadOnlyCollection<VipEntry> GetAll(bool includeExpired = false)
@@ -157,8 +159,10 @@ public sealed class VipService
     {
         if (string.IsNullOrWhiteSpace(_activeClub)) return;
         var map = GetActiveMap();
+        var beforeCount = map.Count;
         map.Clear();
         foreach (var e in entries) map[e.Key] = e;
+        Logger.LogDebug($"[VipListSync] vip.replace.all club={_activeClub} before={beforeCount} after={map.Count}");
         _config.SaveClub(_activeClub!, map.Values.ToList());
     }
 
@@ -169,6 +173,7 @@ public sealed class VipService
             var loaded = _config.LoadClub(clubId);
             map = loaded.ToDictionary(e => e.Key, e => e);
             _entriesByClub[clubId] = map;
+            Logger.LogDebug($"[VipListSync] vip.cache.init club={clubId} loaded={map.Count}");
         }
     }
 

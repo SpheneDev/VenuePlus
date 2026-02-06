@@ -6,6 +6,7 @@ using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using VenuePlus.State;
+using VenuePlus.Helpers;
 using Dalamud.Plugin.Services;
 
 namespace VenuePlus.Services;
@@ -125,9 +126,11 @@ public sealed class RemoteSyncService : IDisposable
         {
             try
             {
+                    Logger.LogDebug($"[VipListSync] ws.switch.club send club={_clubId}");
                 var payload = JsonSerializer.Serialize(new { type = "switch.club", clubId = _clubId });
                 var seg = new ArraySegment<byte>(Encoding.UTF8.GetBytes(payload));
                 await _ws.SendAsync(seg, WebSocketMessageType.Text, true, CancellationToken.None);
+                    Logger.LogDebug($"[VipListSync] ws.switch.club sent club={_clubId}");
                 return true;
             }
             catch (Exception ex) { _log?.Debug($"WS switch.club async failed: {ex.Message}"); return false; }
@@ -1563,6 +1566,7 @@ public sealed class RemoteSyncService : IDisposable
                         var entriesEl = root.GetProperty("entries");
                         var entries = JsonSerializer.Deserialize<System.Collections.Generic.List<VipEntry>>(entriesEl.GetRawText(), new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.CamelCase }) ?? new System.Collections.Generic.List<VipEntry>();
                         try { _log?.Debug($"WS vip.snapshot club={_clubId ?? "--"} count={entries.Count}"); } catch { }
+                        Logger.LogDebug($"[VipListSync] ws.msg vip.snapshot club={_clubId ?? "--"} count={entries.Count}");
                         SnapshotReceived?.Invoke(entries);
                     }
                     else if (type == "club.logo")
