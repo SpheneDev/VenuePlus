@@ -2717,6 +2717,8 @@ public sealed class VenuePlusApp : IDisposable, IEventListener
                     if (_remote.RemoteUseWebSocket)
                     {
                         var _ = await _remote.SwitchClubAsync(clubId);
+                        Logger.LogDebug($"[VipListSync] request vip snapshot via ws club={(clubId ?? "--")}");
+                        try { await _remote.RequestVipSnapshotAsync(_staffToken); } catch { }
                         Logger.LogDebug($"[VipListSync] request shift snapshot via ws club={(clubId ?? "--")}");
                         try { await _remote.RequestShiftSnapshotAsync(_staffToken); } catch { }
                     }

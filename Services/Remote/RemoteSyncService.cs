@@ -157,6 +157,25 @@ public sealed class RemoteSyncService : IDisposable
         return false;
     }
 
+    public async Task<bool> RequestVipSnapshotAsync(string? staffSession = null)
+    {
+        if (_useWebSocket && _ws != null && _ws.State == WebSocketState.Open)
+        {
+            try
+            {
+                object payloadObj = string.IsNullOrWhiteSpace(staffSession)
+                    ? new { type = "vip.snapshot.request" }
+                    : new { type = "vip.snapshot.request", token = staffSession };
+                var payload = JsonSerializer.Serialize(payloadObj);
+                var seg = new ArraySegment<byte>(Encoding.UTF8.GetBytes(payload));
+                await _ws.SendAsync(seg, WebSocketMessageType.Text, true, CancellationToken.None);
+                return true;
+            }
+            catch (Exception ex) { _log?.Debug($"WS vip snapshot request failed: {ex.Message}"); return false; }
+        }
+        return false;
+    }
+
     public async Task<bool> ConnectAsync(string baseUrl)
     {
         _baseUrl = baseUrl?.TrimEnd('/');

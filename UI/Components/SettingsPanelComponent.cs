@@ -17,6 +17,8 @@ public sealed class SettingsPanelComponent
     private string _publicVipUrl = string.Empty;
     private string _publicStaffUrl = string.Empty;
     private string _publicDjUrl = string.Empty;
+    private string _publicStaffShiftUrl = string.Empty;
+    private string _publicDjShiftUrl = string.Empty;
     private bool _linksInitialized;
     private System.Threading.Tasks.Task? _linksInitTask;
     private System.Threading.Tasks.Task? _linksRegenTask;
@@ -274,7 +276,7 @@ public sealed class SettingsPanelComponent
 
     private void DrawPublicAccessLinks(VenuePlusApp app)
     {
-        ImGui.TextWrapped("Read-only JSON endpoints for VIP, staff and DJs of the current venue.");
+        ImGui.TextWrapped("Read-only JSON endpoints for VIPs, staff, DJs and shift plans of the current venue.");
         ImGui.TextWrapped("Share only with trusted tools or websites. Regenerating the access key invalidates old links.");
         ImGui.TextDisabled("Links are hidden; use the copy buttons to share safely.");
         ImGui.Spacing();
@@ -295,11 +297,15 @@ public sealed class SettingsPanelComponent
                 var vipUrlNew = !string.IsNullOrWhiteSpace(key) ? (baseUrl.TrimEnd('/') + "/" + key + "/viplist.json") : string.Empty;
                 var staffUrlNew = !string.IsNullOrWhiteSpace(key) ? (baseUrl.TrimEnd('/') + "/" + key + "/stafflist.json") : string.Empty;
                 var djUrlNew = !string.IsNullOrWhiteSpace(key) ? (baseUrl.TrimEnd('/') + "/" + key + "/djlist.json") : string.Empty;
-                if (!string.IsNullOrWhiteSpace(vipUrlNew) && !string.IsNullOrWhiteSpace(staffUrlNew) && !string.IsNullOrWhiteSpace(djUrlNew) && string.Equals(clubId, app.CurrentClubId, System.StringComparison.Ordinal))
+                var staffShiftUrlNew = !string.IsNullOrWhiteSpace(key) ? (baseUrl.TrimEnd('/') + "/" + key + "/staffshifts.json") : string.Empty;
+                var djShiftUrlNew = !string.IsNullOrWhiteSpace(key) ? (baseUrl.TrimEnd('/') + "/" + key + "/djshifts.json") : string.Empty;
+                if (!string.IsNullOrWhiteSpace(vipUrlNew) && !string.IsNullOrWhiteSpace(staffUrlNew) && !string.IsNullOrWhiteSpace(djUrlNew) && !string.IsNullOrWhiteSpace(staffShiftUrlNew) && !string.IsNullOrWhiteSpace(djShiftUrlNew) && string.Equals(clubId, app.CurrentClubId, System.StringComparison.Ordinal))
                 {
                     _publicVipUrl = vipUrlNew;
                     _publicStaffUrl = staffUrlNew;
                     _publicDjUrl = djUrlNew;
+                    _publicStaffShiftUrl = staffShiftUrlNew;
+                    _publicDjShiftUrl = djShiftUrlNew;
                 }
                 _linksInitialized = true;
             });
@@ -317,11 +323,15 @@ public sealed class SettingsPanelComponent
                     var vipUrlNew = ok && !string.IsNullOrWhiteSpace(key) ? (baseUrl.TrimEnd('/') + "/" + key + "/viplist.json") : string.Empty;
                     var staffUrlNew = ok && !string.IsNullOrWhiteSpace(key) ? (baseUrl.TrimEnd('/') + "/" + key + "/stafflist.json") : string.Empty;
                     var djUrlNew = ok && !string.IsNullOrWhiteSpace(key) ? (baseUrl.TrimEnd('/') + "/" + key + "/djlist.json") : string.Empty;
-                    if (!string.IsNullOrWhiteSpace(vipUrlNew) && !string.IsNullOrWhiteSpace(staffUrlNew) && !string.IsNullOrWhiteSpace(djUrlNew) && string.Equals(clubId, app.CurrentClubId, System.StringComparison.Ordinal))
+                    var staffShiftUrlNew = ok && !string.IsNullOrWhiteSpace(key) ? (baseUrl.TrimEnd('/') + "/" + key + "/staffshifts.json") : string.Empty;
+                    var djShiftUrlNew = ok && !string.IsNullOrWhiteSpace(key) ? (baseUrl.TrimEnd('/') + "/" + key + "/djshifts.json") : string.Empty;
+                    if (!string.IsNullOrWhiteSpace(vipUrlNew) && !string.IsNullOrWhiteSpace(staffUrlNew) && !string.IsNullOrWhiteSpace(djUrlNew) && !string.IsNullOrWhiteSpace(staffShiftUrlNew) && !string.IsNullOrWhiteSpace(djShiftUrlNew) && string.Equals(clubId, app.CurrentClubId, System.StringComparison.Ordinal))
                     {
                         _publicVipUrl = vipUrlNew;
                         _publicStaffUrl = staffUrlNew;
                         _publicDjUrl = djUrlNew;
+                        _publicStaffShiftUrl = staffShiftUrlNew;
+                        _publicDjShiftUrl = djShiftUrlNew;
                     }
                     _linksInitialized = true;
                 });
@@ -331,6 +341,8 @@ public sealed class SettingsPanelComponent
         var hasVip = !string.IsNullOrWhiteSpace(_publicVipUrl);
         var hasStaff = !string.IsNullOrWhiteSpace(_publicStaffUrl);
         var hasDj = !string.IsNullOrWhiteSpace(_publicDjUrl);
+        var hasStaffShift = !string.IsNullOrWhiteSpace(_publicStaffShiftUrl);
+        var hasDjShift = !string.IsNullOrWhiteSpace(_publicDjShiftUrl);
         ImGui.BeginDisabled(!hasVip);
         if (ImGui.Button("Copy VIP Link")) { if (hasVip) ImGui.SetClipboardText(_publicVipUrl); }
         if (ImGui.IsItemHovered(ImGuiHoveredFlags.AllowWhenDisabled)) { ImGui.BeginTooltip(); ImGui.TextUnformatted(hasVip ? "Copy public VIP JSON link to clipboard" : "Loading VIP link..."); ImGui.EndTooltip(); }
@@ -344,6 +356,16 @@ public sealed class SettingsPanelComponent
         ImGui.BeginDisabled(!hasDj);
         if (ImGui.Button("Copy DJs Link")) { if (hasDj) ImGui.SetClipboardText(_publicDjUrl); }
         if (ImGui.IsItemHovered(ImGuiHoveredFlags.AllowWhenDisabled)) { ImGui.BeginTooltip(); ImGui.TextUnformatted(hasDj ? "Copy public DJs JSON link to clipboard" : "Loading DJs link..."); ImGui.EndTooltip(); }
+        ImGui.EndDisabled();
+        ImGui.Spacing();
+        ImGui.BeginDisabled(!hasStaffShift);
+        if (ImGui.Button("Copy Staff Shifts Link")) { if (hasStaffShift) ImGui.SetClipboardText(_publicStaffShiftUrl); }
+        if (ImGui.IsItemHovered(ImGuiHoveredFlags.AllowWhenDisabled)) { ImGui.BeginTooltip(); ImGui.TextUnformatted(hasStaffShift ? "Copy public Staff Shifts JSON link to clipboard" : "Loading Staff Shifts link..."); ImGui.EndTooltip(); }
+        ImGui.EndDisabled();
+        ImGui.SameLine();
+        ImGui.BeginDisabled(!hasDjShift);
+        if (ImGui.Button("Copy DJ Shifts Link")) { if (hasDjShift) ImGui.SetClipboardText(_publicDjShiftUrl); }
+        if (ImGui.IsItemHovered(ImGuiHoveredFlags.AllowWhenDisabled)) { ImGui.BeginTooltip(); ImGui.TextUnformatted(hasDjShift ? "Copy public DJ Shifts JSON link to clipboard" : "Loading DJ Shifts link..."); ImGui.EndTooltip(); }
         ImGui.EndDisabled();
     }
 
