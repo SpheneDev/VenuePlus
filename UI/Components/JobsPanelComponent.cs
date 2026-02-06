@@ -50,7 +50,12 @@ public sealed class JobsPanelComponent
     private string _editIconKey = "User";
     private int _addRank = 1;
     private int _editRank = 1;
-    private readonly string[] _iconOptions = new[] { "User", "Shield", "Star", "Beer", "Music", "GlassCheers", "Heart", "Sun", "Moon", "Crown", "Gem", "Fire", "Snowflake" };
+    private static readonly System.Collections.Generic.Dictionary<string, string[]> _roleIconCategoryIcons = BuildRoleIconCategoryIcons();
+    private static readonly System.Collections.Generic.Dictionary<string, string> _roleIconCategoryMap = BuildRoleIconCategoryMap();
+    private static readonly string[] _roleIconCategories = BuildRoleIconCategories();
+    private static readonly string[] _roleIconKeys = BuildRoleIconKeys();
+    private string _iconFilter = string.Empty;
+    private string _iconCategory = "All";
     private int _pageIndex;
     private string _pageFilter = string.Empty;
 
@@ -350,14 +355,80 @@ public sealed class JobsPanelComponent
                 ImGui.TextUnformatted(IconDraw.ToIconStringFromKey(_addIconKey));
                 ImGui.SetWindowFontScale(1f);
                 ImGui.PopFont();
-                if (ImGui.BeginCombo("Role Icon", _addIconKey))
+                var btnWAddIcon = ImGui.CalcTextSize("Browse").X + ImGui.GetStyle().FramePadding.X * 2f;
+                var inputWAddIcon = System.MathF.Max(140f, System.MathF.Min(260f, ImGui.GetContentRegionAvail().X - btnWAddIcon - 8f));
+                var iconKeyAdd = _addIconKey ?? string.Empty;
+                ImGui.SetNextItemWidth(inputWAddIcon);
+                ImGui.InputText("##add_role_icon", ref iconKeyAdd, 64);
+                if (ImGui.IsItemDeactivatedAfterEdit()) _addIconKey = iconKeyAdd.Trim();
+                ImGui.SameLine();
+                if (ImGui.Button("Browse##role_icon_add"))
                 {
-                    foreach (var opt in _iconOptions)
+                    _iconFilter = string.Empty;
+                    ImGui.OpenPopup("role_icon_browser_add");
+                }
+                var maxPopupWAdd = System.MathF.Max(320f, ImGui.GetIO().DisplaySize.X - 80f);
+                var maxPopupHAdd = System.MathF.Max(240f, ImGui.GetIO().DisplaySize.Y - 120f);
+                var minPopupWAdd = System.MathF.Min(520f, maxPopupWAdd);
+                var minPopupHAdd = System.MathF.Min(360f, maxPopupHAdd);
+                ImGui.SetNextWindowSizeConstraints(new System.Numerics.Vector2(minPopupWAdd, minPopupHAdd), new System.Numerics.Vector2(maxPopupWAdd, maxPopupHAdd));
+                if (ImGui.BeginPopup("role_icon_browser_add"))
+                {
+                    ImGui.TextUnformatted("Category");
+                    ImGui.SameLine();
+                    ImGui.SetNextItemWidth(180f);
+                    var iconCategoryAdd = _iconCategory ?? "All";
+                    if (ImGui.BeginCombo("##role_icon_category_add", iconCategoryAdd))
                     {
-                        bool sel = string.Equals(opt, _addIconKey, System.StringComparison.OrdinalIgnoreCase);
-                        if (ImGui.Selectable(opt, sel)) _addIconKey = opt;
+                        for (int c = 0; c < _roleIconCategories.Length; c++)
+                        {
+                            var category = _roleIconCategories[c];
+                            var selected = string.Equals(iconCategoryAdd, category, System.StringComparison.OrdinalIgnoreCase);
+                            if (ImGui.Selectable(category, selected)) _iconCategory = category;
+                            if (selected) ImGui.SetItemDefaultFocus();
+                        }
+                        ImGui.EndCombo();
                     }
-                    ImGui.EndCombo();
+                    var filterIcons = _iconFilter ?? string.Empty;
+                    ImGui.InputTextWithHint("##role_icon_filter_add", "Search icons", ref filterIcons, 64);
+                    _iconFilter = filterIcons ?? string.Empty;
+                    ImGui.Separator();
+                    var cols = 10;
+                    var cell = System.MathF.Max(36f, ImGui.GetFrameHeight() * 1.6f);
+                    var childW = System.MathF.Max(240f, System.MathF.Min(ImGui.GetContentRegionAvail().X, maxPopupWAdd - 24f));
+                    var childH = System.MathF.Max(200f, System.MathF.Min(ImGui.GetContentRegionAvail().Y, maxPopupHAdd - 120f));
+                    if (ImGui.BeginChild("##role_icon_browser_list_add", new System.Numerics.Vector2(childW, childH), false, ImGuiWindowFlags.HorizontalScrollbar))
+                    {
+                        int shown = 0;
+                        for (int k = 0; k < _roleIconKeys.Length; k++)
+                        {
+                            var key = _roleIconKeys[k];
+                            if (!string.Equals(_iconCategory, "All", System.StringComparison.OrdinalIgnoreCase))
+                            {
+                                if (!_roleIconCategoryMap.TryGetValue(key, out var cat) || !string.Equals(cat, _iconCategory, System.StringComparison.OrdinalIgnoreCase)) continue;
+                            }
+                            if (!string.IsNullOrWhiteSpace(_iconFilter) && key.IndexOf(_iconFilter, System.StringComparison.OrdinalIgnoreCase) < 0) continue;
+                            var iconStrPick = IconDraw.ToIconStringFromKey(key);
+                            ImGui.PushFont(UiBuilder.IconFont);
+                            var clickedPick = ImGui.Button(iconStrPick + $"##role_icon_pick_add_{k}", new System.Numerics.Vector2(cell, cell));
+                            ImGui.PopFont();
+                            if (ImGui.IsItemHovered())
+                            {
+                                ImGui.BeginTooltip();
+                                ImGui.TextUnformatted(key);
+                                ImGui.EndTooltip();
+                            }
+                            if (clickedPick)
+                            {
+                                _addIconKey = key;
+                                ImGui.CloseCurrentPopup();
+                            }
+                            shown++;
+                            if ((shown % cols) != 0) ImGui.SameLine();
+                        }
+                        ImGui.EndChild();
+                    }
+                    ImGui.EndPopup();
                 }
 
                 ImGui.Separator();
@@ -482,14 +553,80 @@ public sealed class JobsPanelComponent
                 ImGui.TextUnformatted(IconDraw.ToIconStringFromKey(_editIconKey));
                 ImGui.SetWindowFontScale(1f);
                 ImGui.PopFont();
-                if (ImGui.BeginCombo("Role Icon", _editIconKey))
+                var btnWEditIcon = ImGui.CalcTextSize("Browse").X + ImGui.GetStyle().FramePadding.X * 2f;
+                var inputWEditIcon = System.MathF.Max(140f, System.MathF.Min(260f, ImGui.GetContentRegionAvail().X - btnWEditIcon - 8f));
+                var iconKeyEdit = _editIconKey ?? string.Empty;
+                ImGui.SetNextItemWidth(inputWEditIcon);
+                ImGui.InputText("##edit_role_icon", ref iconKeyEdit, 64);
+                if (ImGui.IsItemDeactivatedAfterEdit()) _editIconKey = iconKeyEdit.Trim();
+                ImGui.SameLine();
+                if (ImGui.Button("Browse##role_icon_edit"))
                 {
-                    foreach (var opt in _iconOptions)
+                    _iconFilter = string.Empty;
+                    ImGui.OpenPopup("role_icon_browser_edit");
+                }
+                var maxPopupWEdit = System.MathF.Max(320f, ImGui.GetIO().DisplaySize.X - 80f);
+                var maxPopupHEdit = System.MathF.Max(240f, ImGui.GetIO().DisplaySize.Y - 120f);
+                var minPopupWEdit = System.MathF.Min(520f, maxPopupWEdit);
+                var minPopupHEdit = System.MathF.Min(360f, maxPopupHEdit);
+                ImGui.SetNextWindowSizeConstraints(new System.Numerics.Vector2(minPopupWEdit, minPopupHEdit), new System.Numerics.Vector2(maxPopupWEdit, maxPopupHEdit));
+                if (ImGui.BeginPopup("role_icon_browser_edit"))
+                {
+                    ImGui.TextUnformatted("Category");
+                    ImGui.SameLine();
+                    ImGui.SetNextItemWidth(180f);
+                    var iconCategoryEdit = _iconCategory ?? "All";
+                    if (ImGui.BeginCombo("##role_icon_category_edit", iconCategoryEdit))
                     {
-                        bool sel = string.Equals(opt, _editIconKey, System.StringComparison.OrdinalIgnoreCase);
-                        if (ImGui.Selectable(opt, sel)) _editIconKey = opt;
+                        for (int c = 0; c < _roleIconCategories.Length; c++)
+                        {
+                            var category = _roleIconCategories[c];
+                            var selected = string.Equals(iconCategoryEdit, category, System.StringComparison.OrdinalIgnoreCase);
+                            if (ImGui.Selectable(category, selected)) _iconCategory = category;
+                            if (selected) ImGui.SetItemDefaultFocus();
+                        }
+                        ImGui.EndCombo();
                     }
-                    ImGui.EndCombo();
+                    var filterIcons = _iconFilter ?? string.Empty;
+                    ImGui.InputTextWithHint("##role_icon_filter_edit", "Search icons", ref filterIcons, 64);
+                    _iconFilter = filterIcons ?? string.Empty;
+                    ImGui.Separator();
+                    var cols = 10;
+                    var cell = System.MathF.Max(36f, ImGui.GetFrameHeight() * 1.6f);
+                    var childW = System.MathF.Max(240f, System.MathF.Min(ImGui.GetContentRegionAvail().X, maxPopupWEdit - 24f));
+                    var childH = System.MathF.Max(200f, System.MathF.Min(ImGui.GetContentRegionAvail().Y, maxPopupHEdit - 120f));
+                    if (ImGui.BeginChild("##role_icon_browser_list_edit", new System.Numerics.Vector2(childW, childH), false, ImGuiWindowFlags.HorizontalScrollbar))
+                    {
+                        int shown = 0;
+                        for (int k = 0; k < _roleIconKeys.Length; k++)
+                        {
+                            var key = _roleIconKeys[k];
+                            if (!string.Equals(_iconCategory, "All", System.StringComparison.OrdinalIgnoreCase))
+                            {
+                                if (!_roleIconCategoryMap.TryGetValue(key, out var cat) || !string.Equals(cat, _iconCategory, System.StringComparison.OrdinalIgnoreCase)) continue;
+                            }
+                            if (!string.IsNullOrWhiteSpace(_iconFilter) && key.IndexOf(_iconFilter, System.StringComparison.OrdinalIgnoreCase) < 0) continue;
+                            var iconStrPick = IconDraw.ToIconStringFromKey(key);
+                            ImGui.PushFont(UiBuilder.IconFont);
+                            var clickedPick = ImGui.Button(iconStrPick + $"##role_icon_pick_edit_{k}", new System.Numerics.Vector2(cell, cell));
+                            ImGui.PopFont();
+                            if (ImGui.IsItemHovered())
+                            {
+                                ImGui.BeginTooltip();
+                                ImGui.TextUnformatted(key);
+                                ImGui.EndTooltip();
+                            }
+                            if (clickedPick)
+                            {
+                                _editIconKey = key;
+                                ImGui.CloseCurrentPopup();
+                            }
+                            shown++;
+                            if ((shown % cols) != 0) ImGui.SameLine();
+                        }
+                        ImGui.EndChild();
+                    }
+                    ImGui.EndPopup();
                 }
 
                 ImGui.Separator();
@@ -588,6 +725,67 @@ public sealed class JobsPanelComponent
             }
             ImGui.End();
         }
+    }
+
+    private static string[] BuildRoleIconKeys()
+    {
+        var names = System.Enum.GetNames(typeof(FontAwesomeIcon));
+        var map = new System.Collections.Generic.Dictionary<string, string>(System.StringComparer.OrdinalIgnoreCase);
+        for (int i = 0; i < names.Length; i++) map[names[i]] = names[i];
+        var list = new System.Collections.Generic.List<string>(64);
+        var added = new System.Collections.Generic.HashSet<string>(System.StringComparer.OrdinalIgnoreCase);
+        foreach (var entry in _roleIconCategoryIcons)
+        {
+            var icons = entry.Value;
+            for (int i = 0; i < icons.Length; i++)
+            {
+                if (map.TryGetValue(icons[i], out var real) && added.Add(real)) list.Add(real);
+            }
+        }
+        list.Sort(System.StringComparer.OrdinalIgnoreCase);
+        return list.ToArray();
+    }
+
+    private static System.Collections.Generic.Dictionary<string, string[]> BuildRoleIconCategoryIcons()
+    {
+        var map = new System.Collections.Generic.Dictionary<string, string[]>(System.StringComparer.OrdinalIgnoreCase)
+        {
+            { "People", new[] { "User", "Users", "UserFriends", "UserShield", "UserTie", "HandsHelping", "Handshake" } },
+            { "Authority", new[] { "Shield", "Crown", "Star", "Gem", "Medal", "Award", "Trophy" } },
+            { "Music", new[] { "Music", "Guitar", "Drum", "DrumSteelpan", "Microphone", "Headphones", "CompactDisc", "RecordVinyl", "TheaterMasks", "Mask" } },
+            { "Drinks", new[] { "GlassCheers", "Beer", "WineBottle", "GlassWhiskey", "Cocktail", "GlassMartini", "GlassMartiniAlt", "Coffee", "MugHot" } },
+            { "Food", new[] { "Utensils", "PizzaSlice", "Hamburger", "Hotdog", "IceCream", "CandyCane", "CakeCandles", "Cheese", "AppleAlt", "Lemon", "Carrot", "Fish" } },
+            { "Mood", new[] { "Heart", "GrinStars", "Smile", "Laugh", "KissWinkHeart" } },
+            { "Others", new[] { "Fire", "Snowflake", "Sun", "Moon", "Bolt", "Leaf", "Feather", "Magic" } }
+        };
+        return map;
+    }
+
+    private static string[] BuildRoleIconCategories()
+    {
+        var list = new System.Collections.Generic.List<string>(_roleIconCategoryIcons.Count + 1);
+        list.Add("All");
+        var keys = new System.Collections.Generic.List<string>(_roleIconCategoryIcons.Keys);
+        keys.Sort(System.StringComparer.OrdinalIgnoreCase);
+        for (int i = 0; i < keys.Count; i++) list.Add(keys[i]);
+        return list.ToArray();
+    }
+
+    private static System.Collections.Generic.Dictionary<string, string> BuildRoleIconCategoryMap()
+    {
+        var names = System.Enum.GetNames(typeof(FontAwesomeIcon));
+        var nameMap = new System.Collections.Generic.Dictionary<string, string>(System.StringComparer.OrdinalIgnoreCase);
+        for (int i = 0; i < names.Length; i++) nameMap[names[i]] = names[i];
+        var map = new System.Collections.Generic.Dictionary<string, string>(System.StringComparer.OrdinalIgnoreCase);
+        foreach (var entry in _roleIconCategoryIcons)
+        {
+            var icons = entry.Value;
+            for (int i = 0; i < icons.Length; i++)
+            {
+                if (nameMap.TryGetValue(icons[i], out var real) && !map.ContainsKey(real)) map[real] = entry.Key;
+            }
+        }
+        return map;
     }
 
     
