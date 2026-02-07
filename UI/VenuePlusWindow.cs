@@ -1007,6 +1007,7 @@ public sealed class VenuePlusWindow : Window, IDisposable
                     ImGui.EndTabItem();
                 }
             }
+            if (_shiftPlan.ConsumeScheduleTabRequest()) _requestScheduleTab = true;
             var scheduleFlags = _requestScheduleTab ? ImGuiTabItemFlags.SetSelected : ImGuiTabItemFlags.None;
             if (showShiftTab && ImGui.BeginTabItem("Schedule", scheduleFlags))
             {

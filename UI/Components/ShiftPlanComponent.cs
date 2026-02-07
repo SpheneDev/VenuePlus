@@ -28,6 +28,7 @@ public sealed class ShiftPlanComponent
     private DateTimeOffset _lastUsersResolveFetch = DateTimeOffset.MinValue;
     private bool _usersResolveFetchInFlight;
     private bool _lastUsersUpdateFromServer;
+    private bool _requestScheduleTab;
     private int _selUserIdx = -1;
     private string? _selUid;
     private string? _selJob;
@@ -122,6 +123,13 @@ public sealed class ShiftPlanComponent
         _selDjIdx = -1;
         _selDjName = null;
         _pendingAssignUsername = null;
+    }
+
+    public bool ConsumeScheduleTabRequest()
+    {
+        if (!_requestScheduleTab) return false;
+        _requestScheduleTab = false;
+        return true;
     }
 
     public void SetUsersFromServer(StaffUser[] users)
@@ -840,6 +848,7 @@ public sealed class ShiftPlanComponent
                     ImGui.PopFont();
                     if (editClicked)
                     {
+                        _requestScheduleTab = true;
                         BeginEditShift(e, app, useLocal);
                     }
                     if (rmClicked)
