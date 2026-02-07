@@ -1293,6 +1293,7 @@ public sealed class VenuePlusWindow : Window, IDisposable
     private void OnUsersDetailsChanged(VenuePlus.State.StaffUser[] users)
     {
         _staffList.SetUsersFromServer(_app, users);
+        _shiftPlan.SetUsersFromServer(users);
         _statsStaffCount = users?.Length ?? 0;
         _birthdayUsers = users ?? Array.Empty<VenuePlus.State.StaffUser>();
         _birthdayLastRefresh = System.DateTimeOffset.UtcNow;

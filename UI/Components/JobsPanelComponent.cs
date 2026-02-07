@@ -446,6 +446,7 @@ public sealed class JobsPanelComponent
                 if (ImGui.Button("Save"))
                 {
                     var name = (_newRoleNameInput ?? string.Empty).Trim();
+                    var addIconKeySafe = string.IsNullOrWhiteSpace(_addIconKey) ? "User" : _addIconKey;
                     if (name.Length > 0)
                     {
                         System.Threading.Tasks.Task.Run(async () =>
@@ -453,7 +454,7 @@ public sealed class JobsPanelComponent
                             var ok = await app.AddJobAsync(name);
                             if (ok)
                             {
-                                await app.UpdateJobRightsAsync(name, _addAddVip, _addRemoveVip, _addEditVipHomeWorld, _addManageUsers, _addDeleteStaffMember, _addManageJobs, _addManageVenueSettings, _addEditVipDuration, _addAddDj, _addRemoveDj, _addEditShiftPlan, _addColorHex, _addIconKey, _addRank);
+                                await app.UpdateJobRightsAsync(name, _addAddVip, _addRemoveVip, _addEditVipHomeWorld, _addManageUsers, _addDeleteStaffMember, _addManageJobs, _addManageVenueSettings, _addEditVipDuration, _addAddDj, _addRemoveDj, _addEditShiftPlan, _addColorHex, addIconKeySafe, _addRank);
                                 _selectedJob = name;
                             }
                         });
@@ -673,6 +674,7 @@ public sealed class JobsPanelComponent
                 if (_rights.TryGetValue(_openEditJob, out var infoRankCur)) existingRankEdit = infoRankCur.Rank;
                 else if (string.Equals(_openEditJob, "Owner", System.StringComparison.Ordinal)) existingRankEdit = 10;
                 else if (string.Equals(_openEditJob, "Unassigned", System.StringComparison.Ordinal)) existingRankEdit = 0;
+                var editIconKeySafe = string.IsNullOrWhiteSpace(_editIconKey) ? "User" : _editIconKey;
                 var higherRankEditBlockedSave = !isOwner && !isActorRoleEdit && existingRankEdit > actorRank;
                 var disableSave = editingUnassigned || higherRankEditBlockedSave || (!isOwner && _editRank > actorRank);
                 ImGui.BeginDisabled(disableSave);
@@ -693,7 +695,7 @@ public sealed class JobsPanelComponent
                         SetRight(oldName, "addDj", _editAddDj);
                         SetRight(oldName, "removeDj", _editRemoveDj);
                         SetRight(oldName, "editShiftPlan", _editEditShiftPlan);
-                        if (_rights.TryGetValue(oldName, out var infoOld)) { infoOld.ColorHex = _editColorHex; infoOld.IconKey = _editIconKey; infoOld.Rank = _editRank; }
+                        if (_rights.TryGetValue(oldName, out var infoOld)) { infoOld.ColorHex = _editColorHex; infoOld.IconKey = editIconKeySafe; infoOld.Rank = _editRank; }
                         SaveImmediate(app, oldName);
                         _editWindowOpen = false;
                     }
@@ -705,7 +707,7 @@ public sealed class JobsPanelComponent
                             if (okAdd)
                             {
                                 var rankOld = (_rights.TryGetValue(oldName, out var infoOldR) ? infoOldR.Rank : 1);
-                                await app.UpdateJobRightsAsync(newName, _editAddVip, _editRemoveVip, _editEditVipHomeWorld, _editManageUsers, _editDeleteStaffMember, _editManageJobs, _editManageVenueSettings, _editEditVipDuration, _editAddDj, _editRemoveDj, _editEditShiftPlan, _editColorHex, _editIconKey, rankOld);
+                                await app.UpdateJobRightsAsync(newName, _editAddVip, _editRemoveVip, _editEditVipHomeWorld, _editManageUsers, _editDeleteStaffMember, _editManageJobs, _editManageVenueSettings, _editEditVipDuration, _editAddDj, _editRemoveDj, _editEditShiftPlan, _editColorHex, editIconKeySafe, rankOld);
                                 var users = await app.ListStaffUsersDetailedAsync();
                                 if (users != null)
                                 {

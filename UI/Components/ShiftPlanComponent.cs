@@ -25,6 +25,9 @@ public sealed class ShiftPlanComponent
     private string[] _jobs = Array.Empty<string>();
     private DateTimeOffset _lastUsersFetch = DateTimeOffset.MinValue;
     private DateTimeOffset _lastJobsFetch = DateTimeOffset.MinValue;
+    private DateTimeOffset _lastUsersResolveFetch = DateTimeOffset.MinValue;
+    private bool _usersResolveFetchInFlight;
+    private bool _lastUsersUpdateFromServer;
     private int _selUserIdx = -1;
     private string? _selUid;
     private string? _selJob;
@@ -121,6 +124,74 @@ public sealed class ShiftPlanComponent
         _pendingAssignUsername = null;
     }
 
+    public void SetUsersFromServer(StaffUser[] users)
+    {
+        _staffUsers = users ?? Array.Empty<StaffUser>();
+        _lastUsersFetch = DateTimeOffset.UtcNow;
+        _lastUsersUpdateFromServer = true;
+        TryResolveSelectedUser();
+    }
+
+    private void TryResolveSelectedUser()
+    {
+        if (_selUserIdx >= _staffUsers.Length) { _selUserIdx = -1; }
+        if (_selUserIdx < 0 && !string.IsNullOrWhiteSpace(_selUid))
+        {
+            for (int i = 0; i < _staffUsers.Length; i++)
+            {
+                var u = _staffUsers[i];
+                if (!string.IsNullOrWhiteSpace(u.Uid) && string.Equals(u.Uid, _selUid, StringComparison.Ordinal))
+                {
+                    _selUserIdx = i;
+                    _pendingAssignUsername = null;
+                    break;
+                }
+            }
+        }
+        if (_selUserIdx < 0 && !string.IsNullOrWhiteSpace(_pendingAssignUsername))
+        {
+            for (int i = 0; i < _staffUsers.Length; i++)
+            {
+                var u = _staffUsers[i];
+                if (!string.IsNullOrWhiteSpace(u.Username) && string.Equals(u.Username, _pendingAssignUsername, StringComparison.Ordinal))
+                {
+                    _selUserIdx = i;
+                    if (string.IsNullOrWhiteSpace(_selUid)) _selUid = u.Uid;
+                    _pendingAssignUsername = null;
+                    break;
+                }
+            }
+        }
+    }
+
+    private void EnsureUserResolveFetch(VenuePlusApp app)
+    {
+        if (!_openAddForm) return;
+        if (_selUserIdx >= 0) return;
+        if (string.IsNullOrWhiteSpace(_selUid) && string.IsNullOrWhiteSpace(_pendingAssignUsername)) return;
+        if (_usersResolveFetchInFlight) return;
+        var now = DateTimeOffset.UtcNow;
+        if (_lastUsersResolveFetch != DateTimeOffset.MinValue && (now - _lastUsersResolveFetch).TotalSeconds < 2) return;
+        _lastUsersResolveFetch = now;
+        _usersResolveFetchInFlight = true;
+        System.Threading.Tasks.Task.Run(async () =>
+        {
+            try
+            {
+                var det = await app.FetchStaffUsersDetailedAsync();
+                if (det != null)
+                {
+                    _staffUsers = det;
+                    _lastUsersFetch = DateTimeOffset.UtcNow;
+                    _lastUsersUpdateFromServer = true;
+                    TryResolveSelectedUser();
+                }
+            }
+            catch { }
+            finally { _usersResolveFetchInFlight = false; }
+        });
+    }
+
     private void EnsureLookups(VenuePlusApp app)
     {
         var now = DateTimeOffset.UtcNow;
@@ -129,7 +200,13 @@ public sealed class ShiftPlanComponent
             _lastUsersFetch = now;
             System.Threading.Tasks.Task.Run(async () =>
             {
-                try { var det = await app.ListStaffUsersDetailedAsync(); _staffUsers = det ?? Array.Empty<VenuePlus.State.StaffUser>(); } catch { }
+                try
+                {
+                    var det = await app.ListStaffUsersDetailedAsync();
+                    _staffUsers = det ?? Array.Empty<VenuePlus.State.StaffUser>();
+                    _lastUsersUpdateFromServer = false;
+                }
+                catch { }
             });
         }
         if (_lastJobsFetch == DateTimeOffset.MinValue || (now - _lastJobsFetch).TotalSeconds > 5 || _jobs.Length == 0)
@@ -468,34 +545,8 @@ public sealed class ShiftPlanComponent
         }
         ImGui.PopItemWidth();
         EnsureLookups(app);
-        if (_selUserIdx >= _staffUsers.Length) { _selUserIdx = -1; }
-        if (_selUserIdx < 0 && !string.IsNullOrWhiteSpace(_selUid))
-        {
-            for (int i = 0; i < _staffUsers.Length; i++)
-            {
-                var u = _staffUsers[i];
-                if (!string.IsNullOrWhiteSpace(u.Uid) && string.Equals(u.Uid, _selUid, StringComparison.Ordinal))
-                {
-                    _selUserIdx = i;
-                    _pendingAssignUsername = null;
-                    break;
-                }
-            }
-        }
-        if (_selUserIdx < 0 && !string.IsNullOrWhiteSpace(_pendingAssignUsername))
-        {
-            for (int i = 0; i < _staffUsers.Length; i++)
-            {
-                var u = _staffUsers[i];
-                if (!string.IsNullOrWhiteSpace(u.Username) && string.Equals(u.Username, _pendingAssignUsername, StringComparison.Ordinal))
-                {
-                    _selUserIdx = i;
-                    if (string.IsNullOrWhiteSpace(_selUid)) _selUid = u.Uid;
-                    _pendingAssignUsername = null;
-                    break;
-                }
-            }
-        }
+        TryResolveSelectedUser();
+        EnsureUserResolveFetch(app);
         ImGui.TextUnformatted("Start");
         ImGui.PushItemWidth(120f);
         ImGui.InputTextWithHint("##start_date", "yyyy-MM-dd", ref _pendingStart, 32);
@@ -579,6 +630,10 @@ public sealed class ShiftPlanComponent
             ImGui.EndCombo();
         }
         ImGui.PopItemWidth();
+        var hasPendingUserResolve = _selUserIdx < 0 && (!string.IsNullOrWhiteSpace(_selUid) || !string.IsNullOrWhiteSpace(_pendingAssignUsername));
+        var usersSourceLabel = _usersResolveFetchInFlight ? "Server (syncing)" : (_staffUsers.Length > 0 ? (_lastUsersUpdateFromServer ? "Server" : "Cache") : "Loading");
+        ImGui.TextDisabled("User list: " + usersSourceLabel);
+        if (hasPendingUserResolve) ImGui.TextDisabled("Resolving assigned user...");
 
         ImGui.PushItemWidth(220f);
         var allowedJobs = GetAllowedJobsForSelectedUser(_staffUsers, _selUserIdx, _jobs);
