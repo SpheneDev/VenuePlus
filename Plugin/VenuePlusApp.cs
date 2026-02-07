@@ -2235,6 +2235,7 @@ public sealed class VenuePlusApp : IDisposable, IEventListener
     {
         var sess = _staffToken ?? string.Empty;
         if (string.IsNullOrWhiteSpace(sess)) return false;
+        if (string.Equals(name, "Unassigned", System.StringComparison.Ordinal)) return false;
         int r;
         if (string.Equals(name, "Owner", System.StringComparison.Ordinal)) r = 10;
         else if (string.Equals(name, "Unassigned", System.StringComparison.Ordinal)) r = 0;
@@ -2411,6 +2412,7 @@ public sealed class VenuePlusApp : IDisposable, IEventListener
     {
         var sess = _staffToken ?? string.Empty;
         if (string.IsNullOrWhiteSpace(sess)) return false;
+        if (string.Equals(name, "Unassigned", System.StringComparison.Ordinal)) return false;
         return await _remote.DeleteJobAsync(name, sess);
     }
 

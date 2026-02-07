@@ -193,80 +193,84 @@ public sealed class JobsPanelComponent
                 else if (string.Equals(jobLabel, "Unassigned", System.StringComparison.Ordinal)) rankDisplay = 0;
                 ImGui.TextUnformatted(rankDisplay.ToString(System.Globalization.CultureInfo.InvariantCulture));
                 ImGui.TableSetColumnIndex(2);
-                ImGui.PushFont(UiBuilder.IconFont);
-                ImGui.SetWindowFontScale(0.9f);
                 var yBase = ImGui.GetCursorPosY();
-                var centerY = yBase + (rowH - ImGui.GetFrameHeight()) / 2f;
-                ImGui.SetCursorPosY(centerY);
                 var isOwnerJob = string.Equals(jobLabel, "Owner", System.StringComparison.Ordinal);
+                var isUnassignedJob = string.Equals(jobLabel, "Unassigned", System.StringComparison.Ordinal);
                 int rankEdit = 1;
                 if (_rights.TryGetValue(jobLabel, out var infoRankEdit)) rankEdit = infoRankEdit.Rank;
                 else if (string.Equals(jobLabel, "Owner", System.StringComparison.Ordinal)) rankEdit = 10;
                 else if (string.Equals(jobLabel, "Unassigned", System.StringComparison.Ordinal)) rankEdit = 0;
                 var isActorRole = HasJob(app.CurrentStaffJobs, jobLabel);
                 var higherRankEditBlocked = !isOwner && !isActorRole && rankEdit > actorRank;
-                var disableEdit = (isOwnerJob && !(app.IsOwnerCurrentClub || string.Equals(app.CurrentStaffJob, "Owner", System.StringComparison.Ordinal))) || higherRankEditBlocked;
-                ImGui.BeginDisabled(disableEdit);
-                if (ImGui.Button(FontAwesomeIcon.Cog.ToIconString() + $"##edit_{jobLabel}"))
+                if (!isUnassignedJob)
                 {
-                    _openEditJob = jobLabel;
-                    _editJobNameInput = jobLabel;
-                    _editAddVip = GetRight(jobLabel, "addVip");
-                    _editRemoveVip = GetRight(jobLabel, "removeVip");
-                    _editEditVipHomeWorld = GetRight(jobLabel, "editVipHomeWorld");
-                    _editManageUsers = GetRight(jobLabel, "manageUsers");
-                    _editDeleteStaffMember = GetRight(jobLabel, "deleteStaffMember");
-                    _editManageJobs = GetRight(jobLabel, "manageJobs");
-                    _editManageVenueSettings = GetRight(jobLabel, "manageVenueSettings");
-                    _editEditVipDuration = GetRight(jobLabel, "editVipDuration");
-                    _editAddDj = GetRight(jobLabel, "addDj");
-                    _editRemoveDj = GetRight(jobLabel, "removeDj");
-                    _editEditShiftPlan = GetRight(jobLabel, "editShiftPlan");
-                    if (_rights.TryGetValue(jobLabel, out var infoInit))
+                    ImGui.PushFont(UiBuilder.IconFont);
+                    ImGui.SetWindowFontScale(0.9f);
+                    var centerY = yBase + (rowH - ImGui.GetFrameHeight()) / 2f;
+                    ImGui.SetCursorPosY(centerY);
+                    var disableEdit = (isOwnerJob && !(app.IsOwnerCurrentClub || string.Equals(app.CurrentStaffJob, "Owner", System.StringComparison.Ordinal))) || higherRankEditBlocked;
+                    ImGui.BeginDisabled(disableEdit);
+                    if (ImGui.Button(FontAwesomeIcon.Cog.ToIconString() + $"##edit_{jobLabel}"))
                     {
-                        _editColorHex = infoInit.ColorHex;
-                        _editIconKey = infoInit.IconKey;
-                        var rIn = infoInit.Rank;
-                        int r;
-                        if (string.Equals(jobLabel, "Owner", System.StringComparison.Ordinal)) r = 10;
-                        else if (string.Equals(jobLabel, "Unassigned", System.StringComparison.Ordinal)) r = 0;
-                        else r = rIn <= 0 ? 1 : (rIn > 9 ? 9 : rIn);
-                        _editRank = r;
-                    }
-                    _editWindowOpen = true;
-                }
-                ImGui.EndDisabled();
-                ImGui.SetWindowFontScale(1f);
-                ImGui.PopFont();
-                if (ImGui.IsItemHovered(ImGuiHoveredFlags.AllowWhenDisabled)) { ImGui.BeginTooltip(); ImGui.TextUnformatted(disableEdit ? (isOwnerJob ? "Only the venue owner can edit Owner style" : "Requires Manage Roles rights or venue owner") : "Edit role rights"); ImGui.EndTooltip(); }
-
-                ImGui.SameLine();
-                ImGui.PushFont(UiBuilder.IconFont);
-                ImGui.SetWindowFontScale(0.9f);
-                centerY = yBase + (rowH - ImGui.GetFrameHeight()) / 2f;
-                ImGui.SetCursorPosY(centerY);
-                var canDelete = app.IsOwnerCurrentClub || (app.HasStaffSession && app.StaffCanManageJobs);
-                var disableDelete = isOwnerJob || !canDelete;
-                ImGui.BeginDisabled(disableDelete);
-                if (ImGui.Button(FontAwesomeIcon.Trash.ToIconString() + $"##del_{jobLabel}"))
-                {
-                    var name = jobLabel;
-                    System.Threading.Tasks.Task.Run(async () =>
-                    {
-                        var ok = await app.DeleteJobAsync(name);
-                        if (ok)
+                        _openEditJob = jobLabel;
+                        _editJobNameInput = jobLabel;
+                        _editAddVip = GetRight(jobLabel, "addVip");
+                        _editRemoveVip = GetRight(jobLabel, "removeVip");
+                        _editEditVipHomeWorld = GetRight(jobLabel, "editVipHomeWorld");
+                        _editManageUsers = GetRight(jobLabel, "manageUsers");
+                        _editDeleteStaffMember = GetRight(jobLabel, "deleteStaffMember");
+                        _editManageJobs = GetRight(jobLabel, "manageJobs");
+                        _editManageVenueSettings = GetRight(jobLabel, "manageVenueSettings");
+                        _editEditVipDuration = GetRight(jobLabel, "editVipDuration");
+                        _editAddDj = GetRight(jobLabel, "addDj");
+                        _editRemoveDj = GetRight(jobLabel, "removeDj");
+                        _editEditShiftPlan = GetRight(jobLabel, "editShiftPlan");
+                        if (_rights.TryGetValue(jobLabel, out var infoInit))
                         {
-                            var list = new System.Collections.Generic.List<string>(_jobs.Length);
-                            for (int i = 0; i < _jobs.Length; i++) { if (!string.Equals(_jobs[i], name, System.StringComparison.Ordinal)) list.Add(_jobs[i]); }
-                            _jobs = list.ToArray();
-                            if (_selectedJob == name) _selectedJob = _jobs.Length > 0 ? _jobs[0] : string.Empty;
+                            _editColorHex = infoInit.ColorHex;
+                            _editIconKey = infoInit.IconKey;
+                            var rIn = infoInit.Rank;
+                            int r;
+                            if (string.Equals(jobLabel, "Owner", System.StringComparison.Ordinal)) r = 10;
+                            else if (string.Equals(jobLabel, "Unassigned", System.StringComparison.Ordinal)) r = 0;
+                            else r = rIn <= 0 ? 1 : (rIn > 9 ? 9 : rIn);
+                            _editRank = r;
                         }
-                    });
+                        _editWindowOpen = true;
+                    }
+                    ImGui.EndDisabled();
+                    ImGui.SetWindowFontScale(1f);
+                    ImGui.PopFont();
+                    if (ImGui.IsItemHovered(ImGuiHoveredFlags.AllowWhenDisabled)) { ImGui.BeginTooltip(); ImGui.TextUnformatted(disableEdit ? (isOwnerJob ? "Only the venue owner can edit Owner style" : "Requires Manage Roles rights or venue owner") : "Edit role rights"); ImGui.EndTooltip(); }
+
+                    ImGui.SameLine();
+                    ImGui.PushFont(UiBuilder.IconFont);
+                    ImGui.SetWindowFontScale(0.9f);
+                    centerY = yBase + (rowH - ImGui.GetFrameHeight()) / 2f;
+                    ImGui.SetCursorPosY(centerY);
+                    var canDelete = app.IsOwnerCurrentClub || (app.HasStaffSession && app.StaffCanManageJobs);
+                    var disableDelete = isOwnerJob || !canDelete;
+                    ImGui.BeginDisabled(disableDelete);
+                    if (ImGui.Button(FontAwesomeIcon.Trash.ToIconString() + $"##del_{jobLabel}"))
+                    {
+                        var name = jobLabel;
+                        System.Threading.Tasks.Task.Run(async () =>
+                        {
+                            var ok = await app.DeleteJobAsync(name);
+                            if (ok)
+                            {
+                                var list = new System.Collections.Generic.List<string>(_jobs.Length);
+                                for (int i = 0; i < _jobs.Length; i++) { if (!string.Equals(_jobs[i], name, System.StringComparison.Ordinal)) list.Add(_jobs[i]); }
+                                _jobs = list.ToArray();
+                                if (_selectedJob == name) _selectedJob = _jobs.Length > 0 ? _jobs[0] : string.Empty;
+                            }
+                        });
+                    }
+                    ImGui.EndDisabled();
+                    ImGui.SetWindowFontScale(1f);
+                    ImGui.PopFont();
+                    if (ImGui.IsItemHovered(ImGuiHoveredFlags.AllowWhenDisabled)) { ImGui.BeginTooltip(); ImGui.TextUnformatted(disableDelete ? (isOwnerJob ? "Owner role cannot be deleted" : "Requires Manage Roles rights or venue owner") : "Delete role"); ImGui.EndTooltip(); }
                 }
-                ImGui.EndDisabled();
-                ImGui.SetWindowFontScale(1f);
-                ImGui.PopFont();
-                if (ImGui.IsItemHovered(ImGuiHoveredFlags.AllowWhenDisabled)) { ImGui.BeginTooltip(); ImGui.TextUnformatted(disableDelete ? (isOwnerJob ? "Owner role cannot be deleted" : "Requires Manage Roles rights or venue owner") : "Delete role"); ImGui.EndTooltip(); }
             }
             ImGui.EndTable();
         }
@@ -493,7 +497,7 @@ public sealed class JobsPanelComponent
                 ImGui.PushItemWidth(240f);
                 var editingOwner = string.Equals(_openEditJob, "Owner", System.StringComparison.Ordinal);
                 var editingUnassigned = string.Equals(_openEditJob, "Unassigned", System.StringComparison.Ordinal);
-                ImGui.BeginDisabled(editingOwner);
+                ImGui.BeginDisabled(editingOwner || editingUnassigned);
                 ImGui.InputText("Role Name", ref _editJobNameInput, 64);
                 ImGui.EndDisabled();
                 ImGui.PopItemWidth();
@@ -504,10 +508,16 @@ public sealed class JobsPanelComponent
                     ImGui.TextUnformatted("Owner has all permissions; permissions are not editable.");
                     ImGui.PopStyleColor();
                 }
+                if (editingUnassigned)
+                {
+                    ImGui.PushStyleColor(ImGuiCol.Text, ColorUtil.HexToU32("#FFC76A"));
+                    ImGui.TextUnformatted("Unassigned is system-defined; permissions are not editable.");
+                    ImGui.PopStyleColor();
+                }
 
                 ImGui.Separator();
                 ImGui.TextUnformatted("Permissions");
-                ImGui.BeginDisabled(editingOwner);
+                ImGui.BeginDisabled(editingOwner || editingUnassigned);
                 if (ImGui.BeginTable("edit_perm_table", 3, ImGuiTableFlags.SizingFixedFit | ImGuiTableFlags.NoSavedSettings))
                 {
                     ImGui.TableNextRow();
@@ -544,6 +554,7 @@ public sealed class JobsPanelComponent
 
                 ImGui.Separator();
                 ImGui.TextUnformatted("Appearance");
+                ImGui.BeginDisabled(editingOwner || editingUnassigned);
                 var colVec4 = ColorUtil.HexToVec4(_editColorHex);
                 var colVec = new System.Numerics.Vector3(colVec4.X, colVec4.Y, colVec4.Z);
                 if (ImGui.ColorEdit3("Role Color", ref colVec)) { _editColorHex = ColorUtil.Vec4ToHex(new System.Numerics.Vector4(colVec.X, colVec.Y, colVec.Z, 1f)); }
@@ -565,6 +576,7 @@ public sealed class JobsPanelComponent
                     _iconFilter = string.Empty;
                     ImGui.OpenPopup("role_icon_browser_edit");
                 }
+                ImGui.EndDisabled();
                 var maxPopupWEdit = System.MathF.Max(320f, ImGui.GetIO().DisplaySize.X - 80f);
                 var maxPopupHEdit = System.MathF.Max(240f, ImGui.GetIO().DisplaySize.Y - 120f);
                 var minPopupWEdit = System.MathF.Min(520f, maxPopupWEdit);
@@ -662,7 +674,7 @@ public sealed class JobsPanelComponent
                 else if (string.Equals(_openEditJob, "Owner", System.StringComparison.Ordinal)) existingRankEdit = 10;
                 else if (string.Equals(_openEditJob, "Unassigned", System.StringComparison.Ordinal)) existingRankEdit = 0;
                 var higherRankEditBlockedSave = !isOwner && !isActorRoleEdit && existingRankEdit > actorRank;
-                var disableSave = higherRankEditBlockedSave || (!isOwner && _editRank > actorRank);
+                var disableSave = editingUnassigned || higherRankEditBlockedSave || (!isOwner && _editRank > actorRank);
                 ImGui.BeginDisabled(disableSave);
                 if (ImGui.Button("Save"))
                 {
