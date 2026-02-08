@@ -23,10 +23,16 @@ public sealed class DjListComponent
     private int _pageIndex;
     private string _pageFilter = string.Empty;
     private Action<DjEntry>? _assignShiftAction;
+    private Action<ShiftEntry>? _editShiftAction;
 
     internal void SetAssignShiftAction(Action<DjEntry>? action)
     {
         _assignShiftAction = action;
+    }
+
+    internal void SetEditShiftAction(Action<ShiftEntry>? action)
+    {
+        _editShiftAction = action;
     }
 
     public void OpenAddForm()
@@ -149,10 +155,13 @@ public sealed class DjListComponent
         var copyIcon = IconDraw.ToIconStringFromKey("Copy");
         var openIcon = IconDraw.ToIconStringFromKey("Link");
         var editIcon = IconDraw.ToIconStringFromKey("Edit");
+        var editShiftIcon = IconDraw.ToIconStringFromKey("PenToSquare");
         var rmIcon = IconDraw.ToIconStringFromKey("Trash");
         var clockIcon = Dalamud.Interface.FontAwesomeIcon.Clock.ToIconString();
         var canEditDj = canAddDjTop;
         var canAssignShift = _assignShiftAction != null && (app.IsOwnerCurrentClub || (app.HasStaffSession && app.StaffCanEditShiftPlan));
+        var canEditShift = _editShiftAction != null && (app.IsOwnerCurrentClub || (app.HasStaffSession && app.StaffCanEditShiftPlan));
+        var hasAnyShiftToday = djToday.Count > 0;
         ImGui.PushFont(UiBuilder.IconFont);
         float actionsWidth = 0f;
         int actionsCount = 0;
@@ -165,6 +174,7 @@ public sealed class DjListComponent
         AddActionWidth(openIcon);
         if (canEditDj) AddActionWidth(editIcon);
         if (canRemoveDj) AddActionWidth(rmIcon);
+        if (canEditShift && hasAnyShiftToday) AddActionWidth(editShiftIcon);
         if (canAssignShift) AddActionWidth(clockIcon);
         ImGui.PopFont();
 
@@ -223,7 +233,7 @@ public sealed class DjListComponent
         {
             ImGui.TableSetupColumn("DJ Name", ImGuiTableColumnFlags.WidthFixed, 170f);
             ImGui.TableSetupColumn("Twitch", ImGuiTableColumnFlags.WidthStretch, 0.4f);
-            ImGui.TableSetupColumn("Today", ImGuiTableColumnFlags.WidthStretch, 0.4f);
+            ImGui.TableSetupColumn("Playing Today", ImGuiTableColumnFlags.WidthStretch, 0.4f);
             if (showActions) ImGui.TableSetupColumn("Actions", ImGuiTableColumnFlags.WidthFixed, widthActions);
             ImGui.TableNextRow(ImGuiTableRowFlags.Headers);
             ImGui.TableSetColumnIndex(0);
@@ -231,7 +241,7 @@ public sealed class DjListComponent
             ImGui.TableSetColumnIndex(1);
             TableSortUi.DrawSortableHeader("Twitch", 1, ref _sortCol, ref _sortAsc);
             ImGui.TableSetColumnIndex(2);
-            TableSortUi.DrawSortableHeader("Today", 2, ref _sortCol, ref _sortAsc);
+            TableSortUi.DrawSortableHeader("Playing Today", 2, ref _sortCol, ref _sortAsc);
             if (showActions)
             {
                 ImGui.TableSetColumnIndex(3);
@@ -261,6 +271,8 @@ public sealed class DjListComponent
                     ImGui.TableSetColumnIndex(3);
                     ImGui.SetCursorPosY(buttonY);
                     bool anyPrinted = false;
+                    List<ShiftEntry>? shiftsForDj = null;
+                    var hasShiftToday = djToday.TryGetValue(e.DjName, out shiftsForDj) && shiftsForDj.Count > 0;
                     if (!string.IsNullOrWhiteSpace(e.TwitchLink))
                     {
                         ImGui.PushFont(UiBuilder.IconFont);
@@ -318,6 +330,20 @@ public sealed class DjListComponent
                         if (ImGui.IsItemHovered()) { ImGui.BeginTooltip(); ImGui.TextUnformatted("Remove DJ"); ImGui.EndTooltip(); }
                         anyPrinted = true;
                     }
+                    if (canEditShift && hasShiftToday && shiftsForDj != null)
+                    {
+                        if (anyPrinted) ImGui.SameLine();
+                        ImGui.PushFont(UiBuilder.IconFont);
+                        var editShiftClicked = ImGui.Button(editShiftIcon + $"##edit_shift_{e.DjName}");
+                        ImGui.PopFont();
+                        if (editShiftClicked)
+                        {
+                            var chosen = ChooseEditableShift(shiftsForDj, useLocal);
+                            if (chosen != null) _editShiftAction?.Invoke(chosen);
+                        }
+                        if (ImGui.IsItemHovered()) { ImGui.BeginTooltip(); ImGui.TextUnformatted("Edit DJ shift time"); ImGui.EndTooltip(); }
+                        anyPrinted = true;
+                    }
                     if (canAssignShift)
                     {
                         if (anyPrinted) ImGui.SameLine();
@@ -348,8 +374,27 @@ public sealed class DjListComponent
             if (s < dayStart) s = dayStart;
             if (e > dayEnd) e = dayEnd;
             if (sb.Length > 0) sb.Append(", ");
-            sb.Append(s.ToString("HH:mm")).Append("-").Append(e.ToString("HH:mm"));
+            sb.Append(TimeFormat.FormatTime(s)).Append("-").Append(TimeFormat.FormatTime(e));
         }
         return sb.ToString();
+    }
+
+    private static ShiftEntry? ChooseEditableShift(List<ShiftEntry> entries, bool useLocal)
+    {
+        if (entries == null || entries.Count == 0) return null;
+        entries.Sort((a, b) => a.StartAt.CompareTo(b.StartAt));
+        var now = useLocal ? DateTimeOffset.Now : DateTimeOffset.UtcNow;
+        for (int i = 0; i < entries.Count; i++)
+        {
+            var s = useLocal ? entries[i].StartAt.ToLocalTime() : entries[i].StartAt;
+            var e = useLocal ? entries[i].EndAt.ToLocalTime() : entries[i].EndAt;
+            if (s <= now && e > now) return entries[i];
+        }
+        for (int i = 0; i < entries.Count; i++)
+        {
+            var s = useLocal ? entries[i].StartAt.ToLocalTime() : entries[i].StartAt;
+            if (s > now) return entries[i];
+        }
+        return entries[0];
     }
 }

@@ -29,6 +29,7 @@ public sealed class ShiftPlanComponent
     private bool _usersResolveFetchInFlight;
     private bool _lastUsersUpdateFromServer;
     private bool _requestScheduleTab;
+    private bool _isDjForm;
     private int _selUserIdx = -1;
     private string? _selUid;
     private string? _selJob;
@@ -53,6 +54,7 @@ public sealed class ShiftPlanComponent
     private int _shiftTabSortCol;
     private bool _shiftTabSortAsc = true;
     private bool _shiftTabViewMy = true;
+    private DateTime? _shiftTabSelectedDate;
     private bool _useLocalTimeView;
     private const string CalendarMarkerHex = "#4CAF50";
     private const string CurrentShiftRowHex = "#2E7D32";
@@ -74,6 +76,7 @@ public sealed class ShiftPlanComponent
         _selDjIdx = -1;
         _selDjName = null;
         _pendingAssignUsername = null;
+        _isDjForm = false;
         var now = _useLocalTimeView ? DateTime.Now : DateTime.UtcNow;
         _startYear = now.Year;
         _startMonth = now.Month;
@@ -87,6 +90,9 @@ public sealed class ShiftPlanComponent
     internal void OpenAddFormForUser(string? uid, string? username, string? job)
     {
         OpenAddForm();
+        _isDjForm = false;
+        _selDjIdx = -1;
+        _selDjName = null;
         _selUid = string.IsNullOrWhiteSpace(uid) ? null : uid;
         _selUserIdx = -1;
         _pendingAssignUsername = string.IsNullOrWhiteSpace(username) ? null : username;
@@ -96,8 +102,17 @@ public sealed class ShiftPlanComponent
     internal void OpenAddFormForDj(string? djName)
     {
         OpenAddForm();
+        _isDjForm = true;
+        _selUserIdx = -1;
+        _selUid = null;
+        _selJob = null;
         _selDjName = string.IsNullOrWhiteSpace(djName) ? null : djName;
         _selDjIdx = -1;
+    }
+
+    internal void OpenEditShift(ShiftEntry e, VenuePlusApp app, bool useLocal)
+    {
+        BeginEditShift(e, app, useLocal);
     }
 
     internal void DrawInlineAddForm(VenuePlusApp app)
@@ -123,6 +138,7 @@ public sealed class ShiftPlanComponent
         _selDjIdx = -1;
         _selDjName = null;
         _pendingAssignUsername = null;
+        _isDjForm = false;
     }
 
     public bool ConsumeScheduleTabRequest()
@@ -310,12 +326,12 @@ public sealed class ShiftPlanComponent
         value = DateTimeOffset.MinValue;
         var s = (text ?? string.Empty).Trim();
         if (string.IsNullOrWhiteSpace(s)) return false;
-        if (DateTimeOffset.TryParseExact(s, new[] { "yyyy-MM-dd HH:mm", "yyyy-MM-dd" }, CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal, out var dt))
+        if (DateTimeOffset.TryParseExact(s, new[] { "yyyy-MM-dd HH:mm", "yyyy-MM-dd H:mm", "yyyy-MM-dd hh:mm tt", "yyyy-MM-dd h:mm tt", "yyyy-MM-dd" }, CultureInfo.CurrentCulture, DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal, out var dt))
         {
             value = dt;
             return true;
         }
-        if (DateTimeOffset.TryParse(s, CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal, out var dt2))
+        if (DateTimeOffset.TryParse(s, CultureInfo.CurrentCulture, DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal, out var dt2))
         {
             value = dt2;
             return true;
@@ -327,19 +343,57 @@ public sealed class ShiftPlanComponent
     {
         var canEdit = app.IsOwnerCurrentClub || (app.HasStaffSession && app.StaffCanEditShiftPlan);
         ImGui.Spacing();
+        ImGui.TextUnformatted("Schedule Planner");
+        ImGui.SameLine();
+        ImGui.TextDisabled("Plan event days, shifts and DJ times");
+        ImGui.Separator();
         EnsureLookups(app);
+        ImGui.TextUnformatted("Find");
+        ImGui.SameLine();
         ImGui.PushItemWidth(260f);
-        ImGui.InputTextWithHint("##shift_filter", "Search shifts by title, job or uid", ref _filter, 256);
+        ImGui.InputTextWithHint("##shift_filter", "Search shifts by title, job or user", ref _filter, 256);
         ImGui.PopItemWidth();
+        ImGui.SameLine();
+        ImGui.BeginDisabled(string.IsNullOrWhiteSpace(_filter));
+        if (ImGui.Button("Clear")) { _filter = string.Empty; }
+        ImGui.EndDisabled();
         var useLocal = app.ShowShiftTimesInLocalTime;
         _useLocalTimeView = useLocal;
         DrawEditForm(app, canEdit);
 
         ImGui.Separator();
         var all = app.GetShiftEntries().ToArray();
+        int djCount = 0;
+        int staffShiftCount = 0;
+        for (int i = 0; i < all.Length; i++)
+        {
+            if (string.IsNullOrWhiteSpace(all[i].DjName)) staffShiftCount++;
+            else djCount++;
+        }
         var nonDj = FilterNonDj(all);
         var eventDays = GetEventDays(nonDj, useLocal);
+        ImGui.TextUnformatted($"Shifts: {staffShiftCount} | DJ Slots: {djCount}");
         if (_viewYear <= 0 || _viewMonth <= 0) { var nowV = useLocal ? DateTime.Now : DateTime.UtcNow; _viewYear = nowV.Year; _viewMonth = nowV.Month; _selectedDayMain = nowV.Day; }
+        ImGui.TextUnformatted("View");
+        ImGui.SameLine();
+        ImGui.BeginDisabled(!_listMode);
+        if (ImGui.Button("Calendar View")) { _listMode = false; }
+        ImGui.EndDisabled();
+        ImGui.SameLine();
+        ImGui.BeginDisabled(_listMode);
+        if (ImGui.Button("Day Plan"))
+        {
+            _listMode = true;
+            var pick = PickEventDay(eventDays, useLocal);
+            if (pick.HasValue)
+            {
+                _viewYear = pick.Value.Year;
+                _viewMonth = pick.Value.Month;
+                _selectedDayMain = pick.Value.Day;
+                if (_openAddForm) SyncAddFormDateFromSelection();
+            }
+        }
+        ImGui.EndDisabled();
         if (!_listMode)
         {
             var labelMonth = new DateTime(_viewYear, _viewMonth, 1).ToString("MMMM yyyy");
@@ -347,19 +401,6 @@ public sealed class ShiftPlanComponent
             ImGui.SameLine(); ImGui.TextUnformatted(labelMonth);
             ImGui.SameLine(); if (ImGui.Button(">##cal_next")) { _viewMonth += 1; if (_viewMonth >= 13) { _viewMonth = 1; _viewYear += 1; } var maxD = DaysInMonth(_viewYear, _viewMonth); if (_selectedDayMain > maxD) _selectedDayMain = maxD; }
             ImGui.SameLine(); if (ImGui.Button("Refresh")) { var club = app.CurrentClubId ?? string.Empty; if (!string.IsNullOrWhiteSpace(club)) app.SetClubId(club); }
-            ImGui.SameLine();
-            if (ImGui.Button("Schedule"))
-            {
-                _listMode = true;
-                var pick = PickEventDay(eventDays, useLocal);
-                if (pick.HasValue)
-                {
-                    _viewYear = pick.Value.Year;
-                    _viewMonth = pick.Value.Month;
-                    _selectedDayMain = pick.Value.Day;
-                    if (_openAddForm) SyncAddFormDateFromSelection();
-                }
-            }
         }
         if (!_listMode)
         {
@@ -374,52 +415,75 @@ public sealed class ShiftPlanComponent
             EnsureLookups(app);
             if (ImGui.Button("Refresh") && !string.IsNullOrWhiteSpace(app.CurrentClubId)) { app.SetClubId(app.CurrentClubId); }
             ImGui.SameLine();
-            if (ImGui.Button("Calendar")) { _listMode = false; }
-            if (eventDays.Count > 0)
+            var today = useLocal ? DateTime.Now.Date : DateTime.UtcNow.Date;
+            var currentDay = new DateTime(_viewYear, _viewMonth, Math.Max(1, _selectedDayMain));
+            bool hasSelected = false;
+            for (int i = 0; i < eventDays.Count; i++)
             {
-                var currentDay = new DateTime(_viewYear, _viewMonth, Math.Max(1, _selectedDayMain));
-                var selectedIndex = eventDays.FindIndex(d => d.Date == currentDay.Date);
-                if (selectedIndex < 0)
-                {
-                    var pick = PickEventDay(eventDays, useLocal);
-                    if (pick.HasValue)
-                    {
-                        _viewYear = pick.Value.Year;
-                        _viewMonth = pick.Value.Month;
-                        _selectedDayMain = pick.Value.Day;
-                        selectedIndex = eventDays.FindIndex(d => d.Date == pick.Value.Date);
-                    }
-                }
-                if (selectedIndex < 0) selectedIndex = 0;
-                var label = eventDays[selectedIndex].ToString("yyyy-MM-dd");
-                ImGui.SameLine();
-                ImGui.TextUnformatted("Date");
-                ImGui.SameLine();
-                ImGui.PushItemWidth(140f);
-                if (ImGui.BeginCombo("##schedule_day", label))
-                {
-                    for (int i = 0; i < eventDays.Count; i++)
-                    {
-                        var d = eventDays[i];
-                        var text = d.ToString("yyyy-MM-dd");
-                        bool sel = i == selectedIndex;
-                        if (ImGui.Selectable(text, sel))
-                        {
-                            _viewYear = d.Year;
-                            _viewMonth = d.Month;
-                            _selectedDayMain = d.Day;
-                            selectedIndex = i;
-                            if (_openAddForm) SyncAddFormDateFromSelection();
-                        }
-                    }
-                    ImGui.EndCombo();
-                }
-                ImGui.PopItemWidth();
+                if (eventDays[i].Date == currentDay.Date) { hasSelected = true; break; }
             }
-            else
+            if (ImGui.Button("Today"))
+            {
+                _viewYear = today.Year;
+                _viewMonth = today.Month;
+                _selectedDayMain = today.Day;
+                if (_openAddForm) SyncAddFormDateFromSelection();
+                currentDay = new DateTime(_viewYear, _viewMonth, _selectedDayMain);
+            }
+            ImGui.SameLine();
+            ImGui.TextUnformatted("Date");
+            ImGui.SameLine();
+            ImGui.PushItemWidth(140f);
+            var label = currentDay.ToString("yyyy-MM-dd");
+            if (ImGui.BeginCombo("##schedule_day", label))
+            {
+                if (!hasSelected)
+                {
+                    if (ImGui.Selectable(label, true)) { }
+                }
+                for (int i = 0; i < eventDays.Count; i++)
+                {
+                    var d = eventDays[i];
+                    if (d.Date == currentDay.Date) continue;
+                    var text = d.ToString("yyyy-MM-dd");
+                    bool sel = d.Date == currentDay.Date;
+                    if (ImGui.Selectable(text, sel))
+                    {
+                        _viewYear = d.Year;
+                        _viewMonth = d.Month;
+                        _selectedDayMain = d.Day;
+                        if (_openAddForm) SyncAddFormDateFromSelection();
+                    }
+                }
+                ImGui.EndCombo();
+            }
+            ImGui.PopItemWidth();
+            if (canEdit)
             {
                 ImGui.SameLine();
-                ImGui.TextUnformatted("No event days");
+                if (ImGui.Button("Assign Staff"))
+                {
+                    OpenAddFormForUser(null, null, null);
+                    SyncAddFormDateFromSelection();
+                }
+                if (ImGui.IsItemHovered())
+                {
+                    ImGui.BeginTooltip();
+                    ImGui.TextUnformatted("Create a staff shift for this day");
+                    ImGui.EndTooltip();
+                }
+                ImGui.SameLine();
+                if (ImGui.Button("Assign DJ"))
+                {
+                    OpenAddFormForDj(null);
+                    SyncAddFormDateFromSelection();
+                }
+                if (ImGui.IsItemHovered())
+                {
+                    ImGui.BeginTooltip();
+                    ImGui.TextUnformatted("Create a DJ shift for this day");
+                    ImGui.EndTooltip();
+                }
             }
             var listHeight = Math.Max(140f, ImGui.GetContentRegionAvail().Y);
             var availX = ImGui.GetContentRegionAvail().X;
@@ -440,11 +504,19 @@ public sealed class ShiftPlanComponent
                 Array.Sort(listDay, (a, b) => a.StartAt.CompareTo(b.StartAt));
             }
             var titleDay = dayStart.ToString("yyyy-MM-dd");
-            ImGui.TextUnformatted("Plan " + titleDay);
+            ImGui.TextUnformatted($"Plan {titleDay} ({listDay.Length})");
             if (listDay.Length == 0)
             {
                 ImGui.TextUnformatted("No events for this day");
             }
+
+            var rightsCache = app.GetJobRightsCache();
+            ImGui.TextUnformatted("Timeline");
+            var timelineHeight = Math.Min(140f, Math.Max(90f, ImGui.GetContentRegionAvail().Y * 0.25f));
+            ImGui.BeginChild("day_plan_timeline", new System.Numerics.Vector2(availX, timelineHeight), false);
+            DrawDayTimeline(listDay, dayStart, useLocal, rightsCache);
+            ImGui.EndChild();
+            ImGui.Spacing();
 
             var style = ImGui.GetStyle();
             var editIcon2 = IconDraw.ToIconStringFromKey("PenToSquare");
@@ -457,25 +529,29 @@ public sealed class ShiftPlanComponent
             var actionsColWidth = canEdit ? actionsWidth : 1f;
             var flagsList = ImGuiTableFlags.RowBg | ImGuiTableFlags.Borders | ImGuiTableFlags.SizingStretchProp | ImGuiTableFlags.ScrollY | ImGuiTableFlags.NoSavedSettings;
             var listTableHeight = Math.Max(120f, ImGui.GetContentRegionAvail().Y);
+            var timeSample = TimeFormat.FormatTime(new DateTime(2000, 1, 1, 23, 59, 0));
+            var timeRangeSample = timeSample + "-" + timeSample;
+            var timeColWidth = ImGui.CalcTextSize(timeRangeSample).X + style.CellPadding.X * 2f;
             if (ImGui.BeginTable("day_list_table", 4, flagsList, new System.Numerics.Vector2(availX, listTableHeight)))
             {
-                ImGui.TableSetupColumn("Time", ImGuiTableColumnFlags.WidthStretch, 0.16f);
-                ImGui.TableSetupColumn("User/Job", ImGuiTableColumnFlags.WidthStretch, 0.34f);
-                ImGui.TableSetupColumn("Title", ImGuiTableColumnFlags.WidthStretch, 0.34f);
+                ImGui.TableSetupColumn("Time", ImGuiTableColumnFlags.WidthFixed, timeColWidth);
+                ImGui.TableSetupColumn("User", ImGuiTableColumnFlags.WidthStretch, 0.34f);
+                ImGui.TableSetupColumn("Job", ImGuiTableColumnFlags.WidthStretch, 0.34f);
                 ImGui.TableSetupColumn("Actions", ImGuiTableColumnFlags.WidthFixed, actionsColWidth);
                 ImGui.TableNextRow(ImGuiTableRowFlags.Headers);
                 ImGui.TableSetColumnIndex(0); ImGui.TextUnformatted("Time");
-                ImGui.TableSetColumnIndex(1); ImGui.TextUnformatted("User/Job");
-                ImGui.TableSetColumnIndex(2); ImGui.TextUnformatted("Title");
+                ImGui.TableSetColumnIndex(1); ImGui.TextUnformatted("User");
+                ImGui.TableSetColumnIndex(2); ImGui.TextUnformatted("Job");
                 ImGui.TableSetColumnIndex(3); ImGui.TextUnformatted("Actions");
                 var currentRowColor = ColorUtil.HexToU32(CurrentShiftRowHex);
                 var pastRowColor = ColorUtil.HexToU32(PastShiftRowHex);
                 for (int i = 0; i < listDay.Length; i++)
                 {
                     var e = listDay[i];
-                    var s = (useLocal ? e.StartAt.ToLocalTime() : e.StartAt).ToString("HH:mm");
-                    var ee = (useLocal ? e.EndAt.ToLocalTime() : e.EndAt).ToString("HH:mm");
+                    var s = TimeFormat.FormatTime(useLocal ? e.StartAt.ToLocalTime() : e.StartAt);
+                    var ee = TimeFormat.FormatTime(useLocal ? e.EndAt.ToLocalTime() : e.EndAt);
                     var whoLabel = BuildWhoLabel(e, _staffUsers);
+                    var jobLabel = string.IsNullOrWhiteSpace(e.Job) ? string.Empty : e.Job;
 
                     ImGui.TableNextRow();
                     var isCurrent = e.StartAt <= nowServer && e.EndAt > nowServer;
@@ -486,7 +562,18 @@ public sealed class ShiftPlanComponent
                     ImGui.TableSetColumnIndex(1);
                     ImGui.TextUnformatted(whoLabel);
                     ImGui.TableSetColumnIndex(2);
-                    ImGui.TextUnformatted(e.Title ?? string.Empty);
+                    if (!string.IsNullOrWhiteSpace(jobLabel) && rightsCache != null && rightsCache.TryGetValue(jobLabel, out var infoJob))
+                    {
+                        var col = ColorUtil.HexToU32(infoJob.ColorHex);
+                        var icon = IconDraw.ParseIcon(infoJob.IconKey);
+                        IconDraw.IconText(icon, 0.9f, col);
+                        if (ImGui.IsItemHovered())
+                        {
+                            ImGui.BeginTooltip();
+                            ImGui.TextUnformatted(jobLabel);
+                            ImGui.EndTooltip();
+                        }
+                    }
                     ImGui.TableSetColumnIndex(3);
                     var yBase = ImGui.GetCursorPosY();
                     ImGui.BeginDisabled(!canEdit);
@@ -519,44 +606,18 @@ public sealed class ShiftPlanComponent
     {
         if (!_openAddForm || !canEdit) return;
         ImGui.Separator();
-        ImGui.TextUnformatted(_editingId == Guid.Empty ? "Add Shift" : "Edit Shift");
+        var editing = _editingId != Guid.Empty;
+        var isDjForm = _isDjForm;
+        ImGui.TextUnformatted(editing ? (isDjForm ? "Edit DJ Shift" : "Edit Staff Shift") : (isDjForm ? "Add DJ Shift" : "Add Staff Shift"));
+        ImGui.TextDisabled(isDjForm ? "Mode: DJ shift" : "Mode: staff shift");
+        ImGui.TextUnformatted("Details");
         ImGui.PushItemWidth(220f);
         ImGui.InputTextWithHint("##shift_title", "Title (optional)", ref _pendingTitle, 128);
         ImGui.PopItemWidth();
-        var djEntries = app.GetDjEntries().OrderBy(e => e.DjName, StringComparer.Ordinal).ToArray();
-        if (_selDjIdx >= djEntries.Length) { _selDjIdx = -1; _selDjName = null; }
-        if (_selDjIdx < 0 && !string.IsNullOrWhiteSpace(_selDjName))
-        {
-            for (int i = 0; i < djEntries.Length; i++)
-            {
-                if (string.Equals(djEntries[i].DjName, _selDjName, StringComparison.Ordinal))
-                {
-                    _selDjIdx = i;
-                    break;
-                }
-            }
-        }
-        ImGui.TextUnformatted("DJ");
-        ImGui.PushItemWidth(220f);
-        var selDjLabel = _selDjIdx < 0 ? "(none)" : djEntries[_selDjIdx].DjName;
-        if (ImGui.BeginCombo("##dj_select", selDjLabel))
-        {
-            bool selNone = _selDjIdx < 0;
-            if (ImGui.Selectable("(none)", selNone)) { _selDjIdx = -1; _selDjName = null; }
-            for (int i = 0; i < djEntries.Length; i++)
-            {
-                var label = djEntries[i].DjName;
-                bool sel = _selDjIdx == i;
-                if (ImGui.Selectable(label, sel)) { _selDjIdx = i; _selDjName = label; }
-            }
-            ImGui.EndCombo();
-        }
-        ImGui.PopItemWidth();
-        EnsureLookups(app);
-        TryResolveSelectedUser();
-        EnsureUserResolveFetch(app);
-        ImGui.TextUnformatted("Start");
-        ImGui.PushItemWidth(120f);
+        ImGui.SameLine();
+        ImGui.TextUnformatted("Date");
+        ImGui.SameLine();
+        ImGui.PushItemWidth(110f);
         ImGui.InputTextWithHint("##start_date", "yyyy-MM-dd", ref _pendingStart, 32);
         ImGui.PopItemWidth();
         if (DateTime.TryParseExact(_pendingStart, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out var startDate))
@@ -569,13 +630,13 @@ public sealed class ShiftPlanComponent
         ImGui.TextUnformatted("Time");
         ImGui.SameLine();
         ImGui.PushItemWidth(70f);
-        var hourLabel = _startHour.ToString("00");
+        var hourLabel = TimeFormat.FormatHourOption(_startHour);
         if (ImGui.BeginCombo("##start_hour", hourLabel))
         {
             for (int i = 0; i < HourOptions.Length; i++)
             {
                 var h = HourOptions[i];
-                var label = h.ToString("00");
+                var label = TimeFormat.FormatHourOption(h);
                 bool sel = h == _startHour;
                 if (ImGui.Selectable(label, sel)) { _startHour = h; }
             }
@@ -598,7 +659,10 @@ public sealed class ShiftPlanComponent
         }
         ImGui.PopItemWidth();
 
+        ImGui.SameLine();
         ImGui.TextUnformatted("Duration");
+        ImGui.SameLine();
+        ImGui.PushItemWidth(90f);
         var durLabel = (_durationMinutes >= 60) ? ($"{_durationMinutes / 60}h" + ((_durationMinutes % 60) > 0 ? $" {_durationMinutes % 60}m" : string.Empty)) : ($"{_durationMinutes}m");
         if (ImGui.BeginCombo("##duration", durLabel))
         {
@@ -611,89 +675,153 @@ public sealed class ShiftPlanComponent
             }
             ImGui.EndCombo();
         }
+        ImGui.PopItemWidth();
 
         var startBase = new DateTime(_startYear, _startMonth, _startDay, _startHour, _startMinute, 0, _useLocalTimeView ? DateTimeKind.Local : DateTimeKind.Utc);
         var startUtc = _useLocalTimeView ? startBase.ToUniversalTime() : startBase;
         var endUtcAuto = startUtc.AddMinutes(_durationMinutes);
-        ImGui.TextUnformatted("Assigned User");
-        ImGui.PushItemWidth(220f);
-        if (_selUserIdx >= _staffUsers.Length) { _selUserIdx = -1; _selUid = null; }
-        var selUserLabel = _selUserIdx < 0 ? "(none)" : ($"{_staffUsers[_selUserIdx].Username} [{_staffUsers[_selUserIdx].Job}]");
-        if (ImGui.BeginCombo("##assigned_user", selUserLabel))
+        var djEntries = app.GetDjEntries().OrderBy(e => e.DjName, StringComparer.Ordinal).ToArray();
+        if (_selDjIdx >= djEntries.Length) { _selDjIdx = -1; _selDjName = null; }
+        if (_selDjIdx < 0 && !string.IsNullOrWhiteSpace(_selDjName))
         {
-            bool selNone = _selUserIdx < 0;
-            if (ImGui.Selectable("(none)", selNone)) { _selUserIdx = -1; _selUid = null; }
-            for (int i = 0; i < _staffUsers.Length; i++)
+            for (int i = 0; i < djEntries.Length; i++)
             {
-                var u = _staffUsers[i];
-                var label = (u.Username ?? string.Empty) + " [" + (u.Job ?? string.Empty) + "]";
-                bool sel = _selUserIdx == i;
-                if (ImGui.Selectable(label, sel))
+                if (string.Equals(djEntries[i].DjName, _selDjName, StringComparison.Ordinal))
                 {
-                    _selUserIdx = i;
-                    _selUid = string.IsNullOrWhiteSpace(u.Uid) ? null : u.Uid;
-                    _selJob = SelectJobForUser(u, _selJob, _jobs);
+                    _selDjIdx = i;
+                    break;
                 }
             }
-            ImGui.EndCombo();
         }
-        ImGui.PopItemWidth();
-        var hasPendingUserResolve = _selUserIdx < 0 && (!string.IsNullOrWhiteSpace(_selUid) || !string.IsNullOrWhiteSpace(_pendingAssignUsername));
-        var usersSourceLabel = _usersResolveFetchInFlight ? "Server (syncing)" : (_staffUsers.Length > 0 ? (_lastUsersUpdateFromServer ? "Server" : "Cache") : "Loading");
-        ImGui.TextDisabled("User list: " + usersSourceLabel);
-        if (hasPendingUserResolve) ImGui.TextDisabled("Resolving assigned user...");
-
-        ImGui.PushItemWidth(220f);
-        var allowedJobs = GetAllowedJobsForSelectedUser(_staffUsers, _selUserIdx, _jobs);
-        if (!IsJobAllowed(_selJob, allowedJobs)) _selJob = allowedJobs.Length > 0 ? allowedJobs[0] : null;
-        var selJobLabel = string.IsNullOrWhiteSpace(_selJob) ? "(none)" : _selJob;
-        if (ImGui.BeginCombo("##job", selJobLabel))
-        {
-            if (ImGui.Selectable("(none)", string.IsNullOrWhiteSpace(_selJob))) { _selJob = null; }
-            for (int i = 0; i < allowedJobs.Length; i++)
-            {
-                var j = allowedJobs[i] ?? string.Empty;
-                bool sel = string.Equals(_selJob, j, StringComparison.Ordinal);
-                if (ImGui.Selectable(j, sel)) { _selJob = j; }
-            }
-            ImGui.EndCombo();
-        }
-        ImGui.PopItemWidth();
+        EnsureLookups(app);
+        TryResolveSelectedUser();
+        EnsureUserResolveFetch(app);
 
         var endUtc = endUtcAuto;
         DateTimeOffset startAt = new DateTimeOffset(startUtc);
         DateTimeOffset endAt = new DateTimeOffset(endUtc);
         var canSubmit = endAt > startAt;
-        ImGui.BeginDisabled(!canSubmit);
-        if (ImGui.Button(_editingId == Guid.Empty ? "Add" : "Update"))
+        if (isDjForm)
         {
-            _status = "Submitting...";
-            var title = (_pendingTitle ?? string.Empty).Trim();
-            var uid = _selUid;
-            var job = _selJob;
-            var djName = _selDjName;
-            if (_editingId == Guid.Empty)
+            ImGui.TextUnformatted("DJ");
+            ImGui.PushItemWidth(220f);
+            var selDjLabel = _selDjIdx < 0 ? "(none)" : djEntries[_selDjIdx].DjName;
+            if (ImGui.BeginCombo("##dj_select", selDjLabel))
             {
-                System.Threading.Tasks.Task.Run(async () =>
+                bool selNone = _selDjIdx < 0;
+                if (ImGui.Selectable("(none)", selNone)) { _selDjIdx = -1; _selDjName = null; }
+                for (int i = 0; i < djEntries.Length; i++)
                 {
-                    var ok = await app.AddShiftAsync(title, startAt, endAt, uid, job, djName);
-                    _status = ok ? "Added" : (app.GetLastServerMessage() ?? "Add failed");
-                    if (ok) CloseAddForm();
-                });
+                    var label = djEntries[i].DjName;
+                    bool sel = _selDjIdx == i;
+                    if (ImGui.Selectable(label, sel)) { _selDjIdx = i; _selDjName = label; }
+                }
+                ImGui.EndCombo();
             }
-            else
+            ImGui.PopItemWidth();
+            var canDjSubmit = canSubmit && _selDjIdx >= 0 && !string.IsNullOrWhiteSpace(_selDjName);
+            ImGui.BeginDisabled(!canDjSubmit);
+            if (ImGui.Button(editing ? "Update DJ Shift" : "Add DJ Shift"))
             {
-                var id = _editingId;
-                System.Threading.Tasks.Task.Run(async () =>
+                _status = "Submitting...";
+                var title = (_pendingTitle ?? string.Empty).Trim();
+                var djName = _selDjName;
+                if (!editing)
                 {
-                    var ok = await app.UpdateShiftAsync(id, title, startAt, endAt, uid, job, djName);
-                    _status = ok ? "Updated" : (app.GetLastServerMessage() ?? "Update failed");
-                    if (ok) CloseAddForm();
-                });
+                    System.Threading.Tasks.Task.Run(async () =>
+                    {
+                        var ok = await app.AddShiftAsync(title, startAt, endAt, null, null, djName);
+                        _status = ok ? "Added" : (app.GetLastServerMessage() ?? "Add failed");
+                        if (ok) CloseAddForm();
+                    });
+                }
+                else
+                {
+                    var id = _editingId;
+                    System.Threading.Tasks.Task.Run(async () =>
+                    {
+                        var ok = await app.UpdateShiftAsync(id, title, startAt, endAt, null, null, djName);
+                        _status = ok ? "Updated" : (app.GetLastServerMessage() ?? "Update failed");
+                        if (ok) CloseAddForm();
+                    });
+                }
             }
+            ImGui.EndDisabled();
         }
-        ImGui.EndDisabled();
-        ImGui.SameLine();
+        else
+        {
+            ImGui.TextUnformatted("Assigned User");
+            ImGui.PushItemWidth(220f);
+            if (_selUserIdx >= _staffUsers.Length) { _selUserIdx = -1; _selUid = null; }
+            var selUserLabel = _selUserIdx < 0 ? "(none)" : ($"{_staffUsers[_selUserIdx].Username} [{_staffUsers[_selUserIdx].Job}]");
+            if (ImGui.BeginCombo("##assigned_user", selUserLabel))
+            {
+                bool selNone = _selUserIdx < 0;
+                if (ImGui.Selectable("(none)", selNone)) { _selUserIdx = -1; _selUid = null; }
+                for (int i = 0; i < _staffUsers.Length; i++)
+                {
+                    var u = _staffUsers[i];
+                    var label = (u.Username ?? string.Empty) + " [" + (u.Job ?? string.Empty) + "]";
+                    bool sel = _selUserIdx == i;
+                    if (ImGui.Selectable(label, sel))
+                    {
+                        _selUserIdx = i;
+                        _selUid = string.IsNullOrWhiteSpace(u.Uid) ? null : u.Uid;
+                        _selJob = SelectJobForUser(u, _selJob, _jobs);
+                    }
+                }
+                ImGui.EndCombo();
+            }
+            ImGui.PopItemWidth();
+            var hasPendingUserResolve = _selUserIdx < 0 && (!string.IsNullOrWhiteSpace(_selUid) || !string.IsNullOrWhiteSpace(_pendingAssignUsername));
+            var usersSourceLabel = _usersResolveFetchInFlight ? "Server (syncing)" : (_staffUsers.Length > 0 ? (_lastUsersUpdateFromServer ? "Server" : "Cache") : "Loading");
+            ImGui.TextDisabled("User list: " + usersSourceLabel);
+            if (hasPendingUserResolve) ImGui.TextDisabled("Resolving assigned user...");
+            ImGui.PushItemWidth(220f);
+            var allowedJobs = GetAllowedJobsForSelectedUser(_staffUsers, _selUserIdx, _jobs);
+            if (!IsJobAllowed(_selJob, allowedJobs)) _selJob = allowedJobs.Length > 0 ? allowedJobs[0] : null;
+            var selJobLabel = string.IsNullOrWhiteSpace(_selJob) ? "(none)" : _selJob;
+            if (ImGui.BeginCombo("##job", selJobLabel))
+            {
+                if (ImGui.Selectable("(none)", string.IsNullOrWhiteSpace(_selJob))) { _selJob = null; }
+                for (int i = 0; i < allowedJobs.Length; i++)
+                {
+                    var j = allowedJobs[i] ?? string.Empty;
+                    bool sel = string.Equals(_selJob, j, StringComparison.Ordinal);
+                    if (ImGui.Selectable(j, sel)) { _selJob = j; }
+                }
+                ImGui.EndCombo();
+            }
+            ImGui.PopItemWidth();
+            ImGui.BeginDisabled(!canSubmit);
+            if (ImGui.Button(editing ? "Update Staff Shift" : "Add Staff Shift"))
+            {
+                _status = "Submitting...";
+                var title = (_pendingTitle ?? string.Empty).Trim();
+                var uid = _selUid;
+                var job = _selJob;
+                if (!editing)
+                {
+                    System.Threading.Tasks.Task.Run(async () =>
+                    {
+                        var ok = await app.AddShiftAsync(title, startAt, endAt, uid, job, null);
+                        _status = ok ? "Added" : (app.GetLastServerMessage() ?? "Add failed");
+                        if (ok) CloseAddForm();
+                    });
+                }
+                else
+                {
+                    var id = _editingId;
+                    System.Threading.Tasks.Task.Run(async () =>
+                    {
+                        var ok = await app.UpdateShiftAsync(id, title, startAt, endAt, uid, job, null);
+                        _status = ok ? "Updated" : (app.GetLastServerMessage() ?? "Update failed");
+                        if (ok) CloseAddForm();
+                    });
+                }
+            }
+            ImGui.EndDisabled();
+        }
         if (ImGui.Button("Close")) { CloseAddForm(); }
         if (!string.IsNullOrEmpty(_status)) ImGui.TextUnformatted(_status);
         ImGui.Separator();
@@ -715,7 +843,13 @@ public sealed class ShiftPlanComponent
         ImGui.PushItemWidth(260f);
         ImGui.InputTextWithHint("##shift_tab_filter", "Search shifts by title, DJ, job or user", ref _shiftTabFilter, 256);
         ImGui.PopItemWidth();
-        ImGui.Separator();
+        ImGui.SameLine();
+        ImGui.BeginDisabled(string.IsNullOrWhiteSpace(_shiftTabFilter));
+        if (ImGui.Button("Clear")) { _shiftTabFilter = string.Empty; _shiftTabPageIndex = 0; }
+        ImGui.EndDisabled();
+        ImGui.TextUnformatted("Date");
+        ImGui.SameLine();
+        ImGui.PushItemWidth(160f);
 
         var nowServer = DateTimeOffset.UtcNow;
         var all = app.GetShiftEntries().ToArray();
@@ -729,7 +863,66 @@ public sealed class ShiftPlanComponent
             if (hasFilter && !MatchesShiftFilter(e, filter)) continue;
             list.Add(e);
         }
+        var eventDays = GetEventDays(list.ToArray(), useLocal);
+        var selectedLabel = _shiftTabSelectedDate.HasValue
+            ? _shiftTabSelectedDate.Value.Date.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)
+            : "All Dates";
+        if (ImGui.BeginCombo("##shift_tab_date", selectedLabel))
+        {
+            bool allSel = !_shiftTabSelectedDate.HasValue;
+            if (ImGui.Selectable("All Dates", allSel))
+            {
+                _shiftTabSelectedDate = null;
+                _shiftTabPageIndex = 0;
+            }
+            for (int i = 0; i < eventDays.Count; i++)
+            {
+                var day = eventDays[i].Date;
+                var label = day.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+                bool sel = _shiftTabSelectedDate.HasValue && day == _shiftTabSelectedDate.Value.Date;
+                if (ImGui.Selectable(label, sel))
+                {
+                    _shiftTabSelectedDate = day;
+                    _shiftTabPageIndex = 0;
+                }
+            }
+            ImGui.EndCombo();
+        }
+        ImGui.PopItemWidth();
+        ImGui.SameLine();
+        var today = useLocal ? DateTime.Now.Date : DateTime.UtcNow.Date;
+        ImGui.BeginDisabled(!eventDays.Contains(today));
+        if (ImGui.Button("Today"))
+        {
+            _shiftTabSelectedDate = today;
+            _shiftTabPageIndex = 0;
+        }
+        ImGui.EndDisabled();
+        ImGui.PopItemWidth();
+        ImGui.Separator();
+
+        if (_shiftTabSelectedDate.HasValue)
+        {
+            var dayStart = new DateTime(_shiftTabSelectedDate.Value.Year, _shiftTabSelectedDate.Value.Month, _shiftTabSelectedDate.Value.Day, 0, 0, 0, useLocal ? DateTimeKind.Local : DateTimeKind.Utc);
+            var dayEnd = dayStart.AddDays(1);
+            var filtered = new List<ShiftEntry>(list.Count);
+            for (int i = 0; i < list.Count; i++)
+            {
+                var e = list[i];
+                if (useLocal)
+                {
+                    if (e.StartAt.ToLocalTime() < dayEnd && e.EndAt.ToLocalTime() > dayStart) filtered.Add(e);
+                }
+                else
+                {
+                    if (e.StartAt < dayEnd && e.EndAt > dayStart) filtered.Add(e);
+                }
+            }
+            list = filtered;
+        }
+        if (_shiftTabSortCol < 0 || _shiftTabSortCol > 3) _shiftTabSortCol = 0;
         var items = list.ToArray();
+        ImGui.TextUnformatted($"Shifts: {items.Length}");
         Array.Sort(items, (a, b) =>
         {
             int r = 0;
@@ -740,15 +933,12 @@ public sealed class ShiftPlanComponent
                     r = a.StartAt.CompareTo(b.StartAt);
                     break;
                 case 1:
-                    r = a.StartAt.CompareTo(b.StartAt);
-                    break;
-                case 2:
                     r = string.Compare(BuildWhoLabel(a, _staffUsers), BuildWhoLabel(b, _staffUsers), StringComparison.OrdinalIgnoreCase);
                     break;
-                case 3:
-                    r = string.Compare(a.Title ?? string.Empty, b.Title ?? string.Empty, StringComparison.OrdinalIgnoreCase);
+                case 2:
+                    r = string.Compare(a.Job ?? string.Empty, b.Job ?? string.Empty, StringComparison.OrdinalIgnoreCase);
                     break;
-                case 4:
+                case 3:
                     r = string.Compare(BuildShiftStatus(nowServer, a), BuildShiftStatus(nowServer, b), StringComparison.OrdinalIgnoreCase);
                     break;
             }
@@ -783,28 +973,28 @@ public sealed class ShiftPlanComponent
         var flagsList = ImGuiTableFlags.RowBg | ImGuiTableFlags.Borders | ImGuiTableFlags.SizingStretchProp | ImGuiTableFlags.ScrollY | ImGuiTableFlags.NoSavedSettings;
         var listTableHeight = Math.Max(160f, ImGui.GetContentRegionAvail().Y);
         var availX = ImGui.GetContentRegionAvail().X;
-        if (ImGui.BeginTable("shift_tab_table", canEdit ? 6 : 5, flagsList, new System.Numerics.Vector2(availX, listTableHeight)))
+        var timeSample = TimeFormat.FormatTime(new DateTime(2000, 1, 1, 23, 59, 0));
+        var timeRangeSample = timeSample + "-" + timeSample;
+        var timeColWidth = ImGui.CalcTextSize(timeRangeSample).X + style.CellPadding.X * 2f;
+        if (ImGui.BeginTable("shift_tab_table", canEdit ? 5 : 4, flagsList, new System.Numerics.Vector2(availX, listTableHeight)))
         {
-            ImGui.TableSetupColumn("Date", ImGuiTableColumnFlags.WidthFixed, 110f);
-            ImGui.TableSetupColumn("Time", ImGuiTableColumnFlags.WidthFixed, 110f);
-            ImGui.TableSetupColumn("User/Job", ImGuiTableColumnFlags.WidthStretch, 0.25f);
-            ImGui.TableSetupColumn("Title", ImGuiTableColumnFlags.WidthStretch, 0.35f);
+            ImGui.TableSetupColumn("Time", ImGuiTableColumnFlags.WidthFixed, timeColWidth);
+            ImGui.TableSetupColumn("User", ImGuiTableColumnFlags.WidthStretch, 0.25f);
+            ImGui.TableSetupColumn("Job", ImGuiTableColumnFlags.WidthStretch, 0.2f);
             ImGui.TableSetupColumn("Status", ImGuiTableColumnFlags.WidthStretch, 0.3f);
             if (canEdit) ImGui.TableSetupColumn("Actions", ImGuiTableColumnFlags.WidthFixed, actionsColWidth);
             ImGui.TableNextRow(ImGuiTableRowFlags.Headers);
             ImGui.TableSetColumnIndex(0);
-            TableSortUi.DrawSortableHeader("Date", 0, ref _shiftTabSortCol, ref _shiftTabSortAsc);
+            TableSortUi.DrawSortableHeader("Time", 0, ref _shiftTabSortCol, ref _shiftTabSortAsc);
             ImGui.TableSetColumnIndex(1);
-            TableSortUi.DrawSortableHeader("Time", 1, ref _shiftTabSortCol, ref _shiftTabSortAsc);
+            TableSortUi.DrawSortableHeader("User", 1, ref _shiftTabSortCol, ref _shiftTabSortAsc);
             ImGui.TableSetColumnIndex(2);
-            TableSortUi.DrawSortableHeader("User/Job", 2, ref _shiftTabSortCol, ref _shiftTabSortAsc);
+            TableSortUi.DrawSortableHeader("Job", 2, ref _shiftTabSortCol, ref _shiftTabSortAsc);
             ImGui.TableSetColumnIndex(3);
-            TableSortUi.DrawSortableHeader("Title", 3, ref _shiftTabSortCol, ref _shiftTabSortAsc);
-            ImGui.TableSetColumnIndex(4);
-            TableSortUi.DrawSortableHeader("Status", 4, ref _shiftTabSortCol, ref _shiftTabSortAsc);
+            TableSortUi.DrawSortableHeader("Status", 3, ref _shiftTabSortCol, ref _shiftTabSortAsc);
             if (canEdit)
             {
-                ImGui.TableSetColumnIndex(5);
+                ImGui.TableSetColumnIndex(4);
                 ImGui.TextUnformatted("Actions");
             }
 
@@ -812,6 +1002,7 @@ public sealed class ShiftPlanComponent
             var endIndex = Math.Min(items.Length, startIndex + pageSize);
             var currentRowColor = ColorUtil.HexToU32(CurrentShiftRowHex);
             var pastRowColor = ColorUtil.HexToU32(PastShiftRowHex);
+            var rightsCache = app.GetJobRightsCache();
             for (int i = startIndex; i < endIndex; i++)
             {
                 var e = items[i];
@@ -819,24 +1010,34 @@ public sealed class ShiftPlanComponent
                 var eView = useLocal ? e.EndAt.ToLocalTime() : e.EndAt;
                 var whoLabel = BuildWhoLabel(e, _staffUsers);
                 var statusLabel = BuildShiftStatus(nowServer, e);
+                var jobLabel = string.IsNullOrWhiteSpace(e.Job) ? string.Empty : e.Job;
 
                 ImGui.TableNextRow();
                 var isCurrent = e.StartAt <= nowServer && e.EndAt > nowServer;
                 if (isCurrent) ImGui.TableSetBgColor(ImGuiTableBgTarget.RowBg0, currentRowColor);
                 else if (e.EndAt <= nowServer) ImGui.TableSetBgColor(ImGuiTableBgTarget.RowBg0, pastRowColor);
                 ImGui.TableSetColumnIndex(0);
-                ImGui.TextUnformatted(sView.ToString("yyyy-MM-dd"));
+                ImGui.TextUnformatted(TimeFormat.FormatTime(sView) + "-" + TimeFormat.FormatTime(eView));
                 ImGui.TableSetColumnIndex(1);
-                ImGui.TextUnformatted(sView.ToString("HH:mm") + "-" + eView.ToString("HH:mm"));
-                ImGui.TableSetColumnIndex(2);
                 ImGui.TextUnformatted(whoLabel);
+                ImGui.TableSetColumnIndex(2);
+                if (!string.IsNullOrWhiteSpace(jobLabel) && rightsCache != null && rightsCache.TryGetValue(jobLabel, out var infoJob))
+                {
+                    var col = ColorUtil.HexToU32(infoJob.ColorHex);
+                    var icon = IconDraw.ParseIcon(infoJob.IconKey);
+                    IconDraw.IconText(icon, 0.9f, col);
+                    if (ImGui.IsItemHovered())
+                    {
+                        ImGui.BeginTooltip();
+                        ImGui.TextUnformatted(jobLabel);
+                        ImGui.EndTooltip();
+                    }
+                }
                 ImGui.TableSetColumnIndex(3);
-                ImGui.TextUnformatted(e.Title ?? string.Empty);
-                ImGui.TableSetColumnIndex(4);
                 ImGui.TextUnformatted(statusLabel);
                 if (canEdit)
                 {
-                    ImGui.TableSetColumnIndex(5);
+                    ImGui.TableSetColumnIndex(4);
                     var yBase = ImGui.GetCursorPosY();
                     ImGui.PushFont(UiBuilder.IconFont);
                     ImGui.SetWindowFontScale(0.9f);
@@ -975,6 +1176,64 @@ public sealed class ShiftPlanComponent
         return a.StartAt.CompareTo(b.StartAt);
     }
 
+    private void DrawDayTimeline(ShiftEntry[] listDay, DateTime dayStart, bool useLocal, Dictionary<string, JobRightsInfo>? rightsCache)
+    {
+        var size = ImGui.GetContentRegionAvail();
+        if (size.X <= 0 || size.Y <= 0) return;
+        var startPos = ImGui.GetCursorScreenPos();
+        var endPos = new System.Numerics.Vector2(startPos.X + size.X, startPos.Y + size.Y);
+        var drawList = ImGui.GetWindowDrawList();
+        var bg = ImGui.GetColorU32(ImGuiCol.FrameBg);
+        var border = ImGui.GetColorU32(ImGuiCol.Border);
+        var grid = ImGui.GetColorU32(ImGuiCol.TextDisabled);
+        drawList.AddRectFilled(startPos, endPos, bg, 4f);
+        drawList.AddRect(startPos, endPos, border, 4f);
+        for (int h = 0; h <= 24; h += 2)
+        {
+            var x = startPos.X + (size.X * h / 24f);
+            drawList.AddLine(new System.Numerics.Vector2(x, startPos.Y), new System.Numerics.Vector2(x, endPos.Y), grid);
+        }
+        var dayStartOffset = new DateTimeOffset(dayStart);
+        var dayEndOffset = dayStartOffset.AddDays(1);
+        var barHeight = Math.Max(6f, size.Y * 0.35f);
+        var barY = startPos.Y + (size.Y - barHeight) / 2f;
+        var fallbackColor = ImGui.GetColorU32(ImGuiCol.PlotHistogram);
+        for (int i = 0; i < listDay.Length; i++)
+        {
+            var e = listDay[i];
+            var s = useLocal ? e.StartAt.ToLocalTime() : e.StartAt;
+            var ee = useLocal ? e.EndAt.ToLocalTime() : e.EndAt;
+            if (ee <= dayStartOffset || s >= dayEndOffset) continue;
+            if (s < dayStartOffset) s = dayStartOffset;
+            if (ee > dayEndOffset) ee = dayEndOffset;
+            var startMinutes = (s - dayStartOffset).TotalMinutes;
+            var endMinutes = (ee - dayStartOffset).TotalMinutes;
+            if (endMinutes <= startMinutes) continue;
+            float x1 = startPos.X + (float)(startMinutes / 1440d) * size.X;
+            float x2 = startPos.X + (float)(endMinutes / 1440d) * size.X;
+            if (x2 - x1 < 2f) x2 = x1 + 2f;
+            var jobLabel = string.IsNullOrWhiteSpace(e.Job) ? string.Empty : e.Job;
+            uint color = fallbackColor;
+            if (!string.IsNullOrEmpty(jobLabel) && rightsCache != null && rightsCache.TryGetValue(jobLabel, out var infoJob))
+            {
+                color = ColorUtil.HexToU32(infoJob.ColorHex);
+            }
+            var min = new System.Numerics.Vector2(x1, barY);
+            var max = new System.Numerics.Vector2(x2, barY + barHeight);
+            drawList.AddRectFilled(min, max, color, 3f);
+            if (ImGui.IsMouseHoveringRect(min, max))
+            {
+                var who = BuildWhoLabel(e, _staffUsers);
+                ImGui.BeginTooltip();
+                ImGui.TextUnformatted($"{TimeFormat.FormatTime(s)}-{TimeFormat.FormatTime(ee)}");
+                if (!string.IsNullOrWhiteSpace(who)) ImGui.TextUnformatted(who);
+                if (!string.IsNullOrWhiteSpace(jobLabel)) ImGui.TextUnformatted(jobLabel);
+                ImGui.EndTooltip();
+            }
+        }
+        ImGui.Dummy(size);
+    }
+
     private static string BuildWhoLabel(ShiftEntry e, StaffUser[] users)
     {
         string? uname = null;
@@ -985,20 +1244,28 @@ public sealed class ShiftPlanComponent
                 var u = users[i];
                 if (string.Equals(u.Uid, e.AssignedUid, StringComparison.Ordinal))
                 {
-                    uname = u.Username;
+                    uname = StripHomeworld(u.Username);
                     break;
                 }
             }
         }
         var djLabel = string.IsNullOrWhiteSpace(e.DjName) ? null : ("DJ: " + e.DjName);
         var who = !string.IsNullOrWhiteSpace(djLabel) ? djLabel : (!string.IsNullOrWhiteSpace(uname) ? uname : (string.IsNullOrWhiteSpace(e.AssignedUid) ? string.Empty : e.AssignedUid!));
-        return string.IsNullOrWhiteSpace(e.Job) ? who : (string.IsNullOrWhiteSpace(who) ? e.Job! : (who + " [" + e.Job + "]"));
+        return who;
+    }
+
+    private static string StripHomeworld(string? username)
+    {
+        if (string.IsNullOrWhiteSpace(username)) return string.Empty;
+        var idx = username.IndexOf('@');
+        if (idx <= 0) return username;
+        return username.Substring(0, idx);
     }
 
     private static string BuildShiftLabel(ShiftEntry e, string whoLabel)
     {
-        var s = e.StartAt.ToString("HH:mm");
-        var ee = e.EndAt.ToString("HH:mm");
+        var s = TimeFormat.FormatTime(e.StartAt);
+        var ee = TimeFormat.FormatTime(e.EndAt);
         var title = e.Title ?? string.Empty;
         if (string.IsNullOrWhiteSpace(title) && string.IsNullOrWhiteSpace(whoLabel)) return s + "-" + ee;
         if (string.IsNullOrWhiteSpace(title)) return s + "-" + ee + " " + whoLabel;
@@ -1061,9 +1328,19 @@ public sealed class ShiftPlanComponent
         _startYear = sView.Year; _startMonth = sView.Month; _startDay = sView.Day; _startHour = sView.Hour; _startMinute = sView.Minute;
         _pendingStart = sView.ToString("yyyy-MM-dd");
         _durationMinutes = (int)Math.Max(0, (eView - sView).TotalMinutes);
-        _selUid = string.IsNullOrWhiteSpace(e.AssignedUid) ? null : e.AssignedUid;
-        _selJob = string.IsNullOrWhiteSpace(e.Job) ? null : e.Job;
-        _selDjName = string.IsNullOrWhiteSpace(e.DjName) ? null : e.DjName;
+        _isDjForm = !string.IsNullOrWhiteSpace(e.DjName);
+        if (_isDjForm)
+        {
+            _selDjName = e.DjName;
+            _selUid = null;
+            _selJob = null;
+        }
+        else
+        {
+            _selUid = string.IsNullOrWhiteSpace(e.AssignedUid) ? null : e.AssignedUid;
+            _selJob = string.IsNullOrWhiteSpace(e.Job) ? null : e.Job;
+            _selDjName = null;
+        }
         _selDjIdx = -1;
         _selUserIdx = -1;
         for (int j = 0; j < _staffUsers.Length; j++) { var u = _staffUsers[j]; if (!string.IsNullOrWhiteSpace(_selUid) && string.Equals(u.Uid, _selUid, StringComparison.Ordinal)) { _selUserIdx = j; break; } }

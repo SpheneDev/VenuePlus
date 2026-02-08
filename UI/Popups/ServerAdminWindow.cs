@@ -7,6 +7,7 @@ using Dalamud.Bindings.ImGui;
 using Dalamud.Interface;
 using Dalamud.Interface.Windowing;
 using VenuePlus.Plugin;
+using VenuePlus.Helpers;
 
 namespace VenuePlus.UI;
 
@@ -164,8 +165,8 @@ public sealed class ServerAdminWindow : Window
         }
         ImGui.TextUnformatted($"Health: {healthStatus}");
         if (healthDbOk.HasValue) ImGui.TextUnformatted($"Database: {(healthDbOk.Value ? "OK" : "Fail")}");
-        if (healthServerTime.HasValue) ImGui.TextUnformatted($"Server Time: {healthServerTime.Value:yyyy-MM-dd HH:mm}");
-        if (healthCheckedAt.HasValue) ImGui.TextUnformatted($"Checked: {healthCheckedAt.Value:HH:mm:ss}");
+        if (healthServerTime.HasValue) ImGui.TextUnformatted($"Server Time: {TimeFormat.FormatDateTime(healthServerTime.Value)}");
+        if (healthCheckedAt.HasValue) ImGui.TextUnformatted($"Checked: {TimeFormat.FormatTime(healthCheckedAt.Value, true)}");
         if (!string.IsNullOrWhiteSpace(healthError)) ImGui.TextUnformatted($"Error: {healthError}");
         ImGui.BeginDisabled(healthInFlight);
         if (ImGui.Button("Run Health Check"))
@@ -181,7 +182,7 @@ public sealed class ServerAdminWindow : Window
         var maintenancePendingText = maintenanceModePendingEnable.HasValue ? (maintenanceModePendingEnable.Value ? "Yes" : "No") : "Unknown";
         ImGui.TextUnformatted($"Maintenance Mode: {maintenanceModeText}");
         ImGui.TextUnformatted($"Enable After Restart: {maintenancePendingText}");
-        if (maintenanceModeCheckedAt.HasValue) ImGui.TextUnformatted($"Checked: {maintenanceModeCheckedAt.Value:HH:mm:ss}");
+        if (maintenanceModeCheckedAt.HasValue) ImGui.TextUnformatted($"Checked: {TimeFormat.FormatTime(maintenanceModeCheckedAt.Value, true)}");
         ImGui.BeginDisabled(maintenanceModeInFlight);
         if (ImGui.Button("Refresh Maintenance Status"))
         {

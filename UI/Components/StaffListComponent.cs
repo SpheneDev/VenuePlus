@@ -788,7 +788,7 @@ public sealed class StaffListComponent
                 if (showTooltip)
                 {
                     ImGui.BeginTooltip();
-                    var createdStr = u.CreatedAt?.ToUniversalTime().ToString("yyyy-MM-dd HH:mm 'UTC'", CultureInfo.InvariantCulture) ?? "--";
+                    var createdStr = u.CreatedAt.HasValue ? TimeFormat.FormatDateTimeUtc(u.CreatedAt.Value) : "--";
                     ImGui.TextUnformatted($"Added: {createdStr}");
                     if (!string.IsNullOrWhiteSpace(homeWorld)) ImGui.TextUnformatted($"Homeworld: {homeWorld}");
                     if (u.IsManual) ImGui.TextUnformatted("Manual entry");

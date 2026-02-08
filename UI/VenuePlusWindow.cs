@@ -119,6 +119,11 @@ public sealed class VenuePlusWindow : Window, IDisposable
             _requestScheduleTab = true;
             _shiftPlan.OpenAddFormForDj(dj.DjName);
         });
+        _djList.SetEditShiftAction(shift =>
+        {
+            _requestScheduleTab = true;
+            _shiftPlan.OpenEditShift(shift, _app, _app.ShowShiftTimesInLocalTime);
+        });
     }
 
     public override void OnOpen()
@@ -447,6 +452,8 @@ public sealed class VenuePlusWindow : Window, IDisposable
             }
             if (_app.HasStaffSession)
             {
+                var ready = _app.RemoteConnected && !_app.AccessLoading && _app.ClubListsLoaded;
+                ImGui.BeginDisabled(!ready);
                 if (ImGui.Button("Venues List", new Vector2(-1f, 0))) { _app.OpenVenuesListWindow(); }
                 if (ImGui.IsItemHovered()) { ImGui.BeginTooltip(); ImGui.TextUnformatted("My Venues List"); ImGui.EndTooltip(); }
                 var availTop = ImGui.GetContentRegionAvail().X;
@@ -456,6 +463,7 @@ public sealed class VenuePlusWindow : Window, IDisposable
                 ImGui.SameLine();
                 if (ImGui.Button("Join Venue", new Vector2(halfTop, 0))) { _joinClubModal.Open(); }
                 if (ImGui.IsItemHovered()) { ImGui.BeginTooltip(); ImGui.TextUnformatted("Join an existing venue"); ImGui.EndTooltip(); }
+                ImGui.EndDisabled();
                 ImGui.Spacing();
             }
             ImGui.PopItemWidth();
@@ -488,8 +496,8 @@ public sealed class VenuePlusWindow : Window, IDisposable
         ImGui.PushStyleColor(ImGuiCol.Text, statusColorL);
         ImGui.TextUnformatted(statusTextL);
         ImGui.PopStyleColor();
-        var serverTimeText = System.DateTimeOffset.UtcNow.ToString("HH:mm");
-        var systemTimeText = System.DateTimeOffset.Now.ToString("HH:mm");
+        var serverTimeText = TimeFormat.FormatTime(System.DateTimeOffset.UtcNow);
+        var systemTimeText = TimeFormat.FormatTime(System.DateTimeOffset.Now);
         ImGui.TextUnformatted("Server Time:");
         ImGui.SameLine();
         ImGui.TextUnformatted(serverTimeText);
@@ -727,6 +735,7 @@ public sealed class VenuePlusWindow : Window, IDisposable
             ImGui.EndGroup();
             ImGui.Spacing();
             var showShiftTab = _app.HasStaffSession;
+            var showScheduleTab = _app.IsOwnerCurrentClub || (_app.HasStaffSession && _app.StaffCanEditShiftPlan);
             if (ImGui.BeginTabBar("MainTabs"))
             {
             if (ImGui.BeginTabItem("VIPs"))
@@ -1007,9 +1016,9 @@ public sealed class VenuePlusWindow : Window, IDisposable
                     ImGui.EndTabItem();
                 }
             }
-            if (_shiftPlan.ConsumeScheduleTabRequest()) _requestScheduleTab = true;
+            if (showScheduleTab && _shiftPlan.ConsumeScheduleTabRequest()) _requestScheduleTab = true;
             var scheduleFlags = _requestScheduleTab ? ImGuiTabItemFlags.SetSelected : ImGuiTabItemFlags.None;
-            if (showShiftTab && ImGui.BeginTabItem("Schedule", scheduleFlags))
+            if (showScheduleTab && ImGui.BeginTabItem("Schedule", scheduleFlags))
             {
                 if (_requestScheduleTab) _requestScheduleTab = false;
                 if (ImGui.IsItemActivated()) ResetStatusMessages();

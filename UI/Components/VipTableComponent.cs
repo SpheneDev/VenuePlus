@@ -1,5 +1,4 @@
 using System;
-using System.Globalization;
 using System.Linq;
 using Dalamud.Bindings.ImGui;
 using Dalamud.Interface;
@@ -230,8 +229,8 @@ public sealed class VipTableComponent
                 if (ImGui.IsItemHovered())
                 {
                     ImGui.BeginTooltip();
-                    var createdStr = e.CreatedAt.ToUniversalTime().ToString("yyyy-MM-dd HH:mm 'UTC'", CultureInfo.InvariantCulture);
-                    var expiresStr = e.Duration == VipDuration.Lifetime ? "--" : (e.ExpiresAt?.ToUniversalTime().ToString("yyyy-MM-dd HH:mm 'UTC'", CultureInfo.InvariantCulture) ?? "--");
+                    var createdStr = TimeFormat.FormatDateTimeUtc(e.CreatedAt);
+                    var expiresStr = e.Duration == VipDuration.Lifetime ? "--" : (e.ExpiresAt.HasValue ? TimeFormat.FormatDateTimeUtc(e.ExpiresAt.Value) : "--");
                     ImGui.TextUnformatted($"Created: {createdStr}");
                     ImGui.TextUnformatted($"Expires: {expiresStr}");
                     ImGui.EndTooltip();
