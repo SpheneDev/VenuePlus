@@ -30,6 +30,10 @@ internal sealed class EventService : IDisposable
         _remote.ShiftEntryAdded += bindings.ShiftAdded;
         _remote.ShiftEntryUpdated += bindings.ShiftUpdated;
         _remote.ShiftEntryRemoved += bindings.ShiftRemoved;
+        _remote.EventSnapshotReceived += bindings.EventSnapshot;
+        _remote.EventEntryAdded += bindings.EventAdded;
+        _remote.EventEntryUpdated += bindings.EventUpdated;
+        _remote.EventEntryRemoved += bindings.EventRemoved;
         _remote.JobsListReceived += bindings.JobsListReceived;
         _remote.JobRightsReceived += bindings.JobRightsReceived;
         _remote.UsersListReceived += bindings.UsersListReceived;
@@ -58,6 +62,10 @@ internal sealed class EventService : IDisposable
         _remote.ShiftEntryAdded += listener.OnShiftEntryAdded;
         _remote.ShiftEntryUpdated += listener.OnShiftEntryUpdated;
         _remote.ShiftEntryRemoved += listener.OnShiftEntryRemoved;
+        _remote.EventSnapshotReceived += listener.OnEventSnapshotReceived;
+        _remote.EventEntryAdded += listener.OnEventEntryAdded;
+        _remote.EventEntryUpdated += listener.OnEventEntryUpdated;
+        _remote.EventEntryRemoved += listener.OnEventEntryRemoved;
         _remote.JobsListReceived += listener.OnJobsListReceived;
         _remote.JobRightsReceived += listener.OnJobRightsReceived;
         _remote.UsersListReceived += listener.OnUsersListReceived;
@@ -89,6 +97,10 @@ internal sealed class EventService : IDisposable
             _remote.ShiftEntryAdded -= b.ShiftAdded;
             _remote.ShiftEntryUpdated -= b.ShiftUpdated;
             _remote.ShiftEntryRemoved -= b.ShiftRemoved;
+            _remote.EventSnapshotReceived -= b.EventSnapshot;
+            _remote.EventEntryAdded -= b.EventAdded;
+            _remote.EventEntryUpdated -= b.EventUpdated;
+            _remote.EventEntryRemoved -= b.EventRemoved;
             _remote.JobsListReceived -= b.JobsListReceived;
             _remote.JobRightsReceived -= b.JobRightsReceived;
             _remote.UsersListReceived -= b.UsersListReceived;
@@ -116,6 +128,10 @@ internal sealed class EventService : IDisposable
             _remote.ShiftEntryAdded -= l.OnShiftEntryAdded;
             _remote.ShiftEntryUpdated -= l.OnShiftEntryUpdated;
             _remote.ShiftEntryRemoved -= l.OnShiftEntryRemoved;
+            _remote.EventSnapshotReceived -= l.OnEventSnapshotReceived;
+            _remote.EventEntryAdded -= l.OnEventEntryAdded;
+            _remote.EventEntryUpdated -= l.OnEventEntryUpdated;
+            _remote.EventEntryRemoved -= l.OnEventEntryRemoved;
             _remote.JobsListReceived -= l.OnJobsListReceived;
             _remote.JobRightsReceived -= l.OnJobRightsReceived;
             _remote.UsersListReceived -= l.OnUsersListReceived;

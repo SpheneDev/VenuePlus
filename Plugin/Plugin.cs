@@ -213,6 +213,10 @@ public sealed class Plugin : IDalamudPlugin
     {
         _app.UpdateCurrentCharacterCache();
         _windowSystem.Draw();
+        if (!_app.IsBetweenAreas)
+        {
+            _window.DrawScheduleEventWindow();
+        }
     }
 
     private MacroHotbarWindow EnsureHotbarWindow(int index)

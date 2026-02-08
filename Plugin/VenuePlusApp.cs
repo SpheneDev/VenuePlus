@@ -56,6 +56,7 @@ public sealed class VenuePlusApp : IDisposable, IEventListener
     private bool _autoLoginSuppressedByOffline;
     private readonly DjService _djService = new();
     private readonly ShiftService _shiftService = new();
+    private readonly ScheduleEventService _scheduleEventService = new();
     private readonly System.Threading.SemaphoreSlim _connectGate = new(1, 1);
     private readonly System.Threading.SemaphoreSlim _autoLoginGate = new(1, 1);
     private readonly System.Threading.CancellationTokenSource _cts = new();
@@ -314,6 +315,11 @@ public sealed class VenuePlusApp : IDisposable, IEventListener
         return _shiftService.GetAll();
     }
 
+    public VenuePlus.State.EventEntry[] GetEventEntries()
+    {
+        return _scheduleEventService.GetAll();
+    }
+
     public async System.Threading.Tasks.Task<bool> AddDjAsync(string djName, string twitchLink, System.DateTimeOffset? startAt, System.DateTimeOffset? endAt)
     {
         var canAddDj = IsOwnerCurrentClub || (HasStaffSession && StaffCanAddDj);
@@ -343,11 +349,11 @@ public sealed class VenuePlusApp : IDisposable, IEventListener
         return true;
     }
 
-    public async System.Threading.Tasks.Task<bool> AddShiftAsync(string title, System.DateTimeOffset startAt, System.DateTimeOffset endAt, string? assignedUid = null, string? job = null, string? djName = null)
+    public async System.Threading.Tasks.Task<bool> AddShiftAsync(string title, System.DateTimeOffset startAt, System.DateTimeOffset endAt, Guid? eventId = null, string? assignedUid = null, string? job = null, string? djName = null)
     {
         var canEdit = CanEditShiftPlanInternal();
         if (!canEdit) return false;
-        var entry = new VenuePlus.State.ShiftEntry { Id = Guid.Empty, Title = title ?? string.Empty, DjName = string.IsNullOrWhiteSpace(djName) ? null : djName, AssignedUid = string.IsNullOrWhiteSpace(assignedUid) ? null : assignedUid, Job = string.IsNullOrWhiteSpace(job) ? null : job, StartAt = startAt, EndAt = endAt };
+        var entry = new VenuePlus.State.ShiftEntry { Id = Guid.Empty, EventId = eventId, Title = title ?? string.Empty, DjName = string.IsNullOrWhiteSpace(djName) ? null : djName, AssignedUid = string.IsNullOrWhiteSpace(assignedUid) ? null : assignedUid, Job = string.IsNullOrWhiteSpace(job) ? null : job, StartAt = startAt, EndAt = endAt };
         if (HasStaffSession)
         {
             try { var ok = await _remote.PublishAddShiftAsync(entry, _staffToken!); if (ok) { TryNotifyShiftCreated(entry); } return ok; } catch { return false; }
@@ -355,11 +361,11 @@ public sealed class VenuePlusApp : IDisposable, IEventListener
         return false;
     }
 
-    public async System.Threading.Tasks.Task<bool> UpdateShiftAsync(Guid id, string title, System.DateTimeOffset startAt, System.DateTimeOffset endAt, string? assignedUid = null, string? job = null, string? djName = null)
+    public async System.Threading.Tasks.Task<bool> UpdateShiftAsync(Guid id, string title, System.DateTimeOffset startAt, System.DateTimeOffset endAt, Guid? eventId = null, string? assignedUid = null, string? job = null, string? djName = null)
     {
         var canEdit = CanEditShiftPlanInternal();
         if (!canEdit) return false;
-        var entry = new VenuePlus.State.ShiftEntry { Id = id, Title = title ?? string.Empty, DjName = string.IsNullOrWhiteSpace(djName) ? null : djName, AssignedUid = string.IsNullOrWhiteSpace(assignedUid) ? null : assignedUid, Job = string.IsNullOrWhiteSpace(job) ? null : job, StartAt = startAt, EndAt = endAt };
+        var entry = new VenuePlus.State.ShiftEntry { Id = id, EventId = eventId, Title = title ?? string.Empty, DjName = string.IsNullOrWhiteSpace(djName) ? null : djName, AssignedUid = string.IsNullOrWhiteSpace(assignedUid) ? null : assignedUid, Job = string.IsNullOrWhiteSpace(job) ? null : job, StartAt = startAt, EndAt = endAt };
         if (HasStaffSession)
         {
             try { var ok = await _remote.PublishUpdateShiftAsync(entry, _staffToken!); if (ok) { TryNotifyShiftUpdated(entry); } return ok; } catch { return false; }
@@ -374,6 +380,41 @@ public sealed class VenuePlusApp : IDisposable, IEventListener
         if (HasStaffSession)
         {
             try { var ok = await _remote.PublishRemoveShiftAsync(id, _staffToken!); if (ok) { TryNotifyShiftRemoved(); } return ok; } catch { return false; }
+        }
+        return false;
+    }
+
+    public async System.Threading.Tasks.Task<bool> AddEventAsync(string title, System.DateTimeOffset startAt, System.DateTimeOffset endAt)
+    {
+        var canEdit = CanEditShiftPlanInternal();
+        if (!canEdit) return false;
+        var entry = new VenuePlus.State.EventEntry { Id = Guid.Empty, Title = title ?? string.Empty, StartAt = startAt, EndAt = endAt };
+        if (HasStaffSession)
+        {
+            try { return await _remote.PublishAddEventAsync(entry, _staffToken!); } catch { return false; }
+        }
+        return false;
+    }
+
+    public async System.Threading.Tasks.Task<bool> UpdateEventAsync(Guid id, string title, System.DateTimeOffset startAt, System.DateTimeOffset endAt)
+    {
+        var canEdit = CanEditShiftPlanInternal();
+        if (!canEdit) return false;
+        var entry = new VenuePlus.State.EventEntry { Id = id, Title = title ?? string.Empty, StartAt = startAt, EndAt = endAt };
+        if (HasStaffSession)
+        {
+            try { return await _remote.PublishUpdateEventAsync(entry, _staffToken!); } catch { return false; }
+        }
+        return false;
+    }
+
+    public async System.Threading.Tasks.Task<bool> RemoveEventAsync(Guid id)
+    {
+        var canEdit = CanEditShiftPlanInternal();
+        if (!canEdit) return false;
+        if (HasStaffSession)
+        {
+            try { return await _remote.PublishRemoveEventAsync(id, _staffToken!); } catch { return false; }
         }
         return false;
     }
@@ -1841,6 +1882,7 @@ public sealed class VenuePlusApp : IDisposable, IEventListener
         _vipNonEmptySnapshotByClub.Clear();
         _djService.Clear();
         _shiftService.Clear();
+        _scheduleEventService.Clear();
         
     }
 
@@ -2571,6 +2613,26 @@ public sealed class VenuePlusApp : IDisposable, IEventListener
         _shiftService.Remove(id);
     }
 
+    public void OnEventSnapshotReceived(VenuePlus.State.EventEntry[]? entries)
+    {
+        _scheduleEventService.ReplaceAll(entries);
+    }
+
+    public void OnEventEntryAdded(VenuePlus.State.EventEntry entry)
+    {
+        _scheduleEventService.AddOrUpdate(entry);
+    }
+
+    public void OnEventEntryUpdated(VenuePlus.State.EventEntry entry)
+    {
+        _scheduleEventService.AddOrUpdate(entry);
+    }
+
+    public void OnEventEntryRemoved(Guid id)
+    {
+        _scheduleEventService.Remove(id);
+    }
+
     public void Dispose()
     {
         if (_disposed) return;
@@ -2731,6 +2793,8 @@ public sealed class VenuePlusApp : IDisposable, IEventListener
                         try { await _remote.RequestVipSnapshotAsync(_staffToken); } catch { }
                         Logger.LogDebug($"[VipListSync] request shift snapshot via ws club={(clubId ?? "--")}");
                         try { await _remote.RequestShiftSnapshotAsync(_staffToken); } catch { }
+                        Logger.LogDebug($"[VipListSync] request event snapshot via ws club={(clubId ?? "--")}");
+                        try { await _remote.RequestEventSnapshotAsync(_staffToken); } catch { }
                     }
                     else
                     {

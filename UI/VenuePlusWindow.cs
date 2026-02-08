@@ -150,6 +150,11 @@ public sealed class VenuePlusWindow : Window, IDisposable
         ResetStatusMessages();
     }
 
+    public void DrawScheduleEventWindow()
+    {
+        _shiftPlan.DrawEventWindowStandalone(_app);
+    }
+
     public override bool DrawConditions()
     {
         return !_app.IsBetweenAreas;

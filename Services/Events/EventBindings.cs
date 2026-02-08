@@ -16,6 +16,10 @@ internal sealed class EventBindings
     public Action<ShiftEntry> ShiftAdded { get; init; } = _ => { };
     public Action<ShiftEntry> ShiftUpdated { get; init; } = _ => { };
     public Action<Guid> ShiftRemoved { get; init; } = _ => { };
+    public Action<EventEntry[]?> EventSnapshot { get; init; } = _ => { };
+    public Action<EventEntry> EventAdded { get; init; } = _ => { };
+    public Action<EventEntry> EventUpdated { get; init; } = _ => { };
+    public Action<Guid> EventRemoved { get; init; } = _ => { };
     public Action<string[]> JobsListReceived { get; init; } = _ => { };
     public Action<Dictionary<string, JobRightsInfo>> JobRightsReceived { get; init; } = _ => { };
     public Action<string[]> UsersListReceived { get; init; } = _ => { };

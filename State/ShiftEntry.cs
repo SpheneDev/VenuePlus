@@ -5,6 +5,7 @@ namespace VenuePlus.State
     public sealed class ShiftEntry
     {
         public Guid Id { get; set; }
+        public Guid? EventId { get; set; }
         public string Title { get; set; } = string.Empty;
         public string? DjName { get; set; }
         public string? AssignedUid { get; set; }

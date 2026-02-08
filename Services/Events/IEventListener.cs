@@ -16,6 +16,10 @@ internal interface IEventListener
     void OnShiftEntryAdded(ShiftEntry entry);
     void OnShiftEntryUpdated(ShiftEntry entry);
     void OnShiftEntryRemoved(Guid id);
+    void OnEventSnapshotReceived(EventEntry[]? entries);
+    void OnEventEntryAdded(EventEntry entry);
+    void OnEventEntryUpdated(EventEntry entry);
+    void OnEventEntryRemoved(Guid id);
     void OnJobsListReceived(string[] arr);
     void OnJobRightsReceived(Dictionary<string, JobRightsInfo> dict);
     void OnUsersListReceived(string[] arr);
