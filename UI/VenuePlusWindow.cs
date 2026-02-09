@@ -111,7 +111,7 @@ public sealed class VenuePlusWindow : Window, IDisposable
         OnClubLogoChanged(_app.CurrentClubLogoBase64);
         _staffList.SetAssignShiftAction(u =>
         {
-            _requestScheduleTab = true;
+            if (!_shiftPlan.IsEventWindowOpen) _requestScheduleTab = true;
             _shiftPlan.OpenAddFormForUser(u.Uid, u.Username, u.Job);
         });
         _djList.SetAssignShiftAction(dj =>
@@ -740,7 +740,7 @@ public sealed class VenuePlusWindow : Window, IDisposable
             ImGui.EndGroup();
             ImGui.Spacing();
             var showShiftTab = _app.HasStaffSession;
-            var showScheduleTab = _app.IsOwnerCurrentClub || (_app.HasStaffSession && _app.StaffCanEditShiftPlan);
+            var showScheduleTab = _app.HasStaffSession;
             if (ImGui.BeginTabBar("MainTabs"))
             {
             if (ImGui.BeginTabItem("VIPs"))

@@ -139,7 +139,7 @@ public sealed class JobsPanelComponent
             ImGui.TableSetColumnIndex(1);
             TableSortUi.DrawSortableHeader("Rank", 1, ref _sortColRoles, ref _sortAsc);
             ImGui.TableSetColumnIndex(2);
-            ImGui.TextUnformatted("Actions");
+            TableSortUi.DrawHeaderTextCentered("Actions");
             System.Array.Sort(jobs, (a, b) =>
             {
                 int ra = 1;

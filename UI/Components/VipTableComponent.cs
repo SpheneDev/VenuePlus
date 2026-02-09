@@ -212,7 +212,7 @@ public sealed class VipTableComponent
             if (showActions)
             {
                 ImGui.TableSetColumnIndex(4);
-                ImGui.TextUnformatted("Actions");
+                TableSortUi.DrawHeaderTextCentered("Actions");
             }
 
             for (int i = startIndex; i < endIndex; i++)

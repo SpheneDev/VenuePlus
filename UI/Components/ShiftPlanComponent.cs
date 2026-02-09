@@ -71,11 +71,14 @@ public sealed class ShiftPlanComponent
     private int _shiftTabSortCol;
     private bool _shiftTabSortAsc = true;
     private bool _shiftTabViewMy = true;
+    private bool _shiftTabShowPast;
     private DateTime? _shiftTabSelectedDate;
     private bool _useLocalTimeView;
     private const string CalendarMarkerHex = "#4CAF50";
-    private const string EventMarkerHex = "#0288D1";
-    private const string SelectedDayMarkerHex = "#FFB300";
+    private const string UpcomingEventMarkerHex = "#0288D1";
+    private const string PastEventMarkerHex = "#546E7A";
+    private const string TodayMarkerHex = "#FFB300";
+    private const string SelectedDayBorderHex = "#FFB300";
     private const string DayMarkerHex = "#455A64";
     private const string CurrentShiftRowHex = "#2E7D32";
     private const string PastShiftRowHex = "#424242";
@@ -83,6 +86,7 @@ public sealed class ShiftPlanComponent
     private const float CalendarLeftMarkerPadding = 2f;
     private const float CalendarDayNumberWidth = 26f;
     private const int CalendarEventLabelMax = 18;
+    private const float SelectedDayBorderThickness = 1.5f;
 
     public void OpenAddForm()
     {
@@ -113,8 +117,11 @@ public sealed class ShiftPlanComponent
         SyncAddFormDateFromSelection();
     }
 
+    public bool IsEventWindowOpen => _eventWindowOpen;
+
     internal void OpenAddFormForUser(string? uid, string? username, string? job)
     {
+        var selectedEventId = _selEventId;
         OpenAddForm();
         _isDjForm = false;
         _selDjIdx = -1;
@@ -125,10 +132,16 @@ public sealed class ShiftPlanComponent
         _selUserIdx = -1;
         _pendingAssignUsername = string.IsNullOrWhiteSpace(username) ? null : username;
         if (!string.IsNullOrWhiteSpace(job)) _selJob = job;
+        if (selectedEventId.HasValue)
+        {
+            _selEventId = selectedEventId;
+            _selEventIdx = -1;
+        }
     }
 
     internal void OpenAddFormForDj(string? djName)
     {
+        var selectedEventId = _selEventId;
         OpenAddForm();
         _isDjForm = true;
         _selUserIdx = -1;
@@ -138,6 +151,11 @@ public sealed class ShiftPlanComponent
         _selDjIdx = -1;
         _selEventIdx = -1;
         _selEventId = null;
+        if (selectedEventId.HasValue)
+        {
+            _selEventId = selectedEventId;
+            _selEventIdx = -1;
+        }
     }
 
     internal void OpenEditShift(ShiftEntry e, VenuePlusApp app, bool useLocal)
@@ -329,7 +347,7 @@ public sealed class ShiftPlanComponent
         {
             string[] wk = new[] { "Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun" };
             ImGui.TableNextRow(ImGuiTableRowFlags.Headers);
-            for (int c = 0; c < 7; c++) { ImGui.TableSetColumnIndex(c); ImGui.TextUnformatted(wk[c]); }
+            for (int c = 0; c < 7; c++) { ImGui.TableSetColumnIndex(c); TableSortUi.DrawHeaderTextCentered(wk[c]); }
             int curDay = 1;
             for (int r = 0; r < 6 && curDay <= days; r++)
             {
@@ -376,11 +394,15 @@ public sealed class ShiftPlanComponent
         ImGui.TextUnformatted("Schedule Planner");
         ImGui.SameLine();
         ImGui.TextDisabled("Plan event days, shifts and DJ times");
+        if (!canEdit)
+        {
+            ImGui.TextDisabled("Read-only view");
+        }
         ImGui.Separator();
         var useLocal = app.ShowShiftTimesInLocalTime;
         _useLocalTimeView = useLocal;
-        ApplyPendingEventFocus(canEdit, useLocal);
         var eventEntries = app.GetEventEntries().ToArray();
+        ApplyPendingEventFocus(eventEntries, canEdit, useLocal);
         ImGui.Separator();
         var nowView = useLocal ? DateTime.Now : DateTime.UtcNow;
         EnsureCalendarState(nowView);
@@ -455,8 +477,8 @@ public sealed class ShiftPlanComponent
         var canEdit = app.IsOwnerCurrentClub || (app.HasStaffSession && app.StaffCanEditShiftPlan);
         var useLocal = app.ShowShiftTimesInLocalTime;
         _useLocalTimeView = useLocal;
-        ApplyPendingEventFocus(canEdit, useLocal);
         var eventEntries = app.GetEventEntries().ToArray();
+        ApplyPendingEventFocus(eventEntries, canEdit, useLocal);
         var nowView = useLocal ? DateTime.Now : DateTime.UtcNow;
         EnsureCalendarState(nowView);
         DrawEventWindow(app, eventEntries, useLocal, canEdit);
@@ -488,7 +510,7 @@ public sealed class ShiftPlanComponent
 
         ImGui.TextUnformatted("Selected Day");
         ImGui.SameLine();
-        ImGui.TextUnformatted(selectedDay.ToString("yyyy-MM-dd"));
+        ImGui.TextUnformatted(TimeFormat.FormatDate(selectedDay));
         if (ImGui.IsItemHovered())
         {
             ImGui.BeginTooltip();
@@ -546,7 +568,7 @@ public sealed class ShiftPlanComponent
 
         var dayStart = new DateTime(_viewYear, _viewMonth, day, 0, 0, 0, useLocal ? DateTimeKind.Local : DateTimeKind.Utc);
         var dayEnd = dayStart.AddDays(1);
-        var titleDay = dayStart.ToString("yyyy-MM-dd");
+        var titleDay = TimeFormat.FormatDate(dayStart);
         var listDay = useLocal
             ? nonDj.Where(e => e.StartAt.ToLocalTime() < dayEnd && e.EndAt.ToLocalTime() > dayStart).ToArray()
             : nonDj.Where(e => e.StartAt < dayEnd && e.EndAt > dayStart).ToArray();
@@ -563,6 +585,30 @@ public sealed class ShiftPlanComponent
             ? eventEntries.Where(e => e.StartAt.ToLocalTime() < dayEnd && e.EndAt.ToLocalTime() > dayStart).ToArray()
             : eventEntries.Where(e => e.StartAt < dayEnd && e.EndAt > dayStart).ToArray();
         Array.Sort(dayEvents, (a, b) => a.StartAt.CompareTo(b.StartAt));
+        var selectedEventId = _selEventId;
+        string? selectedEventTitle = null;
+        bool filterByEvent = false;
+        if (selectedEventId.HasValue)
+        {
+            for (int i = 0; i < dayEvents.Length; i++)
+            {
+                if (dayEvents[i].Id == selectedEventId.Value)
+                {
+                    selectedEventTitle = BuildEventShortLabel(dayEvents[i], useLocal);
+                    filterByEvent = true;
+                    break;
+                }
+            }
+        }
+        if (filterByEvent)
+        {
+            var filtered = new List<ShiftEntry>(listDay.Length);
+            for (int i = 0; i < listDay.Length; i++)
+            {
+                if (listDay[i].EventId == selectedEventId.Value) filtered.Add(listDay[i]);
+            }
+            listDay = filtered.ToArray();
+        }
         ImGui.Separator();
         ImGui.TextUnformatted($"Day Plan {titleDay}");
         if (ImGui.IsItemHovered())
@@ -572,6 +618,10 @@ public sealed class ShiftPlanComponent
             ImGui.EndTooltip();
         }
         ImGui.TextUnformatted($"Shifts: {listDay.Length} | Events: {dayEvents.Length}");
+        if (filterByEvent && !string.IsNullOrWhiteSpace(selectedEventTitle))
+        {
+            ImGui.TextUnformatted($"Event Filter: {selectedEventTitle}");
+        }
         if (listDay.Length == 0) ImGui.TextUnformatted("No shifts for this day");
 
         var eventLookup = BuildEventLookup(eventEntries);
@@ -591,19 +641,24 @@ public sealed class ShiftPlanComponent
         var timeSample = TimeFormat.FormatTime(new DateTime(2000, 1, 1, 23, 59, 0));
         var timeRangeSample = timeSample + "-" + timeSample;
         var timeColWidth = ImGui.CalcTextSize(timeRangeSample).X + style.CellPadding.X * 2f;
-        if (ImGui.BeginTable("day_list_table", 5, flagsList, new System.Numerics.Vector2(0f, listTableHeight)))
+        var dayCols = canEdit ? 5 : 4;
+        if (ImGui.BeginTable("day_list_table", dayCols, flagsList, new System.Numerics.Vector2(0f, listTableHeight)))
         {
             ImGui.TableSetupColumn("Time", ImGuiTableColumnFlags.WidthFixed, timeColWidth);
             ImGui.TableSetupColumn("User", ImGuiTableColumnFlags.WidthStretch, 0.28f);
             ImGui.TableSetupColumn("Job", ImGuiTableColumnFlags.WidthStretch, 0.26f);
             ImGui.TableSetupColumn("Event", ImGuiTableColumnFlags.WidthStretch, 0.26f);
-            ImGui.TableSetupColumn("Actions", ImGuiTableColumnFlags.WidthFixed, actionsColWidth);
+            if (canEdit) ImGui.TableSetupColumn("Actions", ImGuiTableColumnFlags.WidthFixed, actionsColWidth);
             ImGui.TableNextRow(ImGuiTableRowFlags.Headers);
-            ImGui.TableSetColumnIndex(0); ImGui.TextUnformatted("Time");
-            ImGui.TableSetColumnIndex(1); ImGui.TextUnformatted("User");
-            ImGui.TableSetColumnIndex(2); ImGui.TextUnformatted("Job");
-            ImGui.TableSetColumnIndex(3); ImGui.TextUnformatted("Event");
-            ImGui.TableSetColumnIndex(4); ImGui.TextUnformatted("Actions");
+            ImGui.TableSetColumnIndex(0); TableSortUi.DrawHeaderTextCentered("Time");
+            ImGui.TableSetColumnIndex(1); TableSortUi.DrawHeaderTextCentered("User");
+            ImGui.TableSetColumnIndex(2); TableSortUi.DrawHeaderTextCentered("Job");
+            ImGui.TableSetColumnIndex(3); TableSortUi.DrawHeaderTextCentered("Event");
+            if (canEdit)
+            {
+                ImGui.TableSetColumnIndex(4);
+                TableSortUi.DrawHeaderTextCentered("Actions");
+            }
             var currentRowColor = ColorUtil.HexToU32(CurrentShiftRowHex);
             var pastRowColor = ColorUtil.HexToU32(PastShiftRowHex);
             for (int i = 0; i < listDay.Length; i++)
@@ -628,6 +683,15 @@ public sealed class ShiftPlanComponent
                 {
                     var col = ColorUtil.HexToU32(infoJob.ColorHex);
                     var icon = IconDraw.ParseIcon(infoJob.IconKey);
+                    var iconStr = icon.ToIconString();
+                    ImGui.PushFont(UiBuilder.IconFont);
+                    ImGui.SetWindowFontScale(0.9f);
+                    var iconSize = ImGui.CalcTextSize(iconStr);
+                    ImGui.SetWindowFontScale(1f);
+                    ImGui.PopFont();
+                    var avail = ImGui.GetContentRegionAvail().X;
+                    var offsetX = MathF.Max(0f, (avail - iconSize.X) * 0.5f);
+                    ImGui.SetCursorPosX(ImGui.GetCursorPosX() + offsetX);
                     IconDraw.IconText(icon, 0.9f, col);
                     if (ImGui.IsItemHovered())
                     {
@@ -638,38 +702,41 @@ public sealed class ShiftPlanComponent
                 }
                 ImGui.TableSetColumnIndex(3);
                 ImGui.TextUnformatted(eventLabel);
-                ImGui.TableSetColumnIndex(4);
-                var yBase = ImGui.GetCursorPosY();
-                ImGui.BeginDisabled(!canEdit);
-                ImGui.PushFont(UiBuilder.IconFont);
-                ImGui.SetWindowFontScale(0.9f);
-                ImGui.SetCursorPosY(yBase + (ImGui.GetFrameHeight() - ImGui.GetFrameHeight()) / 2f);
-                var editClicked = ImGui.Button(editIcon2 + $"##edit_day_{e.Id}");
-                if (ImGui.IsItemHovered())
+                if (canEdit)
                 {
-                    ImGui.BeginTooltip();
-                    ImGui.TextUnformatted("Edit shift");
-                    ImGui.EndTooltip();
-                }
-                ImGui.SameLine();
-                var rmClicked = ImGui.Button(rmIcon2 + $"##rm_day_{e.Id}");
-                if (ImGui.IsItemHovered())
-                {
-                    ImGui.BeginTooltip();
-                    ImGui.TextUnformatted("Remove shift");
-                    ImGui.EndTooltip();
-                }
-                ImGui.SetWindowFontScale(1f);
-                ImGui.PopFont();
-                ImGui.EndDisabled();
-                if (canEdit && editClicked)
-                {
-                    BeginEditShift(e, app, useLocal);
-                }
-                if (canEdit && rmClicked)
-                {
-                    var id = e.Id;
-                    System.Threading.Tasks.Task.Run(async () => { await app.RemoveShiftAsync(id); });
+                    ImGui.TableSetColumnIndex(4);
+                    var yBase = ImGui.GetCursorPosY();
+                    ImGui.PushFont(UiBuilder.IconFont);
+                    ImGui.SetWindowFontScale(0.9f);
+                    ImGui.SetCursorPosY(yBase + (ImGui.GetFrameHeight() - ImGui.GetFrameHeight()) / 2f);
+                    var editClicked = ImGui.Button(editIcon2 + $"##edit_day_{e.Id}");
+                    var editHover = ImGui.IsItemHovered();
+                    ImGui.SameLine();
+                    var rmClicked = ImGui.Button(rmIcon2 + $"##rm_day_{e.Id}");
+                    var rmHover = ImGui.IsItemHovered();
+                    ImGui.SetWindowFontScale(1f);
+                    ImGui.PopFont();
+                    if (editHover)
+                    {
+                        ImGui.BeginTooltip();
+                        ImGui.TextUnformatted("Edit shift");
+                        ImGui.EndTooltip();
+                    }
+                    if (rmHover)
+                    {
+                        ImGui.BeginTooltip();
+                        ImGui.TextUnformatted("Remove shift");
+                        ImGui.EndTooltip();
+                    }
+                    if (editClicked)
+                    {
+                        BeginEditShift(e, app, useLocal);
+                    }
+                    if (rmClicked)
+                    {
+                        var id = e.Id;
+                        System.Threading.Tasks.Task.Run(async () => { await app.RemoveShiftAsync(id); });
+                    }
                 }
             }
             ImGui.EndTable();
@@ -715,13 +782,7 @@ public sealed class ShiftPlanComponent
         var all = app.GetShiftEntries().ToArray();
         var nonDj = FilterNonDj(all);
         var totalHeight = ImGui.GetContentRegionAvail().Y;
-        var shiftPanelHeight = Math.Max(260f, totalHeight * 0.55f);
-        ImGui.BeginChild("event_window_shift_panel", new System.Numerics.Vector2(0f, shiftPanelHeight), false);
-        DrawShiftDayPanel(app, nonDj, eventEntries, useLocal, canEdit);
-        ImGui.EndChild();
-        ImGui.Spacing();
-
-        var eventPanelHeight = Math.Max(200f, ImGui.GetContentRegionAvail().Y);
+        var eventPanelHeight = Math.Max(220f, totalHeight * 0.45f);
         ImGui.BeginChild("event_window_events_panel", new System.Numerics.Vector2(0f, eventPanelHeight), false);
 
         var today = useLocal ? DateTime.Now.Date : DateTime.UtcNow.Date;
@@ -731,7 +792,7 @@ public sealed class ShiftPlanComponent
 
         var dayStart = new DateTime(_viewYear, _viewMonth, day, 0, 0, 0, useLocal ? DateTimeKind.Local : DateTimeKind.Utc);
         var dayEnd = dayStart.AddDays(1);
-        var titleDay = dayStart.ToString("yyyy-MM-dd");
+        var titleDay = TimeFormat.FormatDate(dayStart);
         var dayEvents = useLocal
             ? eventEntries.Where(e => e.StartAt.ToLocalTime() < dayEnd && e.EndAt.ToLocalTime() > dayStart).ToArray()
             : eventEntries.Where(e => e.StartAt < dayEnd && e.EndAt > dayStart).ToArray();
@@ -740,7 +801,7 @@ public sealed class ShiftPlanComponent
         if (ImGui.IsItemHovered())
         {
             ImGui.BeginTooltip();
-            ImGui.TextUnformatted("Select an event to link shifts in the form");
+            ImGui.TextUnformatted(canEdit ? "Select an event to link shifts in the form" : "Select an event to filter the shifts below");
             ImGui.EndTooltip();
         }
         ImGui.TextUnformatted($"Events: {dayEvents.Length}");
@@ -766,12 +827,12 @@ public sealed class ShiftPlanComponent
             ImGui.TableSetupColumn("Title", ImGuiTableColumnFlags.WidthStretch);
             if (canEdit) ImGui.TableSetupColumn("Actions", ImGuiTableColumnFlags.WidthFixed, actionsColWidth);
             ImGui.TableNextRow(ImGuiTableRowFlags.Headers);
-            ImGui.TableSetColumnIndex(0); ImGui.TextUnformatted("Time");
-            ImGui.TableSetColumnIndex(1); ImGui.TextUnformatted("Title");
+            ImGui.TableSetColumnIndex(0); TableSortUi.DrawHeaderTextCentered("Time");
+            ImGui.TableSetColumnIndex(1); TableSortUi.DrawHeaderTextCentered("Title");
             if (canEdit)
             {
                 ImGui.TableSetColumnIndex(2);
-                ImGui.TextUnformatted("Actions");
+                TableSortUi.DrawHeaderTextCentered("Actions");
             }
             for (int i = 0; i < dayEvents.Length; i++)
             {
@@ -798,22 +859,24 @@ public sealed class ShiftPlanComponent
                     ImGui.SetWindowFontScale(0.9f);
                     ImGui.SetCursorPosY(yBase + (ImGui.GetFrameHeight() - ImGui.GetFrameHeight()) / 2f);
                     var editClicked = ImGui.Button(editIcon2 + $"##edit_event_day_window_{e.Id}");
-                    if (ImGui.IsItemHovered())
+                    var editHover = ImGui.IsItemHovered();
+                    ImGui.SameLine();
+                    var rmClicked = ImGui.Button(rmIcon2 + $"##rm_event_day_window_{e.Id}");
+                    var rmHover = ImGui.IsItemHovered();
+                    ImGui.SetWindowFontScale(1f);
+                    ImGui.PopFont();
+                    if (editHover)
                     {
                         ImGui.BeginTooltip();
                         ImGui.TextUnformatted("Edit event");
                         ImGui.EndTooltip();
                     }
-                    ImGui.SameLine();
-                    var rmClicked = ImGui.Button(rmIcon2 + $"##rm_event_day_window_{e.Id}");
-                    if (ImGui.IsItemHovered())
+                    if (rmHover)
                     {
                         ImGui.BeginTooltip();
                         ImGui.TextUnformatted("Remove event");
                         ImGui.EndTooltip();
                     }
-                    ImGui.SetWindowFontScale(1f);
-                    ImGui.PopFont();
                     ImGui.EndDisabled();
                     if (canEdit && editClicked)
                     {
@@ -829,6 +892,11 @@ public sealed class ShiftPlanComponent
             ImGui.EndTable();
         }
         ImGui.EndChild();
+        ImGui.Spacing();
+        var shiftPanelHeight = Math.Max(260f, ImGui.GetContentRegionAvail().Y);
+        ImGui.BeginChild("event_window_shift_panel", new System.Numerics.Vector2(0f, shiftPanelHeight), false);
+        DrawShiftDayPanel(app, nonDj, eventEntries, useLocal, canEdit);
+        ImGui.EndChild();
     }
 
     private void DrawEditForm(VenuePlusApp app, bool canEdit)
@@ -840,10 +908,6 @@ public sealed class ShiftPlanComponent
         ImGui.TextUnformatted(editing ? (isDjForm ? "Edit DJ Shift" : "Edit Staff Shift") : (isDjForm ? "Add DJ Shift" : "Add Staff Shift"));
         ImGui.TextDisabled(isDjForm ? "Mode: DJ shift" : "Mode: staff shift");
         ImGui.TextUnformatted("Details");
-        ImGui.PushItemWidth(220f);
-        ImGui.InputTextWithHint("##shift_title", "Title (optional)", ref _pendingTitle, 128);
-        ImGui.PopItemWidth();
-        ImGui.SameLine();
         ImGui.TextUnformatted("Date");
         ImGui.SameLine();
         ImGui.PushItemWidth(110f);
@@ -855,7 +919,6 @@ public sealed class ShiftPlanComponent
             _startMonth = startDate.Month;
             _startDay = startDate.Day;
         }
-        ImGui.SameLine();
         ImGui.TextUnformatted("Time");
         ImGui.SameLine();
         ImGui.PushItemWidth(70f);
@@ -1052,7 +1115,10 @@ public sealed class ShiftPlanComponent
                 ImGui.EndCombo();
             }
             ImGui.PopItemWidth();
-            ImGui.BeginDisabled(!canSubmit);
+            var canStaffSubmit = canSubmit
+                && !string.IsNullOrWhiteSpace(_selUid)
+                && !string.IsNullOrWhiteSpace(_selJob);
+            ImGui.BeginDisabled(!canStaffSubmit);
             if (ImGui.Button(editing ? "Update Staff Shift" : "Add Staff Shift"))
             {
                 _status = "Submitting...";
@@ -1278,13 +1344,14 @@ public sealed class ShiftPlanComponent
         for (int i = 0; i < all.Length; i++)
         {
             var e = all[i];
+            if (!_shiftTabShowPast && e.EndAt <= nowServer) continue;
             if (_shiftTabViewMy && !IsShiftForCurrentUser(app, e)) continue;
             if (hasFilter && !MatchesShiftFilter(e, filter)) continue;
             list.Add(e);
         }
         var eventDays = GetEventDays(list.ToArray(), useLocal);
         var selectedLabel = _shiftTabSelectedDate.HasValue
-            ? _shiftTabSelectedDate.Value.Date.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)
+            ? TimeFormat.FormatDate(_shiftTabSelectedDate.Value.Date)
             : "All Dates";
         if (ImGui.BeginCombo("##shift_tab_date", selectedLabel))
         {
@@ -1297,7 +1364,7 @@ public sealed class ShiftPlanComponent
             for (int i = 0; i < eventDays.Count; i++)
             {
                 var day = eventDays[i].Date;
-                var label = day.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+                var label = TimeFormat.FormatDate(day);
                 bool sel = _shiftTabSelectedDate.HasValue && day == _shiftTabSelectedDate.Value.Date;
                 if (ImGui.Selectable(label, sel))
                 {
@@ -1317,6 +1384,8 @@ public sealed class ShiftPlanComponent
             _shiftTabPageIndex = 0;
         }
         ImGui.EndDisabled();
+        ImGui.SameLine();
+        if (ImGui.Checkbox("Show Past", ref _shiftTabShowPast)) { }
         ImGui.PopItemWidth();
         ImGui.Separator();
 
@@ -1339,7 +1408,7 @@ public sealed class ShiftPlanComponent
             }
             list = filtered;
         }
-        if (_shiftTabSortCol < 0 || _shiftTabSortCol > 4) _shiftTabSortCol = 0;
+        if (_shiftTabSortCol < 0 || _shiftTabSortCol > 5) _shiftTabSortCol = 0;
         var eventLookup = BuildEventLookup(app.GetEventEntries().ToArray());
         var items = list.ToArray();
         ImGui.TextUnformatted($"Shifts: {items.Length}");
@@ -1350,18 +1419,21 @@ public sealed class ShiftPlanComponent
             {
                 default:
                 case 0:
-                    r = a.StartAt.CompareTo(b.StartAt);
+                    r = CompareShiftDefault(nowServer, a, b);
                     break;
                 case 1:
-                    r = string.Compare(BuildWhoLabel(a, _staffUsers), BuildWhoLabel(b, _staffUsers), StringComparison.OrdinalIgnoreCase);
+                    r = a.StartAt.CompareTo(b.StartAt);
                     break;
                 case 2:
-                    r = string.Compare(a.Job ?? string.Empty, b.Job ?? string.Empty, StringComparison.OrdinalIgnoreCase);
+                    r = string.Compare(BuildWhoLabel(a, _staffUsers), BuildWhoLabel(b, _staffUsers), StringComparison.OrdinalIgnoreCase);
                     break;
                 case 3:
-                    r = string.Compare(ResolveEventLabel(a.EventId, eventLookup, useLocal), ResolveEventLabel(b.EventId, eventLookup, useLocal), StringComparison.OrdinalIgnoreCase);
+                    r = string.Compare(a.Job ?? string.Empty, b.Job ?? string.Empty, StringComparison.OrdinalIgnoreCase);
                     break;
                 case 4:
+                    r = string.Compare(ResolveEventLabel(a.EventId, eventLookup, useLocal), ResolveEventLabel(b.EventId, eventLookup, useLocal), StringComparison.OrdinalIgnoreCase);
+                    break;
+                case 5:
                     r = string.Compare(BuildShiftStatus(nowServer, a), BuildShiftStatus(nowServer, b), StringComparison.OrdinalIgnoreCase);
                     break;
             }
@@ -1396,32 +1468,37 @@ public sealed class ShiftPlanComponent
         var flagsList = ImGuiTableFlags.RowBg | ImGuiTableFlags.Borders | ImGuiTableFlags.SizingStretchProp | ImGuiTableFlags.ScrollY | ImGuiTableFlags.NoSavedSettings;
         var listTableHeight = Math.Max(160f, ImGui.GetContentRegionAvail().Y);
         var availX = ImGui.GetContentRegionAvail().X;
+        var dateColWidth = ImGui.CalcTextSize(TimeFormat.FormatDate(DateTime.Now)).X + style.CellPadding.X * 2f;
         var timeSample = TimeFormat.FormatTime(new DateTime(2000, 1, 1, 23, 59, 0));
         var timeRangeSample = timeSample + "-" + timeSample;
         var timeColWidth = ImGui.CalcTextSize(timeRangeSample).X + style.CellPadding.X * 2f;
-        if (ImGui.BeginTable("shift_tab_table", canEdit ? 6 : 5, flagsList, new System.Numerics.Vector2(availX, listTableHeight)))
+        var jobColWidth = ImGui.CalcTextSize("Job").X + style.CellPadding.X * 2f;
+        if (ImGui.BeginTable("shift_tab_table", canEdit ? 7 : 6, flagsList, new System.Numerics.Vector2(availX, listTableHeight)))
         {
+            ImGui.TableSetupColumn("Date", ImGuiTableColumnFlags.WidthFixed, dateColWidth);
             ImGui.TableSetupColumn("Time", ImGuiTableColumnFlags.WidthFixed, timeColWidth);
             ImGui.TableSetupColumn("User", ImGuiTableColumnFlags.WidthStretch, 0.22f);
-            ImGui.TableSetupColumn("Job", ImGuiTableColumnFlags.WidthStretch, 0.2f);
+            ImGui.TableSetupColumn("Job", ImGuiTableColumnFlags.WidthFixed, jobColWidth);
             ImGui.TableSetupColumn("Event", ImGuiTableColumnFlags.WidthStretch, 0.22f);
             ImGui.TableSetupColumn("Status", ImGuiTableColumnFlags.WidthStretch, 0.26f);
             if (canEdit) ImGui.TableSetupColumn("Actions", ImGuiTableColumnFlags.WidthFixed, actionsColWidth);
             ImGui.TableNextRow(ImGuiTableRowFlags.Headers);
             ImGui.TableSetColumnIndex(0);
-            TableSortUi.DrawSortableHeader("Time", 0, ref _shiftTabSortCol, ref _shiftTabSortAsc);
+            TableSortUi.DrawSortableHeader("Date", 0, ref _shiftTabSortCol, ref _shiftTabSortAsc);
             ImGui.TableSetColumnIndex(1);
-            TableSortUi.DrawSortableHeader("User", 1, ref _shiftTabSortCol, ref _shiftTabSortAsc);
+            TableSortUi.DrawSortableHeader("Time", 1, ref _shiftTabSortCol, ref _shiftTabSortAsc);
             ImGui.TableSetColumnIndex(2);
-            TableSortUi.DrawSortableHeader("Job", 2, ref _shiftTabSortCol, ref _shiftTabSortAsc);
+            TableSortUi.DrawSortableHeader("User", 2, ref _shiftTabSortCol, ref _shiftTabSortAsc);
             ImGui.TableSetColumnIndex(3);
-            TableSortUi.DrawSortableHeader("Event", 3, ref _shiftTabSortCol, ref _shiftTabSortAsc);
+            TableSortUi.DrawSortableHeader("Job", 3, ref _shiftTabSortCol, ref _shiftTabSortAsc);
             ImGui.TableSetColumnIndex(4);
-            TableSortUi.DrawSortableHeader("Status", 4, ref _shiftTabSortCol, ref _shiftTabSortAsc);
+            TableSortUi.DrawSortableHeader("Event", 4, ref _shiftTabSortCol, ref _shiftTabSortAsc);
+            ImGui.TableSetColumnIndex(5);
+            TableSortUi.DrawSortableHeader("Status", 5, ref _shiftTabSortCol, ref _shiftTabSortAsc);
             if (canEdit)
             {
-                ImGui.TableSetColumnIndex(5);
-                ImGui.TextUnformatted("Actions");
+                ImGui.TableSetColumnIndex(6);
+                TableSortUi.DrawHeaderTextCentered("Actions");
             }
 
             var startIndex = _shiftTabPageIndex * pageSize;
@@ -1444,14 +1521,25 @@ public sealed class ShiftPlanComponent
                 if (isCurrent) ImGui.TableSetBgColor(ImGuiTableBgTarget.RowBg0, currentRowColor);
                 else if (e.EndAt <= nowServer) ImGui.TableSetBgColor(ImGuiTableBgTarget.RowBg0, pastRowColor);
                 ImGui.TableSetColumnIndex(0);
-                ImGui.TextUnformatted(TimeFormat.FormatTime(sView) + "-" + TimeFormat.FormatTime(eView));
+                ImGui.TextUnformatted(TimeFormat.FormatDate(sView));
                 ImGui.TableSetColumnIndex(1);
-                ImGui.TextUnformatted(whoLabel);
+                ImGui.TextUnformatted(TimeFormat.FormatTime(sView) + "-" + TimeFormat.FormatTime(eView));
                 ImGui.TableSetColumnIndex(2);
+                ImGui.TextUnformatted(whoLabel);
+                ImGui.TableSetColumnIndex(3);
                 if (!string.IsNullOrWhiteSpace(jobLabel) && rightsCache != null && rightsCache.TryGetValue(jobLabel, out var infoJob))
                 {
                     var col = ColorUtil.HexToU32(infoJob.ColorHex);
                     var icon = IconDraw.ParseIcon(infoJob.IconKey);
+                    var iconStr = icon.ToIconString();
+                    ImGui.PushFont(UiBuilder.IconFont);
+                    ImGui.SetWindowFontScale(0.9f);
+                    var iconSize = ImGui.CalcTextSize(iconStr);
+                    ImGui.SetWindowFontScale(1f);
+                    ImGui.PopFont();
+                    var avail = ImGui.GetContentRegionAvail().X;
+                    var offsetX = MathF.Max(0f, (avail - iconSize.X) * 0.5f);
+                    ImGui.SetCursorPosX(ImGui.GetCursorPosX() + offsetX);
                     IconDraw.IconText(icon, 0.9f, col);
                     if (ImGui.IsItemHovered())
                     {
@@ -1460,26 +1548,61 @@ public sealed class ShiftPlanComponent
                         ImGui.EndTooltip();
                     }
                 }
-                ImGui.TableSetColumnIndex(3);
-                ImGui.TextUnformatted(eventLabel);
                 ImGui.TableSetColumnIndex(4);
+                ImGui.TextUnformatted(eventLabel);
+                ImGui.TableSetColumnIndex(5);
                 ImGui.TextUnformatted(statusLabel);
                 if (canEdit)
                 {
-                    ImGui.TableSetColumnIndex(5);
+                    ImGui.TableSetColumnIndex(6);
                     var yBase = ImGui.GetCursorPosY();
                     ImGui.PushFont(UiBuilder.IconFont);
                     ImGui.SetWindowFontScale(0.9f);
                     ImGui.SetCursorPosY(yBase + (ImGui.GetFrameHeight() - ImGui.GetFrameHeight()) / 2f);
                     var editClicked = ImGui.Button(editIcon2 + $"##edit_shift_tab_{e.Id}");
+                    var editHover = ImGui.IsItemHovered();
                     ImGui.SameLine();
                     var rmClicked = ImGui.Button(rmIcon2 + $"##rm_shift_tab_{e.Id}");
+                    var rmHover = ImGui.IsItemHovered();
                     ImGui.SetWindowFontScale(1f);
                     ImGui.PopFont();
+                    if (editHover)
+                    {
+                        ImGui.BeginTooltip();
+                        ImGui.TextUnformatted("Edit shift");
+                        ImGui.EndTooltip();
+                    }
+                    if (rmHover)
+                    {
+                        ImGui.BeginTooltip();
+                        ImGui.TextUnformatted("Remove shift");
+                        ImGui.EndTooltip();
+                    }
                     if (editClicked)
                     {
                         _requestScheduleTab = true;
                         BeginEditShift(e, app, useLocal);
+                        _eventWindowOpen = true;
+                        var eventSelected = false;
+                        if (e.EventId.HasValue && e.EventId.Value != Guid.Empty)
+                        {
+                            var eventEntries = app.GetEventEntries().ToArray();
+                            for (int idx = 0; idx < eventEntries.Length; idx++)
+                            {
+                                if (eventEntries[idx].Id == e.EventId.Value)
+                                {
+                                    _selEventId = e.EventId.Value;
+                                    _selEventIdx = idx;
+                                    SetSelectedDayFromDateTimeOffset(eventEntries[idx].StartAt, useLocal);
+                                    eventSelected = true;
+                                    break;
+                                }
+                            }
+                        }
+                        if (!eventSelected)
+                        {
+                            SetSelectedDayFromDateTimeOffset(e.StartAt, useLocal);
+                        }
                     }
                     if (rmClicked)
                     {
@@ -1497,6 +1620,7 @@ public sealed class ShiftPlanComponent
         var first = new DateTime(_viewYear, _viewMonth, 1);
         int startCol = ((int)first.DayOfWeek + 6) % 7;
         int days = DaysInMonth(_viewYear, _viewMonth);
+        var todayDate = useLocal ? DateTime.Now.Date : DateTime.UtcNow.Date;
         var flags = ImGuiTableFlags.Borders | ImGuiTableFlags.SizingStretchSame | ImGuiTableFlags.RowBg | ImGuiTableFlags.NoSavedSettings;
         var size = new System.Numerics.Vector2(ImGui.GetContentRegionAvail().X, ImGui.GetContentRegionAvail().Y);
         if (ImGui.BeginTable("main_cal_tbl", 7, flags, size))
@@ -1530,11 +1654,18 @@ public sealed class ShiftPlanComponent
                     var dayEvents = useLocal
                         ? events.Where(e => e.StartAt.ToLocalTime() < dayEnd && e.EndAt.ToLocalTime() > dayStart).ToArray()
                         : events.Where(e => e.StartAt < dayEnd && e.EndAt > dayStart).ToArray();
-                    if (dayShifts.Length > 0 || dayEvents.Length > 0)
+                    if (dayEvents.Length > 0 || dayShifts.Length > 0)
                     {
-                        var col = dayShifts.Length > 0
-                            ? VenuePlus.Helpers.ColorUtil.HexToU32(CalendarMarkerHex)
-                            : VenuePlus.Helpers.ColorUtil.HexToU32(EventMarkerHex);
+                        uint col;
+                        if (dayEvents.Length > 0)
+                        {
+                            var isPast = dayStart.Date < todayDate;
+                            col = VenuePlus.Helpers.ColorUtil.HexToU32(isPast ? PastEventMarkerHex : UpcomingEventMarkerHex);
+                        }
+                        else
+                        {
+                            col = VenuePlus.Helpers.ColorUtil.HexToU32(CalendarMarkerHex);
+                        }
                         ImGui.TableSetBgColor(ImGuiTableBgTarget.CellBg, col);
                     }
                     var cellStart = ImGui.GetCursorPos();
@@ -1549,7 +1680,7 @@ public sealed class ShiftPlanComponent
                     if (ImGui.IsItemHovered())
                     {
                         ImGui.BeginTooltip();
-                        ImGui.TextUnformatted(dayStart.ToString("yyyy-MM-dd"));
+                        ImGui.TextUnformatted(TimeFormat.FormatDate(dayStart));
                         ImGui.TextUnformatted($"Shifts: {dayShifts.Length}");
                         ImGui.TextUnformatted($"Events: {dayEvents.Length}");
                         var maxItems = 3;
@@ -1561,13 +1692,24 @@ public sealed class ShiftPlanComponent
                         ImGui.EndTooltip();
                     }
                     var drawList = ImGui.GetWindowDrawList();
-                    var markerColor = sel
-                        ? VenuePlus.Helpers.ColorUtil.HexToU32(SelectedDayMarkerHex)
+                    var markerColor = dayStart.Date == todayDate
+                        ? VenuePlus.Helpers.ColorUtil.HexToU32(TodayMarkerHex)
                         : VenuePlus.Helpers.ColorUtil.HexToU32(DayMarkerHex);
                     drawList.AddRectFilled(
                         cellScreen,
                         new System.Numerics.Vector2(cellScreen.X + CalendarLeftMarkerWidth, cellScreen.Y + clickableSize.Y),
                         markerColor);
+                    if (sel)
+                    {
+                        var borderColor = VenuePlus.Helpers.ColorUtil.HexToU32(SelectedDayBorderHex);
+                        drawList.AddRect(
+                            cellScreen,
+                            new System.Numerics.Vector2(cellScreen.X + clickableSize.X, cellScreen.Y + clickableSize.Y),
+                            borderColor,
+                            0f,
+                            ImDrawFlags.None,
+                            SelectedDayBorderThickness);
+                    }
                     ImGui.SetCursorPos(new System.Numerics.Vector2(cellStart.X + CalendarLeftMarkerWidth + CalendarLeftMarkerPadding, cellStart.Y));
                     ImGui.TextUnformatted(lbl);
                     ImGui.SetCursorPos(new System.Numerics.Vector2(cellStart.X + CalendarDayNumberWidth, cellStart.Y));
@@ -1639,18 +1781,17 @@ public sealed class ShiftPlanComponent
         _pendingEventFocusEnd = endAt;
     }
 
-    private void ApplyPendingEventFocus(bool canEdit, bool useLocal)
+    private void ApplyPendingEventFocus(EventEntry[] entries, bool canEdit, bool useLocal)
     {
         if (!_pendingOpenShiftFormForEvent) return;
         _pendingOpenShiftFormForEvent = false;
         SetSelectedDayFromDateTimeOffset(_pendingEventFocusStart, useLocal);
-        _selEventId = null;
-        _selEventIdx = -1;
         if (canEdit)
         {
             OpenAddFormForUser(null, null, null);
             SyncAddFormDateFromSelection();
         }
+        TryResolvePendingEventSelection(entries);
     }
 
     private void SetSelectedDayFromDateTimeOffset(DateTimeOffset date, bool useLocal)
@@ -1714,12 +1855,10 @@ public sealed class ShiftPlanComponent
     private static string BuildEventComboLabel(EventEntry entry, bool useLocal)
     {
         var s = useLocal ? entry.StartAt.ToLocalTime() : entry.StartAt;
-        var e = useLocal ? entry.EndAt.ToLocalTime() : entry.EndAt;
         var title = entry.Title ?? string.Empty;
-        var date = s.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
-        var range = TimeFormat.FormatTime(s) + "-" + TimeFormat.FormatTime(e);
-        if (string.IsNullOrWhiteSpace(title)) return date + " " + range;
-        return date + " " + range + " " + title;
+        var date = TimeFormat.FormatDate(s);
+        if (string.IsNullOrWhiteSpace(title)) return date;
+        return title + " " + date;
     }
 
     private static DateTime? PickEventDay(List<DateTime> days, bool useLocal)
@@ -1901,6 +2040,15 @@ public sealed class ShiftPlanComponent
         var uname = ResolveUsernameByUid(e.AssignedUid);
         if (!string.IsNullOrWhiteSpace(uname) && uname.IndexOf(f, StringComparison.OrdinalIgnoreCase) >= 0) return true;
         return false;
+    }
+
+    private static int CompareShiftDefault(DateTimeOffset nowServer, ShiftEntry a, ShiftEntry b)
+    {
+        var aPast = a.EndAt <= nowServer;
+        var bPast = b.EndAt <= nowServer;
+        if (aPast != bPast) return aPast.CompareTo(bPast);
+        if (!aPast) return a.StartAt.CompareTo(b.StartAt);
+        return b.StartAt.CompareTo(a.StartAt);
     }
 
     private static string BuildShiftStatus(DateTimeOffset nowServer, ShiftEntry e)

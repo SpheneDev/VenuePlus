@@ -245,7 +245,7 @@ public sealed class DjListComponent
             if (showActions)
             {
                 ImGui.TableSetColumnIndex(3);
-                ImGui.TextUnformatted("Actions");
+                TableSortUi.DrawHeaderTextCentered("Actions");
             }
 
             foreach (var e in pageItems)

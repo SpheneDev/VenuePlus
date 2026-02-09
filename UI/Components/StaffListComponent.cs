@@ -696,7 +696,7 @@ public sealed class StaffListComponent
             if (showActions)
             {
                 ImGui.TableSetColumnIndex(2);
-                ImGui.TextUnformatted("Actions");
+                TableSortUi.DrawHeaderTextCentered("Actions");
             }
             int rowIndex = 0;
             foreach (var u in pageItems)

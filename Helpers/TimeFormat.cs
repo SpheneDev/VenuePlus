@@ -23,10 +23,19 @@ public static class TimeFormat
         return value.ToString(fmt, CultureInfo.CurrentCulture);
     }
 
+    public static string FormatDate(DateTimeOffset value)
+    {
+        return value.ToString("dd.MM.yyyy", CultureInfo.CurrentCulture);
+    }
+
+    public static string FormatDate(DateTime value)
+    {
+        return value.ToString("dd.MM.yyyy", CultureInfo.CurrentCulture);
+    }
+
     public static string FormatDateTime(DateTimeOffset value, bool includeSeconds = false)
     {
-        var date = value.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
-        return date + " " + FormatTime(value, includeSeconds);
+        return FormatDate(value) + " " + FormatTime(value, includeSeconds);
     }
 
     public static string FormatDateTimeUtc(DateTimeOffset value, bool includeSeconds = false)
