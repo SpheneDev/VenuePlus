@@ -324,10 +324,19 @@ public sealed class ShiftPlanComponent
         ImGui.PushID(id);
         ImGui.BeginGroup();
         var monthName = new DateTime(year, month, 1).ToString("MMMM yyyy");
+        var maxLabel = new DateTime(year, 9, 1).ToString("MMMM yyyy");
+        var startX = ImGui.GetCursorPosX();
         var btnPrev = ImGui.Button("<");
+        var prevWidth = ImGui.GetItemRectSize().X;
+        var labelBoxWidth = ImGui.CalcTextSize(maxLabel).X;
+        var labelWidth = ImGui.CalcTextSize(monthName).X;
+        var labelStartX = startX + prevWidth + style.ItemSpacing.X;
         ImGui.SameLine();
+        ImGui.SetCursorPosX(labelStartX + MathF.Max(0f, (labelBoxWidth - labelWidth) * 0.5f));
         ImGui.TextUnformatted(monthName);
+        var nextX = labelStartX + labelBoxWidth + style.ItemSpacing.X;
         ImGui.SameLine();
+        ImGui.SetCursorPosX(nextX);
         var btnNext = ImGui.Button(">");
         if (btnPrev)
         {
@@ -407,8 +416,11 @@ public sealed class ShiftPlanComponent
         var nowView = useLocal ? DateTime.Now : DateTime.UtcNow;
         EnsureCalendarState(nowView);
         var maxDay = DaysInMonth(_viewYear, _viewMonth);
+        var style = ImGui.GetStyle();
 
         var labelMonth = new DateTime(_viewYear, _viewMonth, 1).ToString("MMMM yyyy");
+        var maxLabel = new DateTime(_viewYear, 9, 1).ToString("MMMM yyyy");
+        var startX = ImGui.GetCursorPosX();
         if (ImGui.Button("<##cal_prev"))
         {
             _viewMonth -= 1;
@@ -417,15 +429,22 @@ public sealed class ShiftPlanComponent
             if (_viewYear == nowView.Year && _viewMonth == nowView.Month) _selectedDayMain = Math.Min(maxDay, nowView.Day);
             else _selectedDayMain = 0;
         }
+        var prevWidth = ImGui.GetItemRectSize().X;
         if (ImGui.IsItemHovered())
         {
             ImGui.BeginTooltip();
             ImGui.TextUnformatted("Previous month");
             ImGui.EndTooltip();
         }
+        var labelBoxWidth = ImGui.CalcTextSize(maxLabel).X;
+        var labelWidth = ImGui.CalcTextSize(labelMonth).X;
+        var labelStartX = startX + prevWidth + style.ItemSpacing.X;
         ImGui.SameLine();
+        ImGui.SetCursorPosX(labelStartX + MathF.Max(0f, (labelBoxWidth - labelWidth) * 0.5f));
         ImGui.TextUnformatted(labelMonth);
+        var nextX = labelStartX + labelBoxWidth + style.ItemSpacing.X;
         ImGui.SameLine();
+        ImGui.SetCursorPosX(nextX);
         if (ImGui.Button(">##cal_next"))
         {
             _viewMonth += 1;
