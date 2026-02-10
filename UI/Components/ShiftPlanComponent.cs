@@ -780,7 +780,6 @@ public sealed class ShiftPlanComponent
     private void DrawEventWindowContents(VenuePlusApp app, EventEntry[] eventEntries, bool useLocal, bool canEdit)
     {
         var all = app.GetShiftEntries().ToArray();
-        var nonDj = FilterNonDj(all);
         var totalHeight = ImGui.GetContentRegionAvail().Y;
         var eventPanelHeight = Math.Max(220f, totalHeight * 0.45f);
         ImGui.BeginChild("event_window_events_panel", new System.Numerics.Vector2(0f, eventPanelHeight), false);
@@ -895,7 +894,7 @@ public sealed class ShiftPlanComponent
         ImGui.Spacing();
         var shiftPanelHeight = Math.Max(260f, ImGui.GetContentRegionAvail().Y);
         ImGui.BeginChild("event_window_shift_panel", new System.Numerics.Vector2(0f, shiftPanelHeight), false);
-        DrawShiftDayPanel(app, nonDj, eventEntries, useLocal, canEdit);
+        DrawShiftDayPanel(app, all, eventEntries, useLocal, canEdit);
         ImGui.EndChild();
     }
 
