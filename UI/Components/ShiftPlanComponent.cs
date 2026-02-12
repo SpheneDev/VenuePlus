@@ -525,29 +525,9 @@ public sealed class ShiftPlanComponent
         var maxDay = DaysInMonth(_viewYear, _viewMonth);
         if (_selectedDayMain <= 0 || _selectedDayMain > maxDay) _selectedDayMain = Math.Min(maxDay, today.Day);
         var day = _selectedDayMain <= 0 ? 1 : _selectedDayMain;
-        var selectedDay = new DateTime(_viewYear, _viewMonth, day);
 
-        ImGui.TextUnformatted("Selected Day");
-        ImGui.SameLine();
-        ImGui.TextUnformatted(TimeFormat.FormatDate(selectedDay));
-        if (ImGui.IsItemHovered())
-        {
-            ImGui.BeginTooltip();
-            ImGui.TextUnformatted("Click a day in the calendar to change selection");
-            ImGui.EndTooltip();
-        }
-        ImGui.SameLine();
-        if (ImGui.Button("Go To Today"))
-        {
-            _viewYear = today.Year;
-            _viewMonth = today.Month;
-            _selectedDayMain = today.Day;
-            if (_openAddForm) SyncAddFormDateFromSelection();
-            selectedDay = new DateTime(_viewYear, _viewMonth, _selectedDayMain);
-        }
         if (canEdit)
         {
-            ImGui.SameLine();
             if (ImGui.Button("Assign Staff"))
             {
                 OpenAddFormForUser(null, null, null);
@@ -571,23 +551,10 @@ public sealed class ShiftPlanComponent
                 ImGui.TextUnformatted("Create a DJ shift for this day");
                 ImGui.EndTooltip();
             }
-            ImGui.SameLine();
-            if (ImGui.Button("Add Event"))
-            {
-                _eventWindowOpen = true;
-                OpenEventForm(selectedDay, useLocal);
-            }
-            if (ImGui.IsItemHovered())
-            {
-                ImGui.BeginTooltip();
-                ImGui.TextUnformatted("Create an event for this day");
-                ImGui.EndTooltip();
-            }
         }
 
         var dayStart = new DateTime(_viewYear, _viewMonth, day, 0, 0, 0, useLocal ? DateTimeKind.Local : DateTimeKind.Utc);
         var dayEnd = dayStart.AddDays(1);
-        var titleDay = TimeFormat.FormatDate(dayStart);
         var listDay = useLocal
             ? nonDj.Where(e => e.StartAt.ToLocalTime() < dayEnd && e.EndAt.ToLocalTime() > dayStart).ToArray()
             : nonDj.Where(e => e.StartAt < dayEnd && e.EndAt > dayStart).ToArray();
@@ -629,14 +596,14 @@ public sealed class ShiftPlanComponent
             listDay = filtered.ToArray();
         }
         ImGui.Separator();
-        ImGui.TextUnformatted($"Day Plan {titleDay}");
+        ImGui.TextUnformatted("Day Plan");
         if (ImGui.IsItemHovered())
         {
             ImGui.BeginTooltip();
             ImGui.TextUnformatted("Shifts scheduled for the selected day");
             ImGui.EndTooltip();
         }
-        ImGui.TextUnformatted($"Shifts: {listDay.Length} | Events: {dayEvents.Length}");
+        ImGui.TextUnformatted($"Shifts: {listDay.Length}");
         if (filterByEvent && !string.IsNullOrWhiteSpace(selectedEventTitle))
         {
             ImGui.TextUnformatted($"Event Filter: {selectedEventTitle}");
@@ -799,30 +766,73 @@ public sealed class ShiftPlanComponent
     private void DrawEventWindowContents(VenuePlusApp app, EventEntry[] eventEntries, bool useLocal, bool canEdit)
     {
         var all = app.GetShiftEntries().ToArray();
-        var totalHeight = ImGui.GetContentRegionAvail().Y;
-        var eventPanelHeight = Math.Max(220f, totalHeight * 0.45f);
-        ImGui.BeginChild("event_window_events_panel", new System.Numerics.Vector2(0f, eventPanelHeight), false);
-
         var today = useLocal ? DateTime.Now.Date : DateTime.UtcNow.Date;
         var maxDay = DaysInMonth(_viewYear, _viewMonth);
         if (_selectedDayMain <= 0 || _selectedDayMain > maxDay) _selectedDayMain = Math.Min(maxDay, today.Day);
         var day = _selectedDayMain <= 0 ? 1 : _selectedDayMain;
-
-        var dayStart = new DateTime(_viewYear, _viewMonth, day, 0, 0, 0, useLocal ? DateTimeKind.Local : DateTimeKind.Utc);
+        var selectedDay = new DateTime(_viewYear, _viewMonth, day);
+        var titleDay = TimeFormat.FormatDate(selectedDay);
+        ImGui.TextUnformatted("Selected Day");
+        ImGui.SameLine();
+        ImGui.TextUnformatted(titleDay);
+        if (ImGui.IsItemHovered())
+        {
+            ImGui.BeginTooltip();
+            ImGui.TextUnformatted("Click a day in the calendar to change selection");
+            ImGui.EndTooltip();
+        }
+        ImGui.SameLine();
+        var jumpToday = false;
+        if (ImGui.Button("Today"))
+        {
+            _viewYear = today.Year;
+            _viewMonth = today.Month;
+            _selectedDayMain = today.Day;
+            if (_openAddForm) SyncAddFormDateFromSelection();
+            jumpToday = true;
+        }
+        if (ImGui.IsItemHovered())
+        {
+            ImGui.BeginTooltip();
+            ImGui.TextUnformatted("Jump to today");
+            ImGui.EndTooltip();
+        }
+        if (canEdit)
+        {
+            ImGui.SameLine();
+            if (ImGui.Button("Add Event"))
+            {
+                _eventWindowOpen = true;
+                OpenEventForm(selectedDay, useLocal);
+            }
+            if (ImGui.IsItemHovered())
+            {
+                ImGui.BeginTooltip();
+                ImGui.TextUnformatted("Create an event for this day");
+                ImGui.EndTooltip();
+            }
+        }
+        if (jumpToday)
+        {
+            selectedDay = new DateTime(_viewYear, _viewMonth, _selectedDayMain);
+            titleDay = TimeFormat.FormatDate(selectedDay);
+        }
+        var dayStart = new DateTime(_viewYear, _viewMonth, selectedDay.Day, 0, 0, 0, useLocal ? DateTimeKind.Local : DateTimeKind.Utc);
         var dayEnd = dayStart.AddDays(1);
-        var titleDay = TimeFormat.FormatDate(dayStart);
+        var totalHeight = ImGui.GetContentRegionAvail().Y;
+        var eventPanelHeight = Math.Max(220f, totalHeight * 0.45f);
+        ImGui.BeginChild("event_window_events_panel", new System.Numerics.Vector2(0f, eventPanelHeight), false);
         var dayEvents = useLocal
             ? eventEntries.Where(e => e.StartAt.ToLocalTime() < dayEnd && e.EndAt.ToLocalTime() > dayStart).ToArray()
             : eventEntries.Where(e => e.StartAt < dayEnd && e.EndAt > dayStart).ToArray();
         Array.Sort(dayEvents, (a, b) => a.StartAt.CompareTo(b.StartAt));
-        ImGui.TextUnformatted($"Events {titleDay}");
+        ImGui.TextUnformatted("Events");
         if (ImGui.IsItemHovered())
         {
             ImGui.BeginTooltip();
             ImGui.TextUnformatted(canEdit ? "Select an event to link shifts in the form" : "Select an event to filter the shifts below");
             ImGui.EndTooltip();
         }
-        ImGui.TextUnformatted($"Events: {dayEvents.Length}");
         if (dayEvents.Length == 0) ImGui.TextUnformatted("No events for this day");
 
         var style = ImGui.GetStyle();
